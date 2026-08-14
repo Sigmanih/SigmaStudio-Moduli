@@ -21,11 +21,9 @@ import {
   loadUserCategories,
   saveUserCategories,
   DEFAULT_USER_CATEGORIES
-} from './services/musicRecommendation';
+} from '../services/musicRecommendation';
 
 const MusicContext = createContext(null);
-export const AudioContext = MusicContext;
-export const useAudio = () => useContext(MusicContext);
 
 export function MusicProvider({ children }) {
   const [customTracks, setCustomTracks] = useState(loadCustomTracks);
@@ -62,6 +60,34 @@ export function MusicProvider({ children }) {
   const ytIframeRef = useRef(null);
   const playTimerRef = useRef(null);
   const synthNodesRef = useRef(null);
+
+  const [isAudioInstalled, setIsAudioInstalled] = useState(() => {
+    try {
+      const saved = localStorage.getItem('sigma_modules_state');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (parsed.audio_studio !== undefined) return parsed.audio_studio === true;
+      }
+    } catch(e) {}
+    return true;
+  });
+
+  useEffect(() => {
+    const handleModulesUpdated = (e) => {
+      if (e.detail?.moduleId === 'audio_studio') {
+        const installed = e.detail.installed;
+        setIsAudioInstalled(installed);
+        if (!installed) {
+          if (audioRef.current) audioRef.current.pause();
+          stopProceduralSynth();
+          setIsPlaying(false);
+        }
+      }
+    };
+
+    window.addEventListener('sigma_modules_updated', handleModulesUpdated);
+    return () => window.removeEventListener('sigma_modules_updated', handleModulesUpdated);
+  }, []);
 
   // Initialize Singleton HTML5 Audio element
   // NOTE: Do NOT set audio.crossOrigin = 'anonymous' because it breaks standard live audio streams & 302 redirects (like Rai Radio)
@@ -648,14 +674,15 @@ export function MusicProvider({ children }) {
     playCategory,
     importLocalFiles,
     shuffleGenre,
-    toggleGenreFavorites
+    toggleGenreFavorites,
+    isAudioInstalled
   };
 
   return (
     <MusicContext.Provider value={value}>
       {children}
       {/* Background YouTube Audio/Video Player Iframe (Hidden / Persistent across all tabs) */}
-      {currentTrack?.engine === 'youtube' && currentTrack?.youtubeId && (
+      {isAudioInstalled && currentTrack?.engine === 'youtube' && currentTrack?.youtubeId && (
         <div style={{ position: 'fixed', bottom: '-200px', right: '-200px', width: '100px', height: '100px', opacity: 0.01, pointerEvents: 'none', zIndex: -1 }}>
           <iframe
             ref={ytIframeRef}
