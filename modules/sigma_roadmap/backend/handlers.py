@@ -35,5 +35,10 @@ def register_routes(app=None) -> None:
 
 
 def register_mcp(mcp_hub) -> None:
-    """Nessun server MCP dedicato."""
-    pass
+    """Registra Calendar MCP Server."""
+    try:
+        from .calendar_server import CalendarMCPServer
+        server = CalendarMCPServer()
+        mcp_hub.register_server(server)
+    except Exception as e:
+        log.warning(f'[sigma_roadmap] Avviso registrazione CalendarMCPServer: {e}')

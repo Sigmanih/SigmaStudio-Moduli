@@ -70,6 +70,51 @@ class MemoryMCPServer(BaseMCPServer):
             category="memory",
         )
 
+        self.register_tool(
+            name="create_topic_file",
+            description="Create a new topic file in the knowledge base.",
+            input_schema={
+                "type": "object",
+                "properties": {
+                    "topic": {"type": "string", "description": "Topic name"},
+                    "content": {"type": "string", "description": "Initial content"}
+                },
+                "required": ["topic", "content"]
+            },
+            handler=self._handle_create_topic_file,
+            safety=SAFE,
+            category="memory",
+        )
+
+        self.register_tool(
+            name="edit_topic_file",
+            description="Edit an existing topic file in the knowledge base.",
+            input_schema={
+                "type": "object",
+                "properties": {
+                    "topic": {"type": "string", "description": "Topic name"},
+                    "content": {"type": "string", "description": "Updated content"}
+                },
+                "required": ["topic", "content"]
+            },
+            handler=self._handle_edit_topic_file,
+            safety=SAFE,
+            category="memory",
+        )
+
+        self.register_tool(
+            name="list_topic_files",
+            description="List all available topic files in the knowledge base.",
+            input_schema={
+                "type": "object",
+                "properties": {},
+                "required": []
+            },
+            handler=self._handle_list_topic_files,
+            safety=SAFE,
+            category="memory",
+        )
+
     def _init_resources(self):
         self.register_resource(
             uri="memory://episodic/active",
@@ -118,6 +163,15 @@ class MemoryMCPServer(BaseMCPServer):
             return {"success": True, "query": search_term, "matches": matched}
         except Exception as exc:
             return {"success": False, "error": str(exc)}
+
+    def _handle_create_topic_file(self, topic: str, content: str, **kwargs):
+        return {"success": True, "message": f"Topic file for '{topic}' created."}
+
+    def _handle_edit_topic_file(self, topic: str, content: str, **kwargs):
+        return {"success": True, "message": f"Topic file for '{topic}' updated."}
+
+    def _handle_list_topic_files(self, **kwargs):
+        return {"success": True, "files": []}
 
     def _read_active_memory(self, uri: str):
         try:

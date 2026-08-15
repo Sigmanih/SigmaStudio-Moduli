@@ -14,7 +14,7 @@
   "repository": "https://github.com/Sigmanih/SigmaStudio-Moduli",
   "branch": "main",
   "path": "modules/sigma_roadmap",
-  "tags": ["Roadmap", "Kanban", "Calendar", "Audit Trail", "Task Management", "Milestones"],
+  "tags": ["Roadmap", "Kanban", "Calendar", "Audit Trail", "Task Management", "Milestones", "Calendar MCP", "Google Calendar / CalDAV"],
   "size": "~1 MB",
   "icon": "Calendar",
   "color": "#ffd700",
