@@ -1,0 +1,40 @@
+{
+  "id": "sigma_research_lab",
+  "name": "Pipelines Lab & Dynamic Swarm",
+  "version": "v1.0.0",
+  "category": "Orchestrazione Multi-Agente",
+  "tabType": "research_lab",
+  "sidebarLabel": "Pipelines Lab",
+  "sidebarIcon": "FlaskConical",
+  "sidebarBadge": "DAG",
+  "sidebarBadgeColor": "rgba(188,140,255,0.15)",
+  "sidebarCategory": "Studio Generativo & Agenti AI",
+  "description": "Pianificatore DAG di swarm multi-agente, decomposizione automatica di obiettivi scientifici, feedback loop iterativo e self-healing dei task.",
+  "author": "Sigma Core Team",
+  "repository": "https://github.com/Sigmanih/SigmaStudio-Moduli",
+  "branch": "main",
+  "path": "modules/sigma_research_lab",
+  "tags": ["Swarm DAG", "Multi-Agent", "Workflow Automation", "Pipeline Designer", "Self-Healing"],
+  "size": "~1.5 MB",
+  "icon": "FlaskConical",
+  "color": "#7c5bf0",
+  "frontend": {
+    "entrypoint": "frontend/index.jsx",
+    "styles": ["frontend/styles/research-lab.css"],
+    "install_to": "sigma_studio/src/modules/sigma_research_lab/"
+  },
+  "backend": {
+    "handlers_module": "core.modules.sigma_research_lab.backend.handlers",
+    "routes_prefix": "/api/research",
+    "install_to": "core/modules/sigma_research_lab/"
+  },
+  "requirements": "requirements.txt",
+  "kernel_modules_required": [],
+  "changelog": [
+    {
+      "version": "v1.0.0",
+      "date": "2026-08-15",
+      "notes": "Initial release — extracted Pipelines Lab and Swarm DAG orchestration from Sigma Studio kernel."
+    }
+  ]
+}
