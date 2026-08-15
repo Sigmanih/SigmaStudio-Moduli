@@ -1,0 +1,40 @@
+{
+  "id": "sigma_knowledge",
+  "name": "Argomenti, Memoria & Knowledge Graph",
+  "version": "v1.0.0",
+  "category": "Conoscenza & Memoria",
+  "tabType": "knowledge",
+  "sidebarLabel": "Argomenti & Memoria",
+  "sidebarIcon": "PieChart",
+  "sidebarBadge": "D3",
+  "sidebarBadgeColor": "rgba(0,210,255,0.15)",
+  "sidebarCategory": "Conoscenza & Calcolo",
+  "description": "Grafo relazionale interattivo D3.js, Universal Knowledge Nodes con supporto multi-formato, memoria episodica e RAG Memory MCP Server.",
+  "author": "Sigma Core Team",
+  "repository": "https://github.com/Sigmanih/SigmaStudio-Moduli",
+  "branch": "main",
+  "path": "modules/sigma_knowledge",
+  "tags": ["D3.js", "Knowledge Graph", "Universal Nodes", "Memory MCP", "Episodic Context", "RAG"],
+  "size": "~2 MB",
+  "icon": "PieChart",
+  "color": "#00d2ff",
+  "frontend": {
+    "entrypoint": "frontend/index.jsx",
+    "install_to": "sigma_studio/src/modules/sigma_knowledge/"
+  },
+  "backend": {
+    "handlers_module": "core.modules.sigma_knowledge.backend.handlers",
+    "mcp_server_module": "core.modules.sigma_knowledge.backend.memory_server",
+    "routes_prefix": "/api/nodes",
+    "install_to": "core/modules/sigma_knowledge/"
+  },
+  "requirements": "requirements.txt",
+  "kernel_modules_required": [],
+  "changelog": [
+    {
+      "version": "v1.0.0",
+      "date": "2026-08-15",
+      "notes": "Initial release — extracted Knowledge Graph, MappaArgomenti, KnowledgeNodeExplorer and Memory MCP Server from kernel."
+    }
+  ]
+}
