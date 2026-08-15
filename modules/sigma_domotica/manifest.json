@@ -1,0 +1,37 @@
+{
+  "id": "sigma_domotica",
+  "name": "Domotica & Home Assistant IoT",
+  "version": "v1.0.0",
+  "category": "Automazione Domotica",
+  "tabType": "domotica",
+  "description": "Bridge MCP nativo per Home Assistant. Controllo entità smart (luci, prese, clima, sensori, telecamere), automazioni, scene personalizzate e streaming camera in tempo reale tramite WebSocket.",
+  "author": "Sigma Core Team",
+  "repository": "https://github.com/Sigmanih/SigmaStudio-Moduli",
+  "branch": "main",
+  "path": "modules/sigma_domotica",
+  "tags": ["Home Assistant", "WebSocket", "IoT MCP", "Scene Smart", "Zigbee", "Z-Wave"],
+  "size": "8 MB",
+  "icon": "Home",
+  "color": "#a78bfa",
+  "frontend": {
+    "component": "DomoticaTab",
+    "entrypoint": "frontend/DomoticaTab.jsx",
+    "install_path": "sigma_studio/src/components/Workspace/DomoticaTab.jsx"
+  },
+  "backend": {
+    "handler": "homeassistant_server",
+    "module": "core.mcp.homeassistant_server",
+    "source": "backend/homeassistant_server.py",
+    "install_path": "core/mcp/homeassistant_server.py",
+    "routes": ["/api/ha/*", "/api/domotica/*"]
+  },
+  "kernel_modules_required": [],
+  "config_keys": ["HA_URL", "HA_TOKEN"],
+  "changelog": [
+    {
+      "version": "v1.0.0",
+      "date": "2026-08-14",
+      "notes": "Initial release — Home Assistant MCP bridge, entity control, scenes, camera streaming"
+    }
+  ]
+}
