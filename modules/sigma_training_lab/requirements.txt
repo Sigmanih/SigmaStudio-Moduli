@@ -1,0 +1,3 @@
+# sigma_training_lab — Python dependencies
+# Optional / acceleration packages for training
+# unsloth, torch, datasets, transformers, peft, trl

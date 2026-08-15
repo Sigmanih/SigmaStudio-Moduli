@@ -1,0 +1,40 @@
+{
+  "id": "sigma_training_lab",
+  "name": "Training Lab & SLM Forge",
+  "version": "v1.0.0",
+  "category": "Fine-Tuning & Valutazione",
+  "tabType": "training_lab",
+  "sidebarLabel": "Training Lab",
+  "sidebarIcon": "Brain",
+  "sidebarBadge": "QLoRA",
+  "sidebarBadgeColor": "rgba(210,153,34,0.15)",
+  "sidebarCategory": "Studio Generativo & Agenti AI",
+  "description": "Fine-tuning QLoRA Unsloth, Autopilota di iperparametri, Forgia SLM italiana, esportazione GGUF e 11 benchmark ufficiali (MMLU, GSM8K, HumanEval, ARC, BBH...).",
+  "author": "Sigma Core Team",
+  "repository": "https://github.com/Sigmanih/SigmaStudio-Moduli",
+  "branch": "main",
+  "path": "modules/sigma_training_lab",
+  "tags": ["Unsloth QLoRA", "GGUF Export", "Gradus FWE", "Benchmarks", "SLM Forge", "Autopilot"],
+  "size": "~3 MB (solo codice)",
+  "icon": "Brain",
+  "color": "#d29922",
+  "frontend": {
+    "entrypoint": "frontend/index.jsx",
+    "styles": ["frontend/styles/training-lab.css"],
+    "install_to": "sigma_studio/src/modules/sigma_training_lab/"
+  },
+  "backend": {
+    "handlers_module": "core.modules.sigma_training_lab.backend.handlers",
+    "routes_prefix": "/api/training",
+    "install_to": "core/modules/sigma_training_lab/"
+  },
+  "requirements": "requirements.txt",
+  "kernel_modules_required": [],
+  "changelog": [
+    {
+      "version": "v1.0.0",
+      "date": "2026-08-15",
+      "notes": "Initial release — extracted Training Lab, SLM Forge, Autopilot and Benchmarks from Sigma Studio kernel."
+    }
+  ]
+}
