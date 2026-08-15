@@ -1,0 +1,41 @@
+{
+  "id": "sigma_voice_studio",
+  "name": "Voice Studio & Neural Speech Lab",
+  "version": "v1.0.0",
+  "category": "Audio & Voce Neurale",
+  "tabType": "voice_studio",
+  "sidebarLabel": "Voice Studio",
+  "sidebarIcon": "Mic",
+  "sidebarBadge": "TTS",
+  "sidebarBadgeColor": "rgba(255,121,198,0.15)",
+  "sidebarCategory": "Studio Generativo & Agenti AI",
+  "description": "Laboratorio di sintesi vocale neurale: motore Kokoro 82M ultra-veloce, Coqui XTTS-v2 zero-shot voice cloning, personalizzazione tono/velocità, preset vocali e Voice MCP Server.",
+  "author": "Sigma Core Team",
+  "repository": "https://github.com/Sigmanih/SigmaStudio-Moduli",
+  "branch": "main",
+  "path": "modules/sigma_voice_studio",
+  "tags": ["Kokoro 82M", "XTTS-v2", "Neural TTS", "Voice Cloning", "Speech Synthesis", "Voice MCP"],
+  "size": "~3 MB (modelli scaricati al primo avvio)",
+  "icon": "Mic",
+  "color": "#ff79c6",
+  "frontend": {
+    "entrypoint": "frontend/index.jsx",
+    "styles": ["frontend/styles/voice-studio.css"],
+    "install_to": "sigma_studio/src/modules/sigma_voice_studio/"
+  },
+  "backend": {
+    "handlers_module": "core.modules.sigma_voice_studio.backend.handlers",
+    "mcp_server_module": "core.modules.sigma_voice_studio.backend.mcp_server",
+    "routes_prefix": "/api/tts",
+    "install_to": "core/modules/sigma_voice_studio/"
+  },
+  "requirements": "requirements.txt",
+  "kernel_modules_required": [],
+  "changelog": [
+    {
+      "version": "v1.0.0",
+      "date": "2026-08-15",
+      "notes": "Initial release — isolated Kokoro, XTTS-v2, Voice Studio playground, and Voice MCP server."
+    }
+  ]
+}
