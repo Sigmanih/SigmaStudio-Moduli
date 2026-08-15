@@ -1,0 +1,41 @@
+{
+  "id": "sigma_model_hub",
+  "name": "Model Hub & HF Downloader",
+  "version": "v1.0.0",
+  "category": "Modelli & Ingegneria AI",
+  "tabType": "model_hub",
+  "sidebarLabel": "Model Hub & HF",
+  "sidebarIcon": "DownloadCloud",
+  "sidebarBadge": "HF",
+  "sidebarBadgeColor": "rgba(255,184,108,0.15)",
+  "sidebarCategory": "Motore AI & Inferenza",
+  "description": "Ricerca, download streaming ad alta velocità e deployment immediato di modelli da Hugging Face (GGUF, Safetensors, MoE, Vision, Audio) direttamente in SigmaEngine con partizionamento automatico su GPU e RAM.",
+  "author": "Sigma Core Team",
+  "repository": "https://github.com/Sigmanih/SigmaStudio-Moduli",
+  "branch": "main",
+  "path": "modules/sigma_model_hub",
+  "tags": ["Hugging Face", "GGUF", "Safetensors", "SigmaEngine", "DeepSeek R1", "Llama 3.3", "Qwen 2.5", "MoE Sharding"],
+  "size": "~1 MB",
+  "icon": "DownloadCloud",
+  "color": "#ffb86c",
+  "frontend": {
+    "entrypoint": "frontend/index.jsx",
+    "styles": ["frontend/styles/model-hub.css"],
+    "install_to": "sigma_studio/src/modules/sigma_model_hub/"
+  },
+  "backend": {
+    "handlers_module": "core.modules.sigma_model_hub.backend.handlers",
+    "mcp_server_module": "core.modules.sigma_model_hub.backend.mcp_server",
+    "routes_prefix": "/api/models",
+    "install_to": "core/modules/sigma_model_hub/"
+  },
+  "requirements": "requirements.txt",
+  "kernel_modules_required": [],
+  "changelog": [
+    {
+      "version": "v1.0.0",
+      "date": "2026-08-15",
+      "notes": "Initial release — Hugging Face search, streaming downloader, local inventory and SigmaEngine deploy gateway."
+    }
+  ]
+}
