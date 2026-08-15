@@ -3,10 +3,11 @@ import {
   Zap, Activity, ShieldCheck, Play, Pause, X, GripVertical, Maximize2, RotateCcw,
   HardDrive, Cpu, Thermometer, Flame, Gauge, Sliders, BarChart2, AlertTriangle
 } from 'lucide-react';
-import RealtimeTelemetryChart from './HardwareLab/RealtimeTelemetryChart';
-import { useApp } from '../contexts/AppContext';
-import '../styles/hardware-lab.css';
-import '../styles/chat.css';
+import RealtimeTelemetryChart from './RealtimeTelemetryChart';
+import { useApp } from '../../contexts/AppContext';
+import './styles/hardware-lab.css';
+import '../../styles/chat.css';
+
 
 const MIN_WIDTH = 480;
 const MIN_HEIGHT = 380;
