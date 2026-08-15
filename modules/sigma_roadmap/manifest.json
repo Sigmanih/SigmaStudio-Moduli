@@ -1,0 +1,39 @@
+{
+  "id": "sigma_roadmap",
+  "name": "Pianificazione, Roadmap & Task Audit",
+  "version": "v1.0.0",
+  "category": "Pianificazione & Task",
+  "tabType": "roadmap",
+  "sidebarLabel": "Pianificazione & Audit",
+  "sidebarIcon": "Calendar",
+  "sidebarBadge": "ROADMAP",
+  "sidebarBadgeColor": "rgba(255,215,0,0.15)",
+  "sidebarCategory": "Laboratorio & Ricerca Core",
+  "description": "Sistema completo di pianificazione strategica: Calendario Attività, Kanban Task interattivo, Audit Trail cronologico e pannello flottante per monitoraggio delle milestone.",
+  "author": "Sigma Core Team",
+  "repository": "https://github.com/Sigmanih/SigmaStudio-Moduli",
+  "branch": "main",
+  "path": "modules/sigma_roadmap",
+  "tags": ["Roadmap", "Kanban", "Calendar", "Audit Trail", "Task Management", "Milestones"],
+  "size": "~1 MB",
+  "icon": "Calendar",
+  "color": "#ffd700",
+  "frontend": {
+    "entrypoint": "frontend/index.jsx",
+    "install_to": "sigma_studio/src/modules/sigma_roadmap/"
+  },
+  "backend": {
+    "handlers_module": "core.modules.sigma_roadmap.backend.handlers",
+    "routes_prefix": "/api/tasks",
+    "install_to": "core/modules/sigma_roadmap/"
+  },
+  "requirements": "requirements.txt",
+  "kernel_modules_required": [],
+  "changelog": [
+    {
+      "version": "v1.0.0",
+      "date": "2026-08-15",
+      "notes": "Initial release — extracted RoadmapView, Kanban, TaskFloatingPanel and Task API from Sigma Studio kernel."
+    }
+  ]
+}
