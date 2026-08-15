@@ -1,0 +1,17 @@
+# sigma_creative_lab — Python dependencies
+# Core image processing
+Pillow>=10.0.0
+aiohttp>=3.9.0
+
+# Background removal
+rembg>=2.0.50
+onnxruntime>=1.17.0
+
+# 3D mesh processing
+trimesh>=4.0.0
+
+# Hugging Face model search
+huggingface_hub>=0.20.0
+
+# Note: torch, diffusers, transformers are expected to be present in the kernel environment.
+# ComfyUI and Blender are optional external applications.
