@@ -1,0 +1,34 @@
+{
+  "id": "sigma_developer_lab",
+  "name": "Developer Lab & Docker Sandbox",
+  "version": "v1.0.0",
+  "category": "Sviluppo & Sandbox",
+  "tabType": "developer_lab",
+  "sidebarLabel": "Developer Lab",
+  "sidebarIcon": "Terminal",
+  "sidebarBadge": "DOCKER",
+  "sidebarBadgeColor": "rgba(0,210,255,0.15)",
+  "sidebarCategory": "Studio Generativo & Agenti AI",
+  "description": "IDE avanzato per programmatori con gestione container Docker isolati, esecuzione codice live con terminale output, installazione pacchetti pip/npm in container e runner test pytest.",
+  "author": "Sigma Core Team",
+  "repository": "https://github.com/Sigmanih/SigmaStudio-Moduli",
+  "branch": "main",
+  "path": "modules/sigma_developer_lab",
+  "tags": ["Docker", "Sandbox", "Pytest", "Python", "Node.js", "Terminal", "Developer MCP"],
+  "size": "~2 MB",
+  "icon": "Terminal",
+  "color": "#00d2ff",
+  "frontend": {
+    "entrypoint": "frontend/index.jsx",
+    "styles": ["frontend/styles/developer-lab.css"],
+    "install_to": "sigma_studio/src/modules/sigma_developer_lab/"
+  },
+  "backend": {
+    "handlers_module": "core.modules.sigma_developer_lab.backend.handlers",
+    "mcp_server_module": "core.modules.sigma_developer_lab.backend.developer_server",
+    "routes_prefix": "/api/developer",
+    "install_to": "core/modules/sigma_developer_lab/"
+  },
+  "requirements": "requirements.txt",
+  "kernel_modules_required": []
+}

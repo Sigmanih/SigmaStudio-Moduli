@@ -1,0 +1,34 @@
+{
+  "id": "sigma_email_client",
+  "name": "Email Hub & Client",
+  "version": "v1.0.0",
+  "category": "Comunicazione & Social",
+  "tabType": "email_client",
+  "sidebarLabel": "Email Hub",
+  "sidebarIcon": "Mail",
+  "sidebarBadge": "MAIL",
+  "sidebarBadgeColor": "rgba(255,180,84,0.15)",
+  "sidebarCategory": "Comunicazione & Social",
+  "description": "Client webmail integrato con lettura inbox, visualizzatore email HTML, compositore con supporto bozze agenti AI, configurazione sicura SMTP/IMAP ed Email MCP Server.",
+  "author": "Sigma Core Team",
+  "repository": "https://github.com/Sigmanih/SigmaStudio-Moduli",
+  "branch": "main",
+  "path": "modules/sigma_email_client",
+  "tags": ["Email", "IMAP", "SMTP", "Webmail", "Email MCP"],
+  "size": "~1 MB",
+  "icon": "Mail",
+  "color": "#ffb454",
+  "frontend": {
+    "entrypoint": "frontend/index.jsx",
+    "styles": ["frontend/styles/email-hub.css"],
+    "install_to": "sigma_studio/src/modules/sigma_email_client/"
+  },
+  "backend": {
+    "handlers_module": "core.modules.sigma_email_client.backend.handlers",
+    "mcp_server_module": "core.modules.sigma_email_client.backend.email_server",
+    "routes_prefix": "/api/email",
+    "install_to": "core/modules/sigma_email_client/"
+  },
+  "requirements": "requirements.txt",
+  "kernel_modules_required": []
+}

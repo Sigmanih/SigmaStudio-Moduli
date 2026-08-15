@@ -1,0 +1,34 @@
+{
+  "id": "sigma_network_lab",
+  "name": "Network Explorer & Web Research",
+  "version": "v1.0.0",
+  "category": "Rete & Ricerca",
+  "tabType": "network_lab",
+  "sidebarLabel": "Network Lab",
+  "sidebarIcon": "Globe",
+  "sidebarBadge": "NET",
+  "sidebarBadgeColor": "rgba(63,185,80,0.15)",
+  "sidebarCategory": "Infrastruttura & Sistema",
+  "description": "Console di ricerca web live, HTTP API request builder (stile Postman), diagnostica DNS, Ping e Network MCP Server per agenti AI.",
+  "author": "Sigma Core Team",
+  "repository": "https://github.com/Sigmanih/SigmaStudio-Moduli",
+  "branch": "main",
+  "path": "modules/sigma_network_lab",
+  "tags": ["Web Search", "HTTP Client", "DNS", "Ping", "Network MCP"],
+  "size": "~1 MB",
+  "icon": "Globe",
+  "color": "#3fb950",
+  "frontend": {
+    "entrypoint": "frontend/index.jsx",
+    "styles": ["frontend/styles/network-lab.css"],
+    "install_to": "sigma_studio/src/modules/sigma_network_lab/"
+  },
+  "backend": {
+    "handlers_module": "core.modules.sigma_network_lab.backend.handlers",
+    "mcp_server_module": "core.modules.sigma_network_lab.backend.network_server",
+    "routes_prefix": "/api/network",
+    "install_to": "core/modules/sigma_network_lab/"
+  },
+  "requirements": "requirements.txt",
+  "kernel_modules_required": []
+}
