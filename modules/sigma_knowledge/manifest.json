@@ -1,20 +1,20 @@
 {
   "id": "sigma_knowledge",
-  "name": "Argomenti, Memoria & Knowledge Graph",
-  "version": "v1.0.0",
+  "name": "Argomenti, Knowledge Graph & File Creation MCP",
+  "version": "v1.1.0",
   "category": "Conoscenza & Memoria",
   "tabType": "knowledge",
-  "sidebarLabel": "Argomenti & Memoria",
+  "sidebarLabel": "Argomenti & Conoscenza",
   "sidebarIcon": "PieChart",
   "sidebarBadge": "D3",
   "sidebarBadgeColor": "rgba(0,210,255,0.15)",
   "sidebarCategory": "Conoscenza & Calcolo",
-  "description": "Grafo relazionale interattivo D3.js, Universal Knowledge Nodes con supporto multi-formato, memoria episodica e RAG Memory MCP Server.",
+  "description": "Modulo completo per la gestione degli Argomenti e Knowledge Base: grafo relazionale interattivo D3.js, Universal Knowledge Nodes explorer, server MCP per creazione/modifica/estrazione file con validazione sintattica AST Python e backup automatico.",
   "author": "Sigma Core Team",
   "repository": "https://github.com/Sigmanih/SigmaStudio-Moduli",
   "branch": "main",
   "path": "modules/sigma_knowledge",
-  "tags": ["D3.js", "Knowledge Graph", "Universal Nodes", "Memory MCP", "Episodic Context", "RAG"],
+  "tags": ["D3.js", "Knowledge Graph", "File Creation MCP", "AST Validation", "Universal Nodes", "Topic Hierarchy", "RAG"],
   "size": "~2 MB",
   "icon": "PieChart",
   "color": "#00d2ff",
@@ -24,13 +24,18 @@
   },
   "backend": {
     "handlers_module": "core.modules.sigma_knowledge.backend.handlers",
-    "mcp_server_module": "core.modules.sigma_knowledge.backend.memory_server",
-    "routes_prefix": "/api/nodes",
+    "mcp_server_module": "core.modules.sigma_knowledge.backend.topic_server",
+    "routes_prefix": "/api/topics",
     "install_to": "core/modules/sigma_knowledge/"
   },
   "requirements": "requirements.txt",
   "kernel_modules_required": [],
   "changelog": [
+    {
+      "version": "v1.1.0",
+      "date": "2026-08-16",
+      "notes": "Added dedicated Topic & File Creation MCP Server with AST Python validation, backup integration, diff tracking and full topic hierarchy management."
+    },
     {
       "version": "v1.0.0",
       "date": "2026-08-15",

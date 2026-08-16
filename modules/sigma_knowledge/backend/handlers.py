@@ -9,18 +9,23 @@ log = get_logger(__name__)
 
 
 def register_routes(app=None) -> None:
-    """Registra tutte le route HTTP di Knowledge e Nodes su FastAPI / Handler Adapter."""
+    """Registra tutte le route HTTP di Argomenti, Files e Knowledge Nodes su FastAPI / Handler Adapter."""
     from .node_handler import handle_get_nodes, handle_create_node, handle_delete_node
-    from core.data_handler import handle_knowledge_db
+    from core.data_handler import handle_knowledge_db, handle_api_topics
+    from core.file_handler import handle_create_file, handle_get_file, handle_delete_file
 
     get_routes = {
         '/api/nodes': handle_get_nodes,
         '/api/knowledge_db': handle_knowledge_db,
+        '/api/topics': handle_api_topics,
+        '/api/get_file': handle_get_file,
     }
 
     post_routes = {
         '/api/nodes/create': handle_create_node,
         '/api/nodes/delete': handle_delete_node,
+        '/api/create_file': handle_create_file,
+        '/api/delete_file': handle_delete_file,
     }
 
     try:
@@ -31,16 +36,16 @@ def register_routes(app=None) -> None:
         for path, fn in post_routes.items():
             setattr(FastAPIHandlerAdapter, fn.__name__, fn)
             FastAPIHandlerAdapter._POST_HANDLERS[path] = fn.__name__
-        log.info('[sigma_knowledge] Route Knowledge e Nodes collegate a FastAPIHandlerAdapter.')
+        log.info('[sigma_knowledge] Route Argomenti, Files e Knowledge Nodes collegate a FastAPIHandlerAdapter.')
     except Exception as e:
         log.warning(f'[sigma_knowledge] Avviso binding FastAPIHandlerAdapter: {e}')
 
 
 def register_mcp(mcp_hub) -> None:
-    """Registra il server MCP di Memoria ed Episodic Context nell'hub MCP del kernel."""
+    """Registra il server MCP di Argomenti & File Management nell'hub MCP del kernel."""
     try:
-        from .memory_server import MemoryMCPServer
-        mcp_hub.register_server(MemoryMCPServer)
-        log.info('[sigma_knowledge] Memory MCP Server registrato con successo.')
+        from .topic_server import TopicMCPServer
+        mcp_hub.register_server(TopicMCPServer)
+        log.info('[sigma_knowledge] Topic & File Management MCP Server registrato con successo.')
     except Exception as e:
-        log.warning(f'[sigma_knowledge] Memory MCP Server non registrato: {e}')
+        log.warning(f'[sigma_knowledge] Topic MCP Server non registrato: {e}')
