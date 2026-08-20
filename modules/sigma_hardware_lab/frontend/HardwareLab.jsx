@@ -372,6 +372,7 @@ export default function HardwareLab({ addToast }) {
           { label: 'Temperatura', val: `${targetGpu.temp_c ? targetGpu.temp_c + '°C' : 'N/A'}`, color: targetGpu.temp_c > 75 ? '#ef4444' : '#10b981' },
           { label: 'Consumo Elettrico', val: `${targetGpu.power_draw_w ? targetGpu.power_draw_w + ' W' : 'N/A'}`, color: '#ffb86c' }
         ]
+      };
     }
 
     // Default safe fallback to CPU inspector when no dedicated/integrated GPUs exist (e.g. Raspberry Pi, CPU server)
