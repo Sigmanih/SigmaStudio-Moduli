@@ -15,7 +15,7 @@ import shutil
 import tempfile
 import unittest
 
-from core.training.answer_parser import (
+from core.modules.sigma_training_lab.training.answer_parser import (
     VERDICT_AMBIGUOUS, VERDICT_FAIL, VERDICT_PASS, VERDICT_UNPARSABLE,
     STATUS_AMBIGUOUS, STATUS_RESOLVED, STATUS_UNPARSABLE,
     extract_chosen_letter, extract_python_code, grade_answer, numeric_equal,
@@ -232,7 +232,7 @@ class TestStratifiedSampling(unittest.TestCase):
                 for s, n in self.SIZES.items()}
 
     def _sample(self, total):
-        from core.training.benchmarks import _stratified_sample
+        from core.modules.sigma_training_lab.training.benchmarks import _stratified_sample
         return _stratified_sample(self._suites(), total)
 
     def test_every_suite_appears_in_a_hundred_item_sample(self):
@@ -257,7 +257,7 @@ class TestStratifiedSampling(unittest.TestCase):
         self.assertEqual(first, second)
 
     def test_a_suite_smaller_than_the_floor_is_not_over_drawn(self):
-        from core.training.benchmarks import _stratified_sample
+        from core.modules.sigma_training_lab.training.benchmarks import _stratified_sample
         tiny = {"a": [{"id": f"a{i}"} for i in range(2)],
                 "b": [{"id": f"b{i}"} for i in range(500)]}
         picked = _stratified_sample(tiny, 50)
@@ -274,7 +274,7 @@ class TestMathPromptProtocol(unittest.TestCase):
     """
 
     def _payload(self, suite="gsm8k"):
-        from core.training.benchmarks import _prepare_benchmark_payload
+        from core.modules.sigma_training_lab.training.benchmarks import _prepare_benchmark_payload
         item = {"suite": suite, "prompt": "Two plus two?", "options": [],
                 "correct_choice": "4"}
         return _prepare_benchmark_payload(item, "modello-di-prova")
@@ -294,7 +294,7 @@ class TestMathPromptProtocol(unittest.TestCase):
     def test_the_protocol_is_recorded_for_reproducibility(self):
         """Due run con prompt diversi non sono confrontabili: il certificato
         deve dire quale protocollo ha usato."""
-        from core.training.benchmarks import PROMPT_PROTOCOL, GRADER_VERSION
+        from core.modules.sigma_training_lab.training.benchmarks import PROMPT_PROTOCOL, GRADER_VERSION
         self.assertGreaterEqual(PROMPT_PROTOCOL, 2)
         self.assertTrue(GRADER_VERSION.startswith("sigma.answer_parser/"))
 
@@ -349,7 +349,7 @@ class TestCodeExecution(unittest.TestCase):
     }
 
     def _run(self, output, item=None, **kwargs):
-        from core.training.code_exec import run_code_item
+        from core.modules.sigma_training_lab.training.code_exec import run_code_item
         return run_code_item(item or self.HUMANEVAL_ITEM, output, **kwargs)
 
     def test_correct_solution_passes(self):
@@ -393,7 +393,7 @@ class TestCodeExecution(unittest.TestCase):
 
 
 def grade_code_verdict(execution):
-    from core.training.answer_parser import grade_code_result
+    from core.modules.sigma_training_lab.training.answer_parser import grade_code_result
     return grade_code_result(execution)["verdict"]
 
 
@@ -401,7 +401,7 @@ class TestBenchmarkStore(unittest.TestCase):
     """Lo store per job: append, indice laterale, filtri e impaginazione."""
 
     def setUp(self):
-        from core.training import benchmark_store
+        from core.modules.sigma_training_lab.training import benchmark_store
         self.store = benchmark_store
         self._original_dir = benchmark_store.RUNS_DIR
         self.tmp = tempfile.mkdtemp(prefix="test_temp_bench_")
@@ -492,7 +492,7 @@ class TestMetricsAccounting(unittest.TestCase):
     """Le due accuratezze e la coda di revisione devono quadrare."""
 
     def test_review_items_excluded_from_decided_accuracy(self):
-        from core.training.benchmarks import _compute_metrics
+        from core.modules.sigma_training_lab.training.benchmarks import _compute_metrics
         counts = {"pass": 20, "fail": 30, "ambiguous": 10, "unparsable": 40}
         metrics = _compute_metrics(counts, total_done=100, planned_total=100,
                                    total_tokens=1000, total_duration=10.0, latency_sum_ms=50000)
@@ -503,7 +503,7 @@ class TestMetricsAccounting(unittest.TestCase):
         self.assertEqual(metrics["avg_latency_ms"], 500)
 
     def test_no_division_by_zero_on_an_empty_run(self):
-        from core.training.benchmarks import _compute_metrics
+        from core.modules.sigma_training_lab.training.benchmarks import _compute_metrics
         metrics = _compute_metrics({}, 0, 0, 0, 0.0, 0)
         self.assertEqual(metrics["overall_score"], 0)
         self.assertEqual(metrics["decided_accuracy_pct"], 0)
@@ -513,7 +513,7 @@ class TestParallelCapacity(unittest.TestCase):
     """Quante richieste in parallelo regge un modello: stima, misura, consiglio."""
 
     def setUp(self):
-        from core.training import capacity
+        from core.modules.sigma_training_lab.training import capacity
         self.capacity = capacity
         self._original_file = capacity.PROFILES_FILE
         self.tmp = tempfile.mkdtemp(prefix="test_temp_cap_")

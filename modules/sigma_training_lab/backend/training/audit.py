@@ -29,7 +29,7 @@ import re
 from collections import Counter
 
 from core.logger import get_logger
-from core.training.answer_parser import (
+from core.modules.sigma_training_lab.training.answer_parser import (
     REVIEW_VERDICTS, VERDICT_PASS, _all_boxed, grade_answer, normalize_numeric,
     normalize_text_answer, numeric_equal, option_letters,
 )

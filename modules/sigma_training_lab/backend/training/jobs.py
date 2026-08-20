@@ -31,8 +31,8 @@ import shutil
 from pathlib import Path
 
 from core.logger import get_logger
-from core.training import gpu as gpu_layer
-from core.training.datasets import HF_DATASET_CONFIGS, LEGACY_HF_DATASETS
+from core.modules.sigma_training_lab.training import gpu as gpu_layer
+from core.modules.sigma_training_lab.training.datasets import HF_DATASET_CONFIGS, LEGACY_HF_DATASETS
 
 log = get_logger(__name__)
 
@@ -183,7 +183,7 @@ def resolve_dataset(dataset_id: str) -> dict:
     if not dataset_id:
         return empty
 
-    from core.training.datasets import list_imported_datasets, resolve_hf_dataset_id
+    from core.modules.sigma_training_lab.training.datasets import list_imported_datasets, resolve_hf_dataset_id
     try:
         metas = list_imported_datasets().get("datasets", [])
     except Exception:
@@ -1795,7 +1795,7 @@ sigma("FATTO")
 sys.path.insert(0, r"{base_dir}")
 
 try:
-    from core.training.forge_train import run_forge, run_finetune, run_exports
+    from core.modules.sigma_training_lab.training.forge_train import run_forge, run_finetune, run_exports
     from core.logger import get_logger
 except ImportError as e:
     sigma("ERRORE: pipeline Forge non disponibile: %s" % e)
@@ -1987,7 +1987,7 @@ def _forge_config(hyper: dict) -> dict:
     il tokenizer deve venire dall'insegnante, perché i logit sono confrontabili
     solo sullo stesso vocabolario.
     """
-    from core.training.forge import ARCHITECTURES, TEACHER_MODELS, FEATURED_IT_DATASETS
+    from core.modules.sigma_training_lab.training.forge import ARCHITECTURES, TEACHER_MODELS, FEATURED_IT_DATASETS
 
     arch_id = hyper.get("forge_architecture", "micro")
     architecture = next((a for a in ARCHITECTURES if a["id"] == arch_id), ARCHITECTURES[1])
@@ -2065,7 +2065,7 @@ def _build_script_values(data: dict, job_id: str, job_dir: Path) -> dict:
     # una copia locale completa e si addestra da li'. Per i repo a posto —
     # cioe' quasi tutti — questa riga non fa niente e non costa niente.
     try:
-        from core.training.model_catalog import prepare_trainable_weights
+        from core.modules.sigma_training_lab.training.model_catalog import prepare_trainable_weights
         model_base = prepare_trainable_weights(model_base) or model_base
     except Exception as exc:
         log.warning("preparazione dei pesi di %s non riuscita: %s", model_base, exc)
@@ -2365,7 +2365,7 @@ def get_job_metrics(job_id: str) -> dict:
     job = _load_jobs().get(job_id)
     if job is None:
         return {"success": False, "error": f"Job '{job_id}' non trovato."}
-    from core.training.metrics import job_metrics
+    from core.modules.sigma_training_lab.training.metrics import job_metrics
     return job_metrics(job)
 
 
@@ -3659,7 +3659,7 @@ def register_ollama_model(source: Path, model_name: str, system_prompt: str | No
     modo di un modello che abbiamo addestrato noi.
     """
     if system_prompt is None:
-        from core.training.identity import default_system_prompt
+        from core.modules.sigma_training_lab.training.identity import default_system_prompt
         system_prompt = default_system_prompt()
     quantization = (quantization or "").strip()
     if quantization and quantization not in OLLAMA_QUANT_LEVELS:
@@ -3795,7 +3795,7 @@ def export_to_ollama(job_id: str, model_name: str = "custom_model",
     # `None` significa "non specificato" e prende l'identita' di Sigma; una
     # stringa vuota significa "nessun system prompt", ed e' una scelta diversa.
     if system_prompt is None:
-        from core.training.identity import default_system_prompt
+        from core.modules.sigma_training_lab.training.identity import default_system_prompt
         system_prompt = default_system_prompt()
     quantization = (quantization or "").strip()
     if quantization and quantization not in OLLAMA_QUANT_LEVELS:

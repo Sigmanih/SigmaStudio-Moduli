@@ -189,14 +189,14 @@ class BenchmarkMCPServer(BaseMCPServer):
 
     def _handle_list_suites(self, **kwargs):
         try:
-            from core.training.benchmarks import get_suite_info
+            from core.modules.sigma_training_lab.training.benchmarks import get_suite_info
             return {"success": True, "suites": get_suite_info("all")}
         except Exception as exc:
             return {"success": False, "error": str(exc)}
 
     def _handle_download_suite(self, suite: str = "all", **kwargs):
         try:
-            from core.training.benchmarks import download_suite
+            from core.modules.sigma_training_lab.training.benchmarks import download_suite
             return download_suite(suite or "all")
         except Exception as exc:
             return {"success": False, "error": str(exc)}
@@ -206,7 +206,7 @@ class BenchmarkMCPServer(BaseMCPServer):
         if not model:
             return {"success": False, "error": "Parametro 'model' obbligatorio"}
         try:
-            from core.training.benchmarks import start_benchmark_run
+            from core.modules.sigma_training_lab.training.benchmarks import start_benchmark_run
             job = start_benchmark_run(
                 model_name=model,
                 suite_id=suite or "all",
@@ -226,7 +226,7 @@ class BenchmarkMCPServer(BaseMCPServer):
         if not model:
             return {"success": False, "error": "Parametro 'model' obbligatorio"}
         try:
-            from core.training.capacity import (
+            from core.modules.sigma_training_lab.training.capacity import (
                 DEFAULT_LEVELS, probe_parallel_capacity, start_capacity_probe,
             )
             steps = [int(n) for n in (levels or DEFAULT_LEVELS)]
@@ -261,7 +261,7 @@ class BenchmarkMCPServer(BaseMCPServer):
         if not model:
             return {"success": False, "error": "Parametro 'model' obbligatorio"}
         try:
-            from core.training.capacity import estimate_capacity, get_profile
+            from core.modules.sigma_training_lab.training.capacity import estimate_capacity, get_profile
             return {"success": True, "model": model,
                     "estimate": estimate_capacity(model), "profile": get_profile(model)}
         except Exception as exc:
@@ -269,7 +269,7 @@ class BenchmarkMCPServer(BaseMCPServer):
 
     def _handle_get_status(self, job_id: str = "", **kwargs):
         try:
-            from core.training.benchmarks import list_benchmark_jobs
+            from core.modules.sigma_training_lab.training.benchmarks import list_benchmark_jobs
             jobs = list_benchmark_jobs()
             if not jobs:
                 return {"success": True, "job": None, "message": "Nessun run registrato"}
@@ -293,7 +293,7 @@ class BenchmarkMCPServer(BaseMCPServer):
         if not job_id:
             return {"success": False, "error": "Parametro 'job_id' obbligatorio"}
         try:
-            from core.training.benchmarks import get_review_queue
+            from core.modules.sigma_training_lab.training.benchmarks import get_review_queue
             result = get_review_queue(job_id)
             if not result.get("success"):
                 return result
@@ -326,7 +326,7 @@ class BenchmarkMCPServer(BaseMCPServer):
     def _handle_grade_answer(self, model_output: str = "", correct_choice: str = "",
                              suite: str = "mmlu", options=None, **kwargs):
         try:
-            from core.training.answer_parser import grade_answer
+            from core.modules.sigma_training_lab.training.answer_parser import grade_answer
             item = {
                 "suite": suite or "mmlu",
                 "options": list(options or []),
@@ -342,14 +342,14 @@ class BenchmarkMCPServer(BaseMCPServer):
 
     def _read_suites(self, uri: str):
         try:
-            from core.training.benchmarks import get_suite_info
+            from core.modules.sigma_training_lab.training.benchmarks import get_suite_info
             return get_suite_info("all")
         except Exception as exc:
             return {"suites": {}, "error": str(exc)}
 
     def _read_jobs(self, uri: str):
         try:
-            from core.training.benchmarks import list_benchmark_jobs
+            from core.modules.sigma_training_lab.training.benchmarks import list_benchmark_jobs
             return {"jobs": list_benchmark_jobs()}
         except Exception as exc:
             return {"jobs": [], "error": str(exc)}

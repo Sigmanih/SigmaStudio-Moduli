@@ -1,0 +1,50 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+
+# Python cache & compiled bytecode
+__pycache__/
+*.py[cod]
+*.class
+*.so
+.Python
+
+# Environment / Secrets / Credentials
+.env
+.env.local
+.env.*
+*.env
+*.key
+*.pem
+*.secret
+*.token
+credentials.json
+client_secret*.json
+
+# IDE & AI Assistants
+.vscode/
+.idea/
+.claude/
+.gemini/
+.cursor/
+.windsurf/
+*.swp
+*.swo
+*~
+
+# Test & Coverage
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Logs & Temp files
+*.log
+*.tmp
+*.pid
+build_log.txt
+
+# OS files
+.DS_Store
+Thumbs.db

@@ -418,7 +418,7 @@ class TestTransformersCompat:
 
     def test_legacy_dataset_ids_are_namespaced(self):
         """HuggingFace ha ritirato gli id canonici senza namespace ('wikitext')."""
-        from core.training.datasets import resolve_hf_dataset_id
+        from core.modules.sigma_training_lab.training.datasets import resolve_hf_dataset_id
 
         assert resolve_hf_dataset_id("wikitext") == "Salesforce/wikitext"
         assert resolve_hf_dataset_id("imdb") == "stanfordnlp/imdb"

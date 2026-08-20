@@ -10,7 +10,7 @@ which matters for a dual-licensed project.
 
 import importlib.util
 
-from core.tts.base import TTSEngine
+from core.modules.sigma_voice_studio.tts.base import TTSEngine
 
 # lang_code 'i' selects the Italian frontend inside Kokoro's phonemiser.
 KOKORO_LANG = "i"

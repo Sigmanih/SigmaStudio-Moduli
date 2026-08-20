@@ -53,7 +53,7 @@ class CreativeMCPServer(BaseMCPServer):
     def _cs(self):
         # Import differito: il modulo apre il DB degli asset, non deve farlo
         # all'avvio dell'hub se nessuno usa gli strumenti creativi.
-        import core.creative.creative_router as router
+        import core.modules.sigma_creative_lab.creative_router as router
         return router
 
     @staticmethod
@@ -440,7 +440,7 @@ class CreativeMCPServer(BaseMCPServer):
     def _handle_capabilities(self):
         try:
             cs = self._cs
-            from core.creative.model_registry import available_vram_gb, catalog
+            from core.modules.sigma_creative_lab.model_registry import available_vram_gb, catalog
             backends = _run(cs.model_router.available_backend_names())
             ollama = _run(cs.model_router.ollama_models())
             models = catalog(backends, ollama)

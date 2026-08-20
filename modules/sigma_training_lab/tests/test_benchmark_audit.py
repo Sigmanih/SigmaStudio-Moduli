@@ -15,7 +15,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from core.training.audit import (
+from core.modules.sigma_training_lab.training.audit import (
     BLOCKING_FINDINGS, FINDING_FALSE_NEGATIVE, FINDING_FALSE_POSITIVE,
     FINDING_REASONED_THEN_LOST, FINDING_UNDECLARED_PASS,
     audit_result, audit_run, final_declaration,

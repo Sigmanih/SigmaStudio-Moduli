@@ -21,7 +21,7 @@ import pytest
 
 import core.training_handler as th
 
-from core.training_handler import (
+from core.modules.sigma_training_lab.training_handler import  (
     # Dataset
     get_featured_datasets, search_hf_datasets, get_hf_dataset_info,
     import_local_dataset, register_hf_dataset, list_datasets, delete_dataset,
@@ -1018,14 +1018,14 @@ class TestFormatoChatEreditato:
     ])
 
     def _con_uscita(self, monkeypatch, testo, returncode=0):
-        from core.training import jobs
+        from core.modules.sigma_training_lab.training import jobs
 
         monkeypatch.setattr(jobs.shutil, "which", lambda n: "/usr/bin/ollama")
         monkeypatch.setattr(jobs, "_get_subprocess_run", lambda: (
             lambda *a, **k: type("R", (), {"returncode": returncode, "stdout": testo})()))
 
     def test_il_template_e_gli_stop_vengono_copiati(self, monkeypatch):
-        from core.training.jobs import formato_chat_di
+        from core.modules.sigma_training_lab.training.jobs import formato_chat_di
 
         self._con_uscita(monkeypatch, self.MODELFILE)
         out = formato_chat_di("qwen2.5:0.5b-instruct")
@@ -1036,25 +1036,25 @@ class TestFormatoChatEreditato:
 
     def test_un_template_banale_non_si_copia(self, monkeypatch):
         """`{{ .Prompt }}` e' proprio il predefinito da cui stiamo scappando."""
-        from core.training.jobs import formato_chat_di
+        from core.modules.sigma_training_lab.training.jobs import formato_chat_di
 
         self._con_uscita(monkeypatch, "FROM /x\nTEMPLATE {{ .Prompt }}\n")
         assert formato_chat_di("un-base") == ""
 
     def test_un_modello_inesistente_non_rompe_l_export(self, monkeypatch):
-        from core.training.jobs import formato_chat_di
+        from core.modules.sigma_training_lab.training.jobs import formato_chat_di
 
         self._con_uscita(monkeypatch, "", returncode=1)
         assert formato_chat_di("mai-visto") == ""
 
     def test_senza_ollama_si_prosegue(self, monkeypatch):
-        from core.training import jobs
+        from core.modules.sigma_training_lab.training import jobs
 
         monkeypatch.setattr(jobs.shutil, "which", lambda n: None)
         assert jobs.formato_chat_di("qualcosa") == ""
 
     def test_il_modelfile_generato_lo_contiene(self, monkeypatch, tmp_path):
-        from core.training import jobs
+        from core.modules.sigma_training_lab.training import jobs
 
         self._con_uscita(monkeypatch, self.MODELFILE)
         pesi = tmp_path / "pesi"
@@ -1080,7 +1080,7 @@ class TestConvertitoreGguf:
     """
 
     def _prepara(self, monkeypatch, tmp_path, con_llamacpp=True):
-        from core.training import jobs
+        from core.modules.sigma_training_lab.training import jobs
 
         pesi = tmp_path / "merged"
         pesi.mkdir()
@@ -1104,7 +1104,7 @@ class TestConvertitoreGguf:
         return pesi, gguf, convertiti
 
     def test_una_cartella_di_pesi_passa_da_llamacpp(self, monkeypatch, tmp_path):
-        from core.training import jobs
+        from core.modules.sigma_training_lab.training import jobs
 
         pesi, gguf, convertiti = self._prepara(monkeypatch, tmp_path)
         esito = jobs.register_ollama_model(pesi, "sigma-prova", system_prompt="",
@@ -1115,7 +1115,7 @@ class TestConvertitoreGguf:
 
     def test_senza_llamacpp_si_lascia_fare_a_ollama(self, monkeypatch, tmp_path):
         """Meglio il convertitore imperfetto che nessun export."""
-        from core.training import jobs
+        from core.modules.sigma_training_lab.training import jobs
 
         pesi, _, convertiti = self._prepara(monkeypatch, tmp_path, con_llamacpp=False)
         esito = jobs.register_ollama_model(pesi, "sigma-prova", system_prompt="",
@@ -1124,7 +1124,7 @@ class TestConvertitoreGguf:
         assert str(pesi).replace("\\", "/") in (tmp_path / "Modelfile").read_text(encoding="utf-8")
 
     def test_un_gguf_gia_pronto_non_si_riconverte(self, monkeypatch, tmp_path):
-        from core.training import jobs
+        from core.modules.sigma_training_lab.training import jobs
 
         _, gguf, convertiti = self._prepara(monkeypatch, tmp_path)
         gguf.write_bytes(b"gguf")
@@ -1133,7 +1133,7 @@ class TestConvertitoreGguf:
 
     def test_un_adapter_non_si_converte(self, monkeypatch, tmp_path):
         """Un adapter va montato sopra la base, non trasformato in un modello."""
-        from core.training import jobs
+        from core.modules.sigma_training_lab.training import jobs
 
         pesi, _, convertiti = self._prepara(monkeypatch, tmp_path)
         jobs.register_ollama_model(pesi, "sigma-prova", system_prompt="",

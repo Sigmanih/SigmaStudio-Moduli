@@ -26,7 +26,7 @@ import urllib.request
 from pathlib import Path
 
 from core.logger import get_logger
-from core.training import gpu as gpu_layer
+from core.modules.sigma_training_lab.training import gpu as gpu_layer
 
 log = get_logger(__name__)
 

@@ -1,6 +1,5 @@
 import MessagingHub from './MessagingHub';
 
-export default {
-    id: 'messaging_hub',
-    component: MessagingHub,
-};
+export { default } from './MessagingHub';
+export { MessagingHub };
+

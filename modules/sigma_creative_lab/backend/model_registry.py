@@ -414,7 +414,7 @@ def _comfy_can_load(model: ModelSpec) -> bool:
 
     # I workflow forniti dall'utente referenziano i propri file al loro interno:
     # non tocca a noi indovinare quali pesi caricano.
-    from core.creative.workflow_registry import registry
+    from core.modules.sigma_creative_lab.workflow_registry import registry
     entry = registry.get(model.workflow)
     if entry is not None and entry.source == "user":
         # I workflow dell'utente referenziano i propri file: non tocca a noi
@@ -435,7 +435,7 @@ def _comfy_workflow_missing(model: ModelSpec) -> bool:
     if not model.workflow:
         return False
     try:
-        from core.creative.workflow_registry import registry
+        from core.modules.sigma_creative_lab.workflow_registry import registry
     except Exception:
         return False
     # Il registro è l'unica fonte di verità su quali workflow esistono davvero.

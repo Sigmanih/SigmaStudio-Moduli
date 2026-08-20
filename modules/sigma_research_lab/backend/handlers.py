@@ -45,10 +45,12 @@ def register_routes(app=None) -> None:
         from core.fastapi_app import FastAPIHandlerAdapter
         for path, fn in get_routes.items():
             setattr(FastAPIHandlerAdapter, fn.__name__, fn)
-            FastAPIHandlerAdapter._GET_HANDLERS[path] = fn.__name__
+            if hasattr(FastAPIHandlerAdapter, '_GET_HANDLERS') and isinstance(FastAPIHandlerAdapter._GET_HANDLERS, dict):
+                FastAPIHandlerAdapter._GET_HANDLERS[path] = fn.__name__
         for path, fn in post_routes.items():
             setattr(FastAPIHandlerAdapter, fn.__name__, fn)
-            FastAPIHandlerAdapter._POST_HANDLERS[path] = fn.__name__
+            if hasattr(FastAPIHandlerAdapter, '_POST_HANDLERS') and isinstance(FastAPIHandlerAdapter._POST_HANDLERS, dict):
+                FastAPIHandlerAdapter._POST_HANDLERS[path] = fn.__name__
         log.info('[sigma_research_lab] 13 route HTTP collegate a FastAPIHandlerAdapter.')
     except Exception as e:
         log.warning(f'[sigma_research_lab] Avviso binding FastAPIHandlerAdapter: {e}')

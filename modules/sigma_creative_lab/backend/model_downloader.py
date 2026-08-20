@@ -199,7 +199,7 @@ def target_path(root: str, asset: DownloadableAsset) -> Path:
 
 def installed_by_category(root: str) -> dict:
     """File di pesi presenti, raggruppati per cartella di ComfyUI."""
-    from core.creative.model_hub import CATEGORIES
+    from core.modules.sigma_creative_lab.model_hub import CATEGORIES
 
     out = {}
     for category in CATEGORIES:
@@ -229,7 +229,7 @@ def custom_asset(spec: dict) -> DownloadableAsset:
     Cartella e nome file sono validati: arrivano da una API esterna e finirebbero
     altrimenti in un percorso arbitrario del disco.
     """
-    from core.creative.model_hub import ALLOWED_FOLDERS
+    from core.modules.sigma_creative_lab.model_hub import ALLOWED_FOLDERS
 
     folder = str(spec.get("folder", "")).strip().strip("/\\")
     if folder not in ALLOWED_FOLDERS:

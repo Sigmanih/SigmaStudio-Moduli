@@ -743,7 +743,7 @@ def run_finetune(config: dict, model_dir, logger=None) -> dict:
 
 def run_exports(model_dir, out_dir, formats, model_name, logger=None) -> dict:
     """Produce i formati richiesti a partire dal modello addestrato."""
-    from core.training.gguf_export import export_gguf
+    from core.modules.sigma_training_lab.training.gguf_export import export_gguf
 
     model_dir, out_dir = Path(model_dir), Path(out_dir)
     results = {"safetensors": {"success": True, "path": str(model_dir)}}

@@ -24,10 +24,12 @@ def register_routes(app=None) -> None:
         FastAPIHandlerAdapter.handle_api_tasks_by_agent = handle_api_tasks_by_agent
         FastAPIHandlerAdapter.handle_api_tasks_assign = handle_api_tasks_assign
 
-        FastAPIHandlerAdapter._GET_HANDLERS['/api/tasks'] = 'handle_api_tasks_get'
-        FastAPIHandlerAdapter._GET_HANDLERS['/api/tasks/by_agent'] = 'handle_api_tasks_by_agent'
-        FastAPIHandlerAdapter._POST_HANDLERS['/api/tasks'] = 'handle_api_tasks_post'
-        FastAPIHandlerAdapter._POST_HANDLERS['/api/tasks/assign'] = 'handle_api_tasks_assign'
+        if hasattr(FastAPIHandlerAdapter, '_GET_HANDLERS') and isinstance(FastAPIHandlerAdapter._GET_HANDLERS, dict):
+            FastAPIHandlerAdapter._GET_HANDLERS['/api/tasks'] = 'handle_api_tasks_get'
+            FastAPIHandlerAdapter._GET_HANDLERS['/api/tasks/by_agent'] = 'handle_api_tasks_by_agent'
+        if hasattr(FastAPIHandlerAdapter, '_POST_HANDLERS') and isinstance(FastAPIHandlerAdapter._POST_HANDLERS, dict):
+            FastAPIHandlerAdapter._POST_HANDLERS['/api/tasks'] = 'handle_api_tasks_post'
+            FastAPIHandlerAdapter._POST_HANDLERS['/api/tasks/assign'] = 'handle_api_tasks_assign'
 
         log.info('[sigma_roadmap] Route /api/tasks collegate a FastAPIHandlerAdapter.')
     except Exception as e:

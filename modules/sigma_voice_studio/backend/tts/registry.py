@@ -9,8 +9,8 @@ engine is installed.
 """
 
 from core.logger import get_logger
-from core.tts.kokoro_engine import KokoroEngine
-from core.tts.xtts_engine import XttsEngine
+from core.modules.sigma_voice_studio.tts.kokoro_engine import KokoroEngine
+from core.modules.sigma_voice_studio.tts.xtts_engine import XttsEngine
 
 log = get_logger(__name__)
 

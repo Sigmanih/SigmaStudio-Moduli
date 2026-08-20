@@ -38,8 +38,8 @@ import uuid
 import requests
 
 from core.logger import get_logger
-from core.training import benchmark_store as store
-from core.training.answer_parser import (
+from core.modules.sigma_training_lab.training import benchmark_store as store
+from core.modules.sigma_training_lab.training.answer_parser import (
     REVIEW_VERDICTS, VERDICT_AMBIGUOUS, VERDICT_ERROR, VERDICT_FAIL,
     VERDICT_PASS, VERDICT_UNPARSABLE,
     extract_chosen_letter, grade_answer, grade_code_result,
@@ -801,7 +801,7 @@ def _request_timeout(suite: str) -> int:
 def _grade(item: dict, output_text: str) -> dict:
     """Verdetto di un quesito, con esecuzione dei test per le suite di codice."""
     if (item.get("suite") or "").lower() in CODE_SUITES:
-        from core.training.code_exec import run_code_item
+        from core.modules.sigma_training_lab.training.code_exec import run_code_item
         return grade_code_result(run_code_item(item, output_text))
     return grade_answer(item, output_text)
 
@@ -855,7 +855,7 @@ def start_benchmark_run(model_name: str, suite_id: str = "all", num_samples: int
     contemporanee lo decide `core.training.capacity`, dall'ultima misura del
     modello o, se manca, dalla stima sulla VRAM libera.
     """
-    from core.training.capacity import resolve_concurrency
+    from core.modules.sigma_training_lab.training.capacity import resolve_concurrency
 
     job_id = f"bm_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:4]}"
     now = datetime.datetime.now().isoformat()
@@ -905,7 +905,7 @@ def _worker_run_official_benchmark(job_id: str, model_name: str, suite_id: str,
     """Esegue i quesiti su un pool di worker, versando gli esiti nello store."""
     import concurrent.futures
 
-    from core.training.endpoints import EndpointPool
+    from core.modules.sigma_training_lab.training.endpoints import EndpointPool
 
     # Con piu' servitori Ollama (uno per GPU) le richieste si alternano fra loro:
     # e' cio' che mette al lavoro tutte le schede invece della sola prima.
@@ -1200,7 +1200,7 @@ def audit_benchmark_job(job_id: str) -> dict:
     Un punteggio si legge solo dopo questo: dice quanti verdetti sono stati
     dati per il motivo giusto, e mostra quelli che non lo sono.
     """
-    from core.training.audit import audit_run
+    from core.modules.sigma_training_lab.training.audit import audit_run
 
     # L'audit guarda il run intero: paginarlo lo renderebbe cieco proprio sui
     # quesiti che non stanno nella prima pagina. `read_page` limita comunque la

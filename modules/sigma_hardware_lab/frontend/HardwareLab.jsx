@@ -298,17 +298,17 @@ export default function HardwareLab({ addToast }) {
       return {
         id: 'cpu_sys',
         type: 'CPU & Host RAM',
-        name: cpu.name || 'AMD Ryzen Multi-Core Processor',
-        subtitle: `${cpu.cores_physical || 8} Core Fisici • ${cpu.cores_logical || 16} Thread • ${cpu.freq_mhz || 3800} MHz`,
+        name: cpu.name || 'Processore Host Multi-Core',
+        subtitle: `${cpu.cores_physical || 'N/A'} Core Fisici • ${cpu.cores_logical || 'N/A'} Thread${cpu.freq_mhz ? ` • ${cpu.freq_mhz} MHz` : ''}`,
         availableCharts: [
           { id: 'compute', label: 'Carico CPU', icon: Cpu, color: '#00d2ff', unit: '%', max: 100, data: systemHistory.cpu },
-          { id: 'vram', label: 'RAM Host', icon: HardDrive, color: '#10b981', unit: 'GB', max: ram.total_gb || 96, data: systemHistory.ram, format: v => `${typeof v === 'number' ? v.toFixed(1) : v} GB` },
+          { id: 'vram', label: 'RAM Host', icon: HardDrive, color: '#10b981', unit: 'GB', max: ram.total_gb || 32, data: systemHistory.ram, format: v => `${typeof v === 'number' ? v.toFixed(1) : v} GB` },
         ],
         metrics: [
           { label: 'Carico CPU', val: `${cpu.usage_pct ?? 0}%`, color: '#00d2ff', progress: cpu.usage_pct ?? 0 },
           { label: 'RAM Occupata', val: `${ram.used_gb || 0} / ${ram.total_gb || 0} GB`, color: '#10b981', progress: ram.usage_pct ?? 0 },
           { label: 'RAM Libera', val: `${ram.free_gb || 0} GB`, color: '#bc8cff' },
-          { label: 'Frequenza', val: `${cpu.freq_mhz || 3800} MHz`, color: '#ffb86c' }
+          { label: 'Frequenza', val: `${cpu.freq_mhz || 'N/A'} MHz`, color: '#ffb86c' }
         ]
       };
     }
@@ -318,7 +318,7 @@ export default function HardwareLab({ addToast }) {
         id: 'storage_sys',
         type: 'Storage & Drive Fisici',
         name: `Storage di Sistema (${disks.length} Partizioni)`,
-        subtitle: `Capacità Totale: ${storage.total_gb || 3800} GB • Libero: ${storage.free_gb || 1900} GB`,
+        subtitle: `Capacità Totale: ${storage.total_gb || 0} GB • Libero: ${storage.free_gb || 0} GB`,
         availableCharts: [
           { id: 'disk_read', label: 'Lettura Disco', icon: HardDrive, color: '#00d2ff', unit: 'MB/s', max: 500, data: systemHistory.disk_read },
           { id: 'disk_write', label: 'Scrittura Disco', icon: HardDrive, color: '#ffb86c', unit: 'MB/s', max: 500, data: systemHistory.disk_write },
@@ -337,7 +337,7 @@ export default function HardwareLab({ addToast }) {
         id: 'network_sys',
         type: 'Telemetria di Rete',
         name: 'Interfaccia di Rete & Connettività',
-        subtitle: `${network.status || 'Gigabit Ethernet / Wi-Fi'} • Inviati: ${network.total_sent_mb || 0} MB • Ricevuti: ${network.total_recv_mb || 0} MB`,
+        subtitle: `${network.status || 'Interfaccia di Rete'} • Inviati: ${network.total_sent_mb || 0} MB • Ricevuti: ${network.total_recv_mb || 0} MB`,
         availableCharts: [
           { id: 'net_down', label: 'Download Rate', icon: ArrowDown, color: '#10b981', unit: 'KB/s', max: 10000, data: systemHistory.net_down },
           { id: 'net_up', label: 'Upload Rate', icon: ArrowUp, color: '#00d2ff', unit: 'KB/s', max: 5000, data: systemHistory.net_up },
@@ -357,20 +357,20 @@ export default function HardwareLab({ addToast }) {
       const hist = historyData[targetGpu.index] || { vram: [], compute: [], temp: [], power: [] };
       return {
         id: `gpu_${targetGpu.index}`,
-        type: targetGpu.type || 'NVIDIA Dedicated GPU',
-        name: targetGpu.name,
-        subtitle: `Dispositivo #${targetGpu.index} • ${targetGpu.is_integrated ? 'APU Integrata su Ryzen' : 'GPU Dedicata CUDA'}`,
+        type: targetGpu.type || 'GPU Compute Device',
+        name: targetGpu.name || `Dispositivo GPU #${targetGpu.index}`,
+        subtitle: `Dispositivo #${targetGpu.index} • ${targetGpu.is_integrated ? 'GPU Integrata (iGPU)' : (targetGpu.type || 'GPU Dedicata')}`,
         availableCharts: [
           { id: 'compute', label: 'Compute GPU', icon: Gauge, color: '#bc8cff', unit: '%', max: 100, data: hist.compute },
-          { id: 'vram', label: 'VRAM Allocata', icon: HardDrive, color: '#00d2ff', unit: 'MB', max: targetGpu.vram_total_mb || 16384, data: hist.vram, format: v => `${typeof v === 'number' ? Math.round(v) : v} MB` },
+          { id: 'vram', label: 'VRAM Allocata', icon: HardDrive, color: '#00d2ff', unit: 'MB', max: targetGpu.vram_total_mb || 8192, data: hist.vram, format: v => `${typeof v === 'number' ? Math.round(v) : v} MB` },
           { id: 'temp', label: 'Temperatura', icon: Thermometer, color: targetGpu.temp_c > 75 ? '#ef4444' : '#10b981', unit: '°C', max: 100, data: hist.temp, format: v => `${typeof v === 'number' ? v.toFixed(1) : v}°C` },
           { id: 'power', label: 'Potenza Elettrica', icon: Zap, color: '#ffb86c', unit: 'Watt', max: 300, data: hist.power, format: v => `${typeof v === 'number' ? v.toFixed(1) : v} W` },
         ],
         metrics: [
-          { label: 'Memoria VRAM', val: `${targetGpu.vram_used_mb} / ${targetGpu.vram_total_mb} MB`, color: '#00d2ff', progress: targetGpu.vram_usage_pct },
-          { label: 'GPU Compute', val: `${targetGpu.gpu_util_pct}%`, color: '#bc8cff', progress: targetGpu.gpu_util_pct },
-          { label: 'Temperatura', val: `${targetGpu.temp_c}°C`, color: targetGpu.temp_c > 75 ? '#ef4444' : '#10b981' },
-          { label: 'Consumo Elettrico', val: `${targetGpu.power_draw_w} W`, color: '#ffb86c' }
+          { label: 'Memoria VRAM', val: `${targetGpu.vram_used_mb ?? 0} / ${targetGpu.vram_total_mb ?? 0} MB`, color: '#00d2ff', progress: targetGpu.vram_usage_pct },
+          { label: 'GPU Compute', val: `${targetGpu.gpu_util_pct ?? 0}%`, color: '#bc8cff', progress: targetGpu.gpu_util_pct },
+          { label: 'Temperatura', val: `${targetGpu.temp_c ? targetGpu.temp_c + '°C' : 'N/A'}`, color: targetGpu.temp_c > 75 ? '#ef4444' : '#10b981' },
+          { label: 'Consumo Elettrico', val: `${targetGpu.power_draw_w ? targetGpu.power_draw_w + ' W' : 'N/A'}`, color: '#ffb86c' }
         ]
       };
     }

@@ -2,6 +2,9 @@
 // index.js — Entrypoint for isolated Sigma Audio Studio & FM Radio Module
 // ==============================================================================
 
+import AudioStudioTab from './AudioStudioTab';
+
+export default AudioStudioTab;
 export { default as AudioStudioTab } from './AudioStudioTab';
 export { default as AudioFloatingWidget } from './AudioFloatingWidget';
 export { AudioProvider, useAudio } from './AudioContext';
@@ -16,3 +19,4 @@ export const MODULE_META = {
   color: '#00f2fe',
   tabType: 'music'
 };
+

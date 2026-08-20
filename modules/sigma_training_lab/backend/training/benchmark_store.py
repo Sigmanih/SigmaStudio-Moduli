@@ -212,7 +212,7 @@ def read_page(
     `verdict` accetta anche il gruppo ``review``, che raccoglie i quesiti da
     valutare a parte (risposta duplice, non interpretabile o in errore).
     """
-    from core.training.answer_parser import REVIEW_VERDICTS
+    from core.modules.sigma_training_lab.training.answer_parser import REVIEW_VERDICTS
 
     data_path, _ = _paths(job_id)
     entries = _sound_index(job_id)
@@ -262,7 +262,7 @@ def read_page(
 
 def read_review_queue(job_id: str, limit: int = 5000) -> list[dict]:
     """Tutti i quesiti in attesa di giudizio umano, per l'export dedicato."""
-    from core.training.answer_parser import REVIEW_VERDICTS
+    from core.modules.sigma_training_lab.training.answer_parser import REVIEW_VERDICTS
 
     data_path, _ = _paths(job_id)
     offsets = [
@@ -298,7 +298,7 @@ def migrate_inline_results(job: dict) -> bool:
     if not job_id:
         return False
     if count_results(job_id) == 0:
-        from core.training.answer_parser import grade_answer
+        from core.modules.sigma_training_lab.training.answer_parser import grade_answer
         normalized = []
         for item in inline:
             if "verdict" not in item:

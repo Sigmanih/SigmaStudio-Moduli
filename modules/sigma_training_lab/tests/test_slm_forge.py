@@ -14,9 +14,9 @@ import pytest
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import core.training_handler as th
-from core.training import forge as forge_mod
-from core.training import checkpoint_chat as chat_mod
-from core.training.gguf_export import permute_rope, _bpe_merges
+from core.modules.sigma_training_lab.training import forge as forge_mod
+from core.modules.sigma_training_lab.training import checkpoint_chat as chat_mod
+from core.modules.sigma_training_lab.training.gguf_export import permute_rope, _bpe_merges
 
 torch = pytest.importorskip("torch")
 
@@ -141,7 +141,7 @@ class TestTeacherAccess:
 
     def test_loader_rewrites_the_gated_traceback(self, monkeypatch):
         """Il traceback originale seppellisce l'unica informazione utile."""
-        from core.training import forge_train
+        from core.modules.sigma_training_lab.training import forge_train
         import transformers
 
         def raise_gated(*args, **kwargs):
@@ -225,7 +225,7 @@ class TestGgufConversion:
         """Q4_K/Q6_K sono di sola lettura in Python: offrirli darebbe file F32
         etichettati come quantizzati, cioè più grandi dell'F16."""
         import gguf
-        from core.training.gguf_export import QUANT_TYPES
+        from core.modules.sigma_training_lab.training.gguf_export import QUANT_TYPES
 
         for name in QUANT_TYPES.values():
             if name in ("F32", "F16"):
@@ -237,7 +237,7 @@ class TestGgufConversion:
     def test_quantization_actually_shrinks_the_file(self, tmp_path):
         """Il bug era proprio questo: il Q8_0 usciva più grande dell'F16."""
         from transformers import LlamaConfig, LlamaForCausalLM, AutoTokenizer
-        from core.training.gguf_export import export_gguf
+        from core.modules.sigma_training_lab.training.gguf_export import export_gguf
 
         tokenizer = AutoTokenizer.from_pretrained("gpt2")
         tokenizer.pad_token = tokenizer.eos_token
@@ -267,14 +267,14 @@ class TestGgufConversion:
 class TestDistillationLoss:
 
     def test_identical_distributions_give_zero_loss(self):
-        from core.training.forge_train import distillation_loss
+        from core.modules.sigma_training_lab.training.forge_train import distillation_loss
 
         logits = torch.randn(2, 5, 32)
         loss = distillation_loss(logits, logits.clone(), temperature=2.0)
         assert loss.item() == pytest.approx(0.0, abs=1e-5)
 
     def test_divergent_distributions_give_positive_loss(self):
-        from core.training.forge_train import distillation_loss
+        from core.modules.sigma_training_lab.training.forge_train import distillation_loss
 
         torch.manual_seed(0)
         student = torch.randn(2, 5, 32)
@@ -283,7 +283,7 @@ class TestDistillationLoss:
 
     def test_temperature_scaling_keeps_gradients_comparable(self):
         """Il fattore T² esiste per non far sparire il gradiente ad alta temperatura."""
-        from core.training.forge_train import distillation_loss
+        from core.modules.sigma_training_lab.training.forge_train import distillation_loss
 
         torch.manual_seed(1)
         student = torch.randn(1, 4, 16, requires_grad=True)
@@ -307,7 +307,7 @@ class TestMultiGpuStudent:
 
     @staticmethod
     def _student(devices, weights):
-        from core.training.forge_train import MultiGpuStudent
+        from core.modules.sigma_training_lab.training.forge_train import MultiGpuStudent
 
         student = MultiGpuStudent.__new__(MultiGpuStudent)   # niente GPU nei test
         student.devices = devices
@@ -339,7 +339,7 @@ class TestMultiGpuStudent:
     def test_memory_plan_counts_the_optimizer_state(self, monkeypatch):
         """AdamW tiene due momenti per parametro: dimenticarli fa passare per
         fattibile un batch che poi va in OOM al secondo step."""
-        from core.training import forge_train
+        from core.modules.sigma_training_lab.training import forge_train
 
         import torch as real_torch
         monkeypatch.setattr(real_torch.cuda, "mem_get_info",
@@ -355,7 +355,7 @@ class TestMultiGpuStudent:
 
     def test_oversized_model_is_excluded_not_crashed(self, monkeypatch):
         import torch as real_torch
-        from core.training import forge_train
+        from core.modules.sigma_training_lab.training import forge_train
 
         monkeypatch.setattr(real_torch.cuda, "mem_get_info",
                             lambda device: (2 * 1024 ** 3, 8 * 1024 ** 3))
@@ -367,7 +367,7 @@ class TestMultiGpuStudent:
     def test_distillation_reserves_more_memory_per_sequence(self, monkeypatch):
         """Con la KL coesistono molte più copie dei logit che con la sola CE."""
         import torch as real_torch
-        from core.training import forge_train
+        from core.modules.sigma_training_lab.training import forge_train
 
         monkeypatch.setattr(real_torch.cuda, "mem_get_info",
                             lambda device: (10 * 1024 ** 3, 16 * 1024 ** 3))
@@ -378,7 +378,7 @@ class TestMultiGpuStudent:
         assert distilled < plain
 
     def test_forge_config_targets_every_trainable_gpu(self, monkeypatch):
-        from core.training import jobs as jobs_mod
+        from core.modules.sigma_training_lab.training import jobs as jobs_mod
 
         monkeypatch.setattr(jobs_mod.gpu_layer, "get_accelerator_report", lambda *a, **k: {
             "trainable_gpus": [{"index": 0, "device_str": "cuda:0"},
@@ -387,8 +387,8 @@ class TestMultiGpuStudent:
 
     def test_forge_job_makes_every_gpu_visible(self, monkeypatch):
         """Senza allargare CUDA_VISIBLE_DEVICES il processo vedrebbe una sola scheda."""
-        from core.training.jobs import create_training_job, delete_job
-        from core.training import jobs as jobs_mod
+        from core.modules.sigma_training_lab.training.jobs import create_training_job, delete_job
+        from core.modules.sigma_training_lab.training import jobs as jobs_mod
 
         monkeypatch.setattr(jobs_mod.gpu_layer, "get_accelerator_report", lambda *a, **k: {
             "trainable_gpus": [{"index": 0, "device_str": "cuda:0"},
@@ -467,7 +467,7 @@ class TestForgeJob:
 
     def test_distillation_forces_the_teacher_tokenizer(self):
         """Vincolo non negoziabile: i logit servono sullo stesso vocabolario."""
-        from core.training.jobs import _forge_config
+        from core.modules.sigma_training_lab.training.jobs import _forge_config
 
         config = _forge_config({"forge_mode": "both", "forge_tokenizer_mode": "train"})
         assert config["tokenizer_mode"] == "teacher"
@@ -477,7 +477,7 @@ class TestForgeJob:
 
     def test_script_is_valid_python_and_carries_the_config(self):
         import ast
-        from core.training.jobs import create_training_job, delete_job
+        from core.modules.sigma_training_lab.training.jobs import create_training_job, delete_job
 
         result = create_training_job({
             "base_model": "from_scratch", "method": "slm_forge", "dataset_id": "",
@@ -494,7 +494,7 @@ class TestForgeJob:
             delete_job(result["job_id"])
 
     def test_defaults_used_when_nothing_is_specified(self):
-        from core.training.jobs import _forge_config
+        from core.modules.sigma_training_lab.training.jobs import _forge_config
 
         config = _forge_config({})
         assert config["sources"], "deve esserci almeno un corpus di partenza"

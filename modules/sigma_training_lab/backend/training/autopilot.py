@@ -457,10 +457,10 @@ def _ferma_lavoro(job_id: str, kind: str) -> None:
     """Chiude il job in corso, qualunque sia il suo tipo."""
     try:
         if kind == "training":
-            from core.training.jobs import stop_training_job
+            from core.modules.sigma_training_lab.training.jobs import stop_training_job
             stop_training_job(job_id)
         else:
-            from core.training.benchmarks import cancel_benchmark_job
+            from core.modules.sigma_training_lab.training.benchmarks import cancel_benchmark_job
             cancel_benchmark_job(job_id)
     except Exception as exc:
         log.warning("chiusura di %s (%s) fallita: %s", job_id, kind, exc)
@@ -484,8 +484,8 @@ def _wait_for_job(job_id: str, kind: str, state: dict, poll: float = 10.0,
     solo un diario che avanza a scatti, e la curva di loss del training in
     corso resterebbe invisibile.
     """
-    from core.training.jobs import get_job_status
-    from core.training.benchmarks import list_benchmark_jobs
+    from core.modules.sigma_training_lab.training.jobs import get_job_status
+    from core.modules.sigma_training_lab.training.benchmarks import list_benchmark_jobs
 
     state["current_job"] = {"id": job_id, "kind": kind, "label": label,
                             "since": datetime.now().isoformat(timespec="seconds")}
@@ -528,7 +528,7 @@ def _wait_for_job(job_id: str, kind: str, state: dict, poll: float = 10.0,
 
 def _benchmark_scores(bench_job_id: str, only: set[str] | None = None) -> dict[str, bool]:
     """Esito per quesito di un run di benchmark: {id: passato}."""
-    from core.training import benchmark_store as store
+    from core.modules.sigma_training_lab.training import benchmark_store as store
 
     scores: dict[str, bool] = {}
     page, pages = 1, 1
@@ -556,13 +556,13 @@ def _suite_profile(scores: dict[str, bool]) -> dict:
 
 def _run_benchmark(model: str, state: dict, items: int) -> tuple[str, dict]:
     """Valuta un modello e restituisce (job_id, esiti per quesito)."""
-    from core.training.benchmarks import start_benchmark_run
+    from core.modules.sigma_training_lab.training.benchmarks import start_benchmark_run
 
     # La seconda scheda sta ferma mentre la prima misura. Se il modello ci
     # entra e i quesiti sono abbastanza da ripagare l'avvio, si mette al
     # lavoro anche quella: il pool alterna le richieste fra i servitori.
     try:
-        from core.training.endpoints import prepara_parallelo
+        from core.modules.sigma_training_lab.training.endpoints import prepara_parallelo
         p = prepara_parallelo(model, items)
         note(state, "info" if p["parallelo"] else "warning",
              ("Benchmark in parallelo: " if p["parallelo"] else "Benchmark su una scheda sola: ")
@@ -594,7 +594,7 @@ def _split_scores(scores: dict[str, bool], state: dict) -> tuple[dict, dict]:
     La partizione e' fissata al primo profilo e poi riusata: cambiarla a ciclo
     iniziato renderebbe i round non confrontabili fra loro.
     """
-    from core.training.benchmarks import split_selection_holdout
+    from core.modules.sigma_training_lab.training.benchmarks import split_selection_holdout
 
     if not state.get("selection_ids"):
         items = [{"id": i, "suite": str(i).rsplit("_", 1)[0]} for i in sorted(scores)]
@@ -613,7 +613,7 @@ def _accuracy(scores: dict[str, bool]) -> float:
 
 def _publish_champion(state: dict, job_id: str, label: str) -> None:
     """Porta il campione su Ollama sotto un nome stabile, con le sue statistiche."""
-    from core.training.jobs import export_to_ollama
+    from core.modules.sigma_training_lab.training.jobs import export_to_ollama
 
     # Il campione eredita il formato di conversazione del modello da cui
     # discende: senza, chi lo interroga riceve continuazioni invece di
@@ -681,9 +681,9 @@ def _lr_for_model(state: dict) -> float:
 
 def _phase_round(state: dict, target: dict, items: int) -> dict:
     """Un round completo: allena dalla base, materializza, misura, giudica."""
-    from core.training.jobs import (create_training_job, merge_job_adapter,
+    from core.modules.sigma_training_lab.training.jobs import (create_training_job, merge_job_adapter,
                                     start_training_job)
-    from core.training.datasets import register_hf_dataset
+    from core.modules.sigma_training_lab.training.datasets import register_hf_dataset
 
     suite, dataset_id = target["suite"], target["datasets"][0]
     round_ = {"suite": suite, "label": target["label"], "dataset": dataset_id,
@@ -757,7 +757,7 @@ def _phase_round(state: dict, target: dict, items: int) -> dict:
         return round_
 
     candidate_model = f"sigma-cand-{round_['job_id']}"
-    from core.training.jobs import export_to_ollama
+    from core.modules.sigma_training_lab.training.jobs import export_to_ollama
     exported = export_to_ollama(merged["job_id"], candidate_model, quantization="q4_K_M",
                                 template_from=state.get("base_model", ""))
     if not exported.get("success"):
@@ -810,7 +810,7 @@ def _drop_candidate(state: dict, round_: dict) -> None:
     mentre merge, GGUF e modello Ollama sono decine di GB che non servono a
     nulla se il round non ha vinto.
     """
-    from core.training.jobs import delete_job
+    from core.modules.sigma_training_lab.training.jobs import delete_job
 
     if round_.get("merge_job_id"):
         delete_job(round_["merge_job_id"])
@@ -838,7 +838,7 @@ def _ensure_eval_identity(state: dict) -> None:
     sola. Sta qui dentro al ciclo e non in `start` perche' un modello da 9B ci
     mette dei minuti, e la UI non deve restare appesa ad attenderlo.
     """
-    from core.training.model_catalog import _fingerprint, _ollama_index, ensure_ollama_identity
+    from core.modules.sigma_training_lab.training.model_catalog import _fingerprint, _ollama_index, ensure_ollama_identity
 
     base = state.get("base_model") or ""
     if _fingerprint(base) in _ollama_index():
@@ -949,7 +949,7 @@ def resolve_pair(eval_model: str, train_model: str = "") -> dict:
     Ollama si può misurare ma non specializzare, e va detto adesso — non dopo
     aver speso un'ora di profilazione.
     """
-    from core.training.jobs import resolve_base_model
+    from core.modules.sigma_training_lab.training.jobs import resolve_base_model
 
     candidate = (train_model or "").strip()
     if not candidate:
@@ -1019,7 +1019,7 @@ def start(base_model: str, items: int = DEFAULT_ITEMS,
             # Scegliendo un modello che sta solo su HuggingFace l'identita' di
             # valutazione non esiste ancora: la prepara il ciclo, ma il nome lo
             # decidiamo adesso perche' e' la chiave con cui si riprende.
-            from core.training.model_catalog import ollama_name_for
+            from core.modules.sigma_training_lab.training.model_catalog import ollama_name_for
             base_model = ollama_name_for(train_model)
         if not base_model:
             return {"success": False, "error": "Nessun modello indicato."}

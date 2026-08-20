@@ -17,9 +17,9 @@ import pytest
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import core.training_handler as th
-from core.training import gpu as gpu_layer
-from core.training import fwe as fwe_layer
-from core.training.jobs import (SCRIPT_TEMPLATES, _render, resolve_dataset,
+from core.modules.sigma_training_lab.training import gpu as gpu_layer
+from core.modules.sigma_training_lab.training import fwe as fwe_layer
+from core.modules.sigma_training_lab.training.jobs import (SCRIPT_TEMPLATES, _render, resolve_dataset,
                                 resolve_base_model, _parse_progress)
 
 
@@ -233,7 +233,7 @@ class TestGeneratedScripts:
 
     @pytest.mark.parametrize("method", sorted(SCRIPT_TEMPLATES))
     def test_every_template_renders_valid_python(self, method):
-        from core.training.jobs import create_training_job, delete_job
+        from core.modules.sigma_training_lab.training.jobs import create_training_job, delete_job
         result = create_training_job({
             "base_model": "Qwen/Qwen2.5-0.5B", "method": method, "dataset_id": "x/y",
             "hyperparams": {"num_epochs": 1, "learning_rate": 2e-4, "max_seq_length": 512},
@@ -258,7 +258,7 @@ class TestGeneratedScripts:
         """
         import dataclasses
 
-        from core.training.jobs import _build_script_values
+        from core.modules.sigma_training_lab.training.jobs import _build_script_values
 
         values = _build_script_values(
             {"base_model": "gpt2", "method": method, "dataset_id": "x/y",
@@ -314,7 +314,7 @@ class TestTrainingContinuation:
 
     def _finished_job(self, artifacts=("output/lora_model",), method="lora_unsloth",
                       status="completed"):
-        from core.training.jobs import create_training_job, _load_jobs, _save_jobs
+        from core.modules.sigma_training_lab.training.jobs import create_training_job, _load_jobs, _save_jobs
         job = create_training_job({
             "base_model": "unsloth/llama-3.2-1b-instruct", "method": method,
             "dataset_id": "x/y", "name": "Base", "hyperparams": {"num_epochs": 2},
@@ -327,7 +327,7 @@ class TestTrainingContinuation:
         return job["id"]
 
     def test_resuming_points_the_script_at_the_existing_adapter(self):
-        from core.training.jobs import continue_training_job, _load_jobs, delete_job
+        from core.modules.sigma_training_lab.training.jobs import continue_training_job, _load_jobs, delete_job
         parent = self._finished_job()
         result = continue_training_job(parent, {"mode": "resume_adapter"})
         try:
@@ -344,7 +344,7 @@ class TestTrainingContinuation:
             delete_job(result["job_id"])
 
     def test_a_fresh_adapter_starts_from_the_merged_weights(self):
-        from core.training.jobs import continue_training_job, _load_jobs, delete_job
+        from core.modules.sigma_training_lab.training.jobs import continue_training_job, _load_jobs, delete_job
         parent = self._finished_job(artifacts=("output/merged_16bit",))
         result = continue_training_job(parent, {"mode": "fresh_adapter"})
         try:
@@ -357,7 +357,7 @@ class TestTrainingContinuation:
             delete_job(result["job_id"])
 
     def test_the_dataset_can_change_between_runs(self):
-        from core.training.jobs import continue_training_job, _load_jobs, delete_job
+        from core.modules.sigma_training_lab.training.jobs import continue_training_job, _load_jobs, delete_job
         parent = self._finished_job()
         result = continue_training_job(parent, {"mode": "resume_adapter",
                                                 "dataset_id": "tatsu-lab/alpaca"})
@@ -367,7 +367,7 @@ class TestTrainingContinuation:
             delete_job(result["job_id"])
 
     def test_keeping_the_dataset_is_the_default(self):
-        from core.training.jobs import continue_training_job, _load_jobs, delete_job
+        from core.modules.sigma_training_lab.training.jobs import continue_training_job, _load_jobs, delete_job
         parent = self._finished_job()
         result = continue_training_job(parent, {"mode": "resume_adapter"})
         try:
@@ -376,7 +376,7 @@ class TestTrainingContinuation:
             delete_job(result["job_id"])
 
     def test_the_chain_records_both_ends(self):
-        from core.training.jobs import continue_training_job, _load_jobs, delete_job
+        from core.modules.sigma_training_lab.training.jobs import continue_training_job, _load_jobs, delete_job
         parent = self._finished_job()
         first = continue_training_job(parent, {"mode": "resume_adapter"})
         (Path(_load_jobs()[first["job_id"]]["dir"]) / "output" / "lora_model").mkdir(parents=True)
@@ -391,38 +391,38 @@ class TestTrainingContinuation:
             delete_job(second["job_id"])
 
     def test_a_missing_adapter_is_refused_with_the_reason(self):
-        from core.training.jobs import continue_training_job
+        from core.modules.sigma_training_lab.training.jobs import continue_training_job
         parent = self._finished_job(artifacts=())
         result = continue_training_job(parent, {"mode": "resume_adapter"})
         assert result["success"] is False
         assert "lora_model" in result["error"]
 
     def test_asking_for_a_fresh_adapter_without_a_merge_says_what_to_do(self):
-        from core.training.jobs import continue_training_job
+        from core.modules.sigma_training_lab.training.jobs import continue_training_job
         parent = self._finished_job(artifacts=("output/lora_model",))
         result = continue_training_job(parent, {"mode": "fresh_adapter"})
         assert result["success"] is False
         assert "merged_16bit" in result["error"] and "riprendi l'adapter" in result["error"].lower()
 
     def test_a_running_job_cannot_be_continued(self):
-        from core.training.jobs import continue_training_job
+        from core.modules.sigma_training_lab.training.jobs import continue_training_job
         parent = self._finished_job(status="running")
         result = continue_training_job(parent, {"mode": "resume_adapter"})
         assert result["success"] is False and "esecuzione" in result["error"]
 
     def test_an_unknown_mode_is_refused(self):
-        from core.training.jobs import continue_training_job
+        from core.modules.sigma_training_lab.training.jobs import continue_training_job
         result = continue_training_job(self._finished_job(), {"mode": "magia"})
         assert result["success"] is False and "sconosciuta" in result["error"]
 
     def test_methods_without_an_adapter_are_refused(self):
-        from core.training.jobs import continue_training_job
+        from core.modules.sigma_training_lab.training.jobs import continue_training_job
         parent = self._finished_job(method="fwe_gradus")
         result = continue_training_job(parent, {"mode": "resume_adapter"})
         assert result["success"] is False and "fwe_gradus" in result["error"]
 
     def test_an_unknown_job_is_refused(self):
-        from core.training.jobs import continue_training_job
+        from core.modules.sigma_training_lab.training.jobs import continue_training_job
         assert continue_training_job("non-esiste", {})["success"] is False
 
 
@@ -441,7 +441,7 @@ class TestDatasetSubset:
         questa prova — significherebbe saltare proprio cio' che si vuole
         verificare.
         """
-        from core.training.jobs import SCRIPT_TEMPLATES, _render, _build_script_values
+        from core.modules.sigma_training_lab.training.jobs import SCRIPT_TEMPLATES, _render, _build_script_values
         values = _build_script_values(
             {"base_model": "gpt2", "method": "trl_sft", "dataset_id": "x/y",
              "hyperparams": {"max_examples": max_examples}}, "tj", Path("unused"))
@@ -532,7 +532,7 @@ class TestCheckpointing:
     """
 
     def _script(self, method="lora_unsloth", **hyper):
-        from core.training.jobs import SCRIPT_TEMPLATES, _render, _build_script_values
+        from core.modules.sigma_training_lab.training.jobs import SCRIPT_TEMPLATES, _render, _build_script_values
         values = _build_script_values(
             {"base_model": "gpt2", "method": method, "dataset_id": "x/y",
              "hyperparams": {"num_epochs": 2, "batch_size": 2,
@@ -604,7 +604,7 @@ class TestHyperparamUpdate:
     """
 
     def _stopped(self, **hyper):
-        from core.training.jobs import create_training_job, _load_jobs, _save_jobs
+        from core.modules.sigma_training_lab.training.jobs import create_training_job, _load_jobs, _save_jobs
         job = create_training_job({
             "base_model": "gpt2", "method": "lora_unsloth", "dataset_id": "x/y",
             "hyperparams": {"batch_size": 8, "gradient_accumulation": 4, **hyper},
@@ -613,7 +613,7 @@ class TestHyperparamUpdate:
         return job["id"]
 
     def test_the_new_values_reach_the_script(self):
-        from core.training.jobs import update_job_hyperparams, _load_jobs, delete_job
+        from core.modules.sigma_training_lab.training.jobs import update_job_hyperparams, _load_jobs, delete_job
         job_id = self._stopped()
         try:
             result = update_job_hyperparams(job_id, {"batch_size": 2,
@@ -632,7 +632,7 @@ class TestHyperparamUpdate:
 
     def test_keeping_the_effective_batch_raises_no_warning(self):
         """8x4 e 2x16 danno lo stesso numero di step: il checkpoint resta valido."""
-        from core.training.jobs import update_job_hyperparams, delete_job
+        from core.modules.sigma_training_lab.training.jobs import update_job_hyperparams, delete_job
         job_id = self._stopped()
         try:
             result = update_job_hyperparams(job_id, {"batch_size": 2,
@@ -643,7 +643,7 @@ class TestHyperparamUpdate:
             delete_job(job_id)
 
     def test_changing_the_effective_batch_is_flagged(self):
-        from core.training.jobs import update_job_hyperparams, delete_job
+        from core.modules.sigma_training_lab.training.jobs import update_job_hyperparams, delete_job
         job_id = self._stopped()
         try:
             result = update_job_hyperparams(job_id, {"batch_size": 2})
@@ -654,7 +654,7 @@ class TestHyperparamUpdate:
             delete_job(job_id)
 
     def test_a_running_or_paused_job_is_refused(self):
-        from core.training.jobs import (update_job_hyperparams, _load_jobs,
+        from core.modules.sigma_training_lab.training.jobs import (update_job_hyperparams, _load_jobs,
                                         _save_jobs, delete_job)
         job_id = self._stopped()
         try:
@@ -668,7 +668,7 @@ class TestHyperparamUpdate:
 
     def test_the_change_survives_in_the_stored_request(self):
         """Il prossimo `_sync_script_template` deve rigenerare con i valori nuovi."""
-        from core.training.jobs import update_job_hyperparams, _load_jobs, delete_job
+        from core.modules.sigma_training_lab.training.jobs import update_job_hyperparams, _load_jobs, delete_job
         job_id = self._stopped()
         try:
             update_job_hyperparams(job_id, {"batch_size": 2, "gradient_accumulation": 16})
@@ -678,7 +678,7 @@ class TestHyperparamUpdate:
             delete_job(job_id)
 
     def test_an_empty_update_is_refused(self):
-        from core.training.jobs import update_job_hyperparams, delete_job
+        from core.modules.sigma_training_lab.training.jobs import update_job_hyperparams, delete_job
         job_id = self._stopped()
         try:
             assert update_job_hyperparams(job_id, {})["success"] is False
@@ -696,7 +696,7 @@ class TestPauseAndResume:
 
     def _running_job(self):
         """Job con uno script che dorme: serve un processo reale da sospendere."""
-        from core.training.jobs import (create_training_job, start_training_job,
+        from core.modules.sigma_training_lab.training.jobs import (create_training_job, start_training_job,
                                         _load_jobs, _save_jobs)
         job = create_training_job({
             "base_model": "gpt2", "method": "script_custom",
@@ -713,7 +713,7 @@ class TestPauseAndResume:
 
     def test_a_running_job_can_be_frozen_and_let_go(self):
         import psutil
-        from core.training.jobs import (pause_training_job, resume_training_job,
+        from core.modules.sigma_training_lab.training.jobs import (pause_training_job, resume_training_job,
                                         stop_training_job, _load_jobs, delete_job)
         job_id = self._running_job()
         try:
@@ -736,7 +736,7 @@ class TestPauseAndResume:
             delete_job(job_id)
 
     def test_pausing_something_that_is_not_running_is_refused(self):
-        from core.training.jobs import create_training_job, pause_training_job, delete_job
+        from core.modules.sigma_training_lab.training.jobs import create_training_job, pause_training_job, delete_job
         job = create_training_job({"base_model": "gpt2", "method": "script_custom",
                                    "dataset_id": "", "hyperparams": {}})["job"]
         try:
@@ -747,7 +747,7 @@ class TestPauseAndResume:
 
     def test_resuming_a_job_whose_process_died_says_so(self):
         """Altrimenti resterebbe 'paused' per sempre, in attesa di nessuno."""
-        from core.training.jobs import (create_training_job, resume_training_job,
+        from core.modules.sigma_training_lab.training.jobs import (create_training_job, resume_training_job,
                                         _load_jobs, _save_jobs, delete_job)
         job = create_training_job({"base_model": "gpt2", "method": "script_custom",
                                    "dataset_id": "", "hyperparams": {}})["job"]
@@ -762,7 +762,7 @@ class TestPauseAndResume:
             delete_job(job["id"])
 
     def test_a_running_stage_offers_pause_and_a_paused_one_offers_resume(self):
-        from core.training.jobs import (create_training_job, get_job_lineage,
+        from core.modules.sigma_training_lab.training.jobs import (create_training_job, get_job_lineage,
                                         _load_jobs, _save_jobs, delete_job)
         job = create_training_job({"base_model": "gpt2", "method": "lora_unsloth",
                                    "dataset_id": "x/y", "hyperparams": {}})["job"]
@@ -782,7 +782,7 @@ class TestSpecialisationChain:
     """
 
     def _trained(self, artifacts=("output/lora_model",), method="lora_unsloth"):
-        from core.training.jobs import create_training_job, _load_jobs, _save_jobs
+        from core.modules.sigma_training_lab.training.jobs import create_training_job, _load_jobs, _save_jobs
         job = create_training_job({
             "base_model": "unsloth/llama-3.2-1b-instruct", "method": method,
             "dataset_id": "gsm8k", "name": "LoRA GSM8K", "hyperparams": {},
@@ -796,7 +796,7 @@ class TestSpecialisationChain:
 
     def _merge(self, parent, stage_name="Qwythos Reasoning v1", merged=True):
         """Merge senza lanciare il processo: interessa la struttura, non la GPU."""
-        from core.training.jobs import merge_job_adapter, _load_jobs, _save_jobs
+        from core.modules.sigma_training_lab.training.jobs import merge_job_adapter, _load_jobs, _save_jobs
         with patch("core.training.jobs.start_training_job",
                    return_value={"success": True}):
             result = merge_job_adapter(parent, {"stage_name": stage_name})
@@ -809,7 +809,7 @@ class TestSpecialisationChain:
         return result["job_id"]
 
     def test_the_merge_is_its_own_job_with_the_adapter_wired_in(self):
-        from core.training.jobs import _load_jobs, delete_job
+        from core.modules.sigma_training_lab.training.jobs import _load_jobs, delete_job
         parent = self._trained()
         merge_id = self._merge(parent)
         try:
@@ -825,14 +825,14 @@ class TestSpecialisationChain:
             delete_job(merge_id)
 
     def test_merging_without_an_adapter_is_refused(self):
-        from core.training.jobs import merge_job_adapter
+        from core.modules.sigma_training_lab.training.jobs import merge_job_adapter
         parent = self._trained(artifacts=())
         result = merge_job_adapter(parent, {})
         assert result["success"] is False
         assert "adapter" in result["error"]
 
     def test_a_merged_stage_becomes_the_base_of_the_next_one(self):
-        from core.training.jobs import continue_training_job, _load_jobs, delete_job
+        from core.modules.sigma_training_lab.training.jobs import continue_training_job, _load_jobs, delete_job
         merge_id = self._merge(self._trained())
         nxt = continue_training_job(merge_id, {"dataset_id": "x/math",
                                                "stage_name": "Qwythos Reasoning v2"})
@@ -850,7 +850,7 @@ class TestSpecialisationChain:
     def test_resuming_an_adapter_is_impossible_after_a_merge(self):
         """Chiedere resume_adapter su una fase fusa non deve rompere: quel
         lavoro è già dentro i pesi, quindi si ricade su fresh_adapter."""
-        from core.training.jobs import continue_training_job, _load_jobs, delete_job
+        from core.modules.sigma_training_lab.training.jobs import continue_training_job, _load_jobs, delete_job
         merge_id = self._merge(self._trained())
         nxt = continue_training_job(merge_id, {"mode": "resume_adapter"})
         try:
@@ -860,7 +860,7 @@ class TestSpecialisationChain:
             delete_job(nxt["job_id"])
 
     def test_the_lineage_reads_the_whole_chain_in_order(self):
-        from core.training.jobs import (continue_training_job, get_job_lineage,
+        from core.modules.sigma_training_lab.training.jobs import (continue_training_job, get_job_lineage,
                                         _load_jobs, _save_jobs, delete_job)
         first = self._trained()
         merge1 = self._merge(first, "Qwythos Reasoning v1")
@@ -882,7 +882,7 @@ class TestSpecialisationChain:
                 delete_job(jid)
 
     def test_the_lineage_is_the_same_seen_from_any_stage(self):
-        from core.training.jobs import get_job_lineage, delete_job
+        from core.modules.sigma_training_lab.training.jobs import get_job_lineage, delete_job
         first = self._trained()
         merge1 = self._merge(first)
         try:
@@ -894,7 +894,7 @@ class TestSpecialisationChain:
             delete_job(first)
 
     def test_the_actions_offered_follow_the_artefacts_on_disk(self):
-        from core.training.jobs import get_job_lineage, delete_job
+        from core.modules.sigma_training_lab.training.jobs import get_job_lineage, delete_job
         parent = self._trained()
         try:
             stage = get_job_lineage(parent)["stages"][0]
@@ -904,7 +904,7 @@ class TestSpecialisationChain:
             delete_job(parent)
 
     def test_a_stage_without_artefacts_offers_no_next_step(self):
-        from core.training.jobs import get_job_lineage, delete_job
+        from core.modules.sigma_training_lab.training.jobs import get_job_lineage, delete_job
         parent = self._trained(artifacts=())
         try:
             actions = get_job_lineage(parent)["stages"][0]["actions"]
@@ -916,7 +916,7 @@ class TestSpecialisationChain:
     def test_a_running_stage_can_only_be_paused_or_stopped(self):
         """Su un run in corso non ha senso offrire merge o continuazione: gli
         artefatti non sono ancora quelli definitivi."""
-        from core.training.jobs import get_job_lineage, _load_jobs, _save_jobs, delete_job
+        from core.modules.sigma_training_lab.training.jobs import get_job_lineage, _load_jobs, _save_jobs, delete_job
         parent = self._trained()
         jobs = _load_jobs(); jobs[parent]["status"] = "running"; _save_jobs(jobs)
         try:
@@ -925,7 +925,7 @@ class TestSpecialisationChain:
             delete_job(parent)
 
     def test_an_unknown_job_has_no_lineage(self):
-        from core.training.jobs import get_job_lineage
+        from core.modules.sigma_training_lab.training.jobs import get_job_lineage
         assert get_job_lineage("non-esiste")["success"] is False
 
 
@@ -933,7 +933,7 @@ class TestStaleScriptRegeneration:
     """Uno script congelato prima di una correzione al template va rigenerato."""
 
     def _job(self, method="trl_sft"):
-        from core.training.jobs import create_training_job
+        from core.modules.sigma_training_lab.training.jobs import create_training_job
         result = create_training_job({
             "base_model": "gpt2", "method": method, "dataset_id": "x/y",
             "hyperparams": {"num_epochs": 1},
@@ -941,7 +941,7 @@ class TestStaleScriptRegeneration:
         return result["job"]
 
     def test_a_fresh_script_is_left_alone(self):
-        from core.training.jobs import _sync_script_template, delete_job
+        from core.modules.sigma_training_lab.training.jobs import _sync_script_template, delete_job
         job = self._job()
         try:
             before = Path(job["script_path"]).read_text(encoding="utf-8")
@@ -951,7 +951,7 @@ class TestStaleScriptRegeneration:
             delete_job(job["id"])
 
     def test_an_outdated_script_is_rebuilt(self):
-        from core.training.jobs import _sync_script_template, delete_job
+        from core.modules.sigma_training_lab.training.jobs import _sync_script_template, delete_job
         job = self._job()
         try:
             path = Path(job["script_path"])
@@ -966,7 +966,7 @@ class TestStaleScriptRegeneration:
 
     def test_an_untagged_script_counts_as_outdated(self):
         """I job creati prima del tag non hanno modo di dichiararsi aggiornati."""
-        from core.training.jobs import _sync_script_template, delete_job
+        from core.modules.sigma_training_lab.training.jobs import _sync_script_template, delete_job
         job = self._job()
         try:
             path = Path(job["script_path"])
@@ -977,7 +977,7 @@ class TestStaleScriptRegeneration:
             delete_job(job["id"])
 
     def test_a_hand_edited_custom_script_is_never_overwritten(self):
-        from core.training.jobs import _sync_script_template, delete_job
+        from core.modules.sigma_training_lab.training.jobs import _sync_script_template, delete_job
         job = self._job(method="script_custom")
         try:
             path = Path(job["script_path"])
@@ -993,7 +993,7 @@ class TestGeneratedDatasetLoader:
 
     @staticmethod
     def _loader(dataset_id):
-        from core.training.jobs import _build_script_values
+        from core.modules.sigma_training_lab.training.jobs import _build_script_values
         values = _build_script_values(
             {"base_model": "gpt2", "method": "trl_sft", "dataset_id": dataset_id,
              "hyperparams": {}}, "tj", Path("unused"))
@@ -1055,7 +1055,7 @@ class TestJobContinuation:
     def test_override_detection_ignores_the_comment(self):
         """Il template cita GRADUS_STEPS anche in un commento: cercare il nome
         farebbe passare per aggiornato uno script col totale cablato."""
-        from core.training.jobs import _STEPS_OVERRIDE_RE
+        from core.modules.sigma_training_lab.training.jobs import _STEPS_OVERRIDE_RE
 
         legacy = ('# Riavviando il job con GRADUS_STEPS piu\' alto si continua\n'
                   'TOTAL_STEPS = 600\n')
@@ -1064,7 +1064,7 @@ class TestJobContinuation:
         assert _STEPS_OVERRIDE_RE.search(current)
 
     def test_legacy_script_is_regenerated(self):
-        from core.training.jobs import create_training_job, delete_job, _refresh_script
+        from core.modules.sigma_training_lab.training.jobs import create_training_job, delete_job, _refresh_script
 
         result = create_training_job({
             "base_model": "qwen0.5b-instruct", "method": "fwe_gradus", "dataset_id": "",
@@ -1089,7 +1089,7 @@ class TestJobContinuation:
             delete_job(job["id"])
 
     def test_current_script_is_left_alone(self):
-        from core.training.jobs import create_training_job, delete_job, _refresh_script
+        from core.modules.sigma_training_lab.training.jobs import create_training_job, delete_job, _refresh_script
 
         result = create_training_job({
             "base_model": "qwen0.5b-instruct", "method": "fwe_gradus", "dataset_id": "",
@@ -1104,7 +1104,7 @@ class TestJobContinuation:
     def test_old_job_without_request_is_still_extendable(self):
         """I job creati prima che la richiesta venisse salvata devono comunque
         potersi estendere: i metadati contengono già tutto il necessario."""
-        from core.training.jobs import create_training_job, delete_job, _refresh_script
+        from core.modules.sigma_training_lab.training.jobs import create_training_job, delete_job, _refresh_script
 
         result = create_training_job({
             "base_model": "qwen0.5b-instruct", "method": "fwe_gradus", "dataset_id": "",
@@ -1131,7 +1131,7 @@ class TestJobContinuation:
 
     def test_unusable_job_gets_an_actionable_error(self):
         """Senza metodo né modello non si può rigenerare: dillo, non fallire e basta."""
-        from core.training.jobs import create_training_job, delete_job, _refresh_script
+        from core.modules.sigma_training_lab.training.jobs import create_training_job, delete_job, _refresh_script
 
         result = create_training_job({
             "base_model": "qwen0.5b-instruct", "method": "fwe_gradus", "dataset_id": "",
@@ -1152,7 +1152,7 @@ class TestJobContinuation:
             delete_job(result["job_id"])
 
     def test_cannot_shrink_a_run(self):
-        from core.training.jobs import create_training_job, start_training_job, delete_job
+        from core.modules.sigma_training_lab.training.jobs import create_training_job, start_training_job, delete_job
 
         result = create_training_job({
             "base_model": "qwen0.5b-instruct", "method": "fwe_gradus", "dataset_id": "",
@@ -1211,7 +1211,7 @@ class TestBaseModelResolution:
             resolve_base_model("")
 
     def test_job_creation_fails_cleanly_on_an_ollama_tag(self):
-        from core.training.jobs import create_training_job
+        from core.modules.sigma_training_lab.training.jobs import create_training_job
         result = create_training_job({
             "base_model": "llama3.2:latest", "method": "trl_sft",
             "dataset_id": "", "hyperparams": {},
@@ -1272,7 +1272,7 @@ class TestTrustRemoteCode:
     codice Python del suo repo. E' una scelta di chi lancia il job."""
 
     def _render(self, method, hyper):
-        from core.training.jobs import _build_script_values
+        from core.modules.sigma_training_lab.training.jobs import _build_script_values
         values = _build_script_values(
             {"base_model": "org/strano", "method": method, "dataset_id": "x/y",
              "hyperparams": hyper}, "tj", Path("unused"))
@@ -1304,7 +1304,7 @@ class TestGradientCheckpointing:
     l'autotune aveva deciso di non usarlo."""
 
     def _sorgente(self):
-        from core.training.jobs import _build_script_values
+        from core.modules.sigma_training_lab.training.jobs import _build_script_values
         values = _build_script_values(
             {"base_model": "gpt2", "method": "lora_unsloth", "dataset_id": "x/y",
              "hyperparams": {"num_epochs": 1}}, "tj", Path("unused"))
@@ -1352,7 +1352,7 @@ class TestArchitetturaIncompleta:
 
     def _shim(self):
         """Estrae la funzione dal template e la esegue in un ambiente pulito."""
-        from core.training.jobs import _build_script_values
+        from core.modules.sigma_training_lab.training.jobs import _build_script_values
         values = _build_script_values(
             {"base_model": "org/strano", "method": "lora_unsloth", "dataset_id": "x/y",
              "hyperparams": {"trust_remote_code": True}}, "tj", Path("unused"))
@@ -1436,7 +1436,7 @@ class TestGuardiaVram:
     automatico ci resta dentro per giorni senza che nessuno se ne accorga."""
 
     def _callback(self, method="lora_unsloth"):
-        from core.training.jobs import _build_script_values
+        from core.modules.sigma_training_lab.training.jobs import _build_script_values
         values = _build_script_values(
             {"base_model": "gpt2", "method": method, "dataset_id": "x/y",
              "hyperparams": {"max_seq_length": 1024}}, "tj", Path("unused"))
@@ -1498,7 +1498,7 @@ class TestGuardiaRam:
     va riavviata, perdendo tutto il lavoro del run."""
 
     def _sorgente(self, method="lora_unsloth"):
-        from core.training.jobs import _build_script_values
+        from core.modules.sigma_training_lab.training.jobs import _build_script_values
         values = _build_script_values(
             {"base_model": "gpt2", "method": method, "dataset_id": "x/y",
              "hyperparams": {"max_seq_length": 1024}}, "tj", Path("unused"))
@@ -1540,7 +1540,7 @@ class TestFermareDavvero:
     """
 
     def test_ai_figli_ci_si_arriva(self, monkeypatch):
-        from core.training import jobs
+        from core.modules.sigma_training_lab.training import jobs
 
         terminati = []
 
@@ -1569,7 +1569,7 @@ class TestFermareDavvero:
 
     def test_chi_resiste_viene_ucciso(self, monkeypatch):
         """Su Windows un processo dentro una chiamata CUDA ignora il terminate."""
-        from core.training import jobs
+        from core.modules.sigma_training_lab.training import jobs
 
         uccisi = []
 
@@ -1594,7 +1594,7 @@ class TestFermareDavvero:
     def test_uno_stop_che_non_ferma_niente_lo_dice(self, monkeypatch, tmp_path):
         """Rispondere "fermato" a un processo ancora vivo e' il modo in cui si
         accumulano orfani senza che nessuno se ne accorga."""
-        from core.training import jobs
+        from core.modules.sigma_training_lab.training import jobs
 
         monkeypatch.setattr(jobs, "_load_jobs", lambda: {"j1": {"id": "j1", "pid": 999}})
         monkeypatch.setattr(jobs, "_save_jobs", lambda j: None)
@@ -1661,7 +1661,7 @@ class TestProcessiSullaGpu:
         Senza risalire la catena dei processi i due numeri non si incontrano mai
         e il training risulta "esterno a Sigma", cioe' inattribuibile.
         """
-        from core.training import jobs
+        from core.modules.sigma_training_lab.training import jobs
 
         monkeypatch.setattr(jobs.gpu_layer, "probe_gpu_processes",
                             lambda: [{"pid": 36672, "cmdline": "", "gpu_index": 0,
@@ -1679,7 +1679,7 @@ class TestProcessiSullaGpu:
         assert voce["killable"]
 
     def test_un_processo_vivo_su_un_job_finito_e_un_orfano(self, monkeypatch):
-        from core.training import jobs
+        from core.modules.sigma_training_lab.training import jobs
 
         monkeypatch.setattr(jobs.gpu_layer, "probe_gpu_processes",
                             lambda: [{"pid": 500, "cmdline": "", "gpu_index": 0,
@@ -1698,7 +1698,7 @@ class TestProcessiSullaGpu:
         Liberare la GPU chiudendo il server chiuderebbe anche l'interfaccia da
         cui e' arrivata la richiesta.
         """
-        from core.training import jobs
+        from core.modules.sigma_training_lab.training import jobs
 
         nostro = os.getpid()
         monkeypatch.setattr(jobs.gpu_layer, "probe_gpu_processes",
@@ -1713,7 +1713,7 @@ class TestProcessiSullaGpu:
 
     def test_un_processo_estraneo_resta_estraneo(self, monkeypatch):
         """`--query-compute-apps` elenca anche i browser: non vanno confusi."""
-        from core.training import jobs
+        from core.modules.sigma_training_lab.training import jobs
 
         monkeypatch.setattr(jobs.gpu_layer, "probe_gpu_processes",
                             lambda: [{"pid": 777, "cmdline": "brave.exe --type=gpu-process",
@@ -1729,7 +1729,7 @@ class TestProcessiSullaGpu:
     def test_se_il_pid_registrato_e_morto_si_chiude_comunque(self, monkeypatch):
         """`stop_training_job` parte dal pid nel registro; se quello e' vecchio
         l'albero vero resta in piedi e la GPU occupata."""
-        from core.training import jobs
+        from core.modules.sigma_training_lab.training import jobs
 
         vivi = {4242}
         monkeypatch.setattr(jobs, "_catena_di_processi", lambda pid: [pid])
@@ -1754,7 +1754,7 @@ class TestProcessiSullaGpu:
         assert 4242 not in vivi
 
     def test_un_processo_che_sopravvive_viene_dichiarato_tale(self, monkeypatch):
-        from core.training import jobs
+        from core.modules.sigma_training_lab.training import jobs
 
         monkeypatch.setattr(jobs, "_catena_di_processi", lambda pid: [pid])
         monkeypatch.setattr(jobs, "_pid_alive", lambda pid, script_path="": True)
@@ -1766,7 +1766,7 @@ class TestProcessiSullaGpu:
         assert "4242" in esito["error"]
 
     def test_un_pid_inventato_non_passa(self):
-        from core.training import jobs
+        from core.modules.sigma_training_lab.training import jobs
 
         assert not jobs.terminate_gpu_process("pippo")["success"]
         assert not jobs.terminate_gpu_process(-1)["success"]
@@ -1774,7 +1774,7 @@ class TestProcessiSullaGpu:
     def test_il_compositore_del_desktop_non_si_tocca(self, monkeypatch):
         """`dwm.exe` disegna il desktop e apre un contesto sulla GPU: compariva
         nella lista con accanto un pulsante «Termina»."""
-        from core.training import jobs
+        from core.modules.sigma_training_lab.training import jobs
 
         monkeypatch.setattr(jobs.gpu_layer, "probe_gpu_processes",
                             lambda: [{"pid": 2252, "name": "dwm.exe", "cmdline": "",
@@ -1788,7 +1788,7 @@ class TestProcessiSullaGpu:
 
     def test_la_protezione_vale_anche_chiamando_l_endpoint(self, monkeypatch):
         """Nascondere il pulsante non basta: /gpu/kill accetta un pid qualunque."""
-        from core.training import jobs
+        from core.modules.sigma_training_lab.training import jobs
 
         finto_psutil = type("P", (), {
             "Process": staticmethod(lambda pid: type("X", (), {
@@ -1810,7 +1810,7 @@ class TestProcessiSullaGpu:
     def test_lo_stesso_processo_su_due_schede_e_una_riga_sola(self, monkeypatch):
         """nvidia-smi elenca un processo una volta per GPU: Sigma, che le
         interroga entrambe, compariva due volte identico."""
-        from core.training import jobs
+        from core.modules.sigma_training_lab.training import jobs
 
         monkeypatch.setattr(jobs.gpu_layer, "probe_gpu_processes", lambda: [
             {"pid": 9244, "name": "python.exe", "cmdline": "", "gpu_index": 0,
@@ -1829,7 +1829,7 @@ class TestProcessiSullaGpu:
 
     def test_due_schede_non_misurabili_restano_non_misurabili(self, monkeypatch):
         """Sommare dei `None` non deve produrre uno zero che sembra una misura."""
-        from core.training import jobs
+        from core.modules.sigma_training_lab.training import jobs
 
         monkeypatch.setattr(jobs.gpu_layer, "probe_gpu_processes", lambda: [
             {"pid": 9244, "name": "python.exe", "cmdline": "", "gpu_index": 0,
@@ -1856,7 +1856,7 @@ class TestArchitettureFatteAMano:
 
     def _esegui(self, supporta, batch=8, accum=4):
         """Esegue il pezzo di script che decide batch e accumulo."""
-        from core.training.jobs import _build_script_values
+        from core.modules.sigma_training_lab.training.jobs import _build_script_values
         values = _build_script_values(
             {"base_model": "gpt2", "method": "lora_unsloth", "dataset_id": "x/y",
              "hyperparams": {"batch_size": batch, "gradient_accumulation": accum}},
@@ -1904,7 +1904,7 @@ class TestFormatiDataset:
         import datasets as D
         from datasets import Dataset
 
-        from core.training.jobs import _build_script_values
+        from core.modules.sigma_training_lab.training.jobs import _build_script_values
 
         values = _build_script_values(
             {"base_model": "gpt2", "method": "trl_sft", "dataset_id": "x/y",
@@ -1994,7 +1994,7 @@ class TestMemoriaRealistica:
     """
 
     def _sorgente(self, method="lora_unsloth"):
-        from core.training.jobs import _build_script_values
+        from core.modules.sigma_training_lab.training.jobs import _build_script_values
         values = _build_script_values(
             {"base_model": "gpt2", "method": method, "dataset_id": "x/y",
              "hyperparams": {"max_seq_length": 1024}}, "tj", Path("unused"))
@@ -2067,7 +2067,7 @@ class TestCadenzeAllineate:
     """
 
     def _cadenze(self, esempi, method="lora_unsloth"):
-        from core.training.jobs import _build_script_values
+        from core.modules.sigma_training_lab.training.jobs import _build_script_values
 
         values = _build_script_values(
             {"base_model": "gpt2", "method": method, "dataset_id": "x/y",
@@ -2113,7 +2113,7 @@ class TestTaglioPrimaDellaFormattazione:
     """
 
     def _sorgente(self, method="trl_sft"):
-        from core.training.jobs import _build_script_values
+        from core.modules.sigma_training_lab.training.jobs import _build_script_values
         values = _build_script_values(
             {"base_model": "gpt2", "method": method, "dataset_id": "x/y",
              "hyperparams": {"max_examples": 30000}}, "tj", Path("unused"))
@@ -2148,7 +2148,7 @@ class TestFormatoCoerente:
     """
 
     def _pezzi(self):
-        from core.training.jobs import _build_script_values
+        from core.modules.sigma_training_lab.training.jobs import _build_script_values
 
         values = _build_script_values(
             {"base_model": "gpt2", "method": "trl_sft", "dataset_id": "x/y",
@@ -2216,7 +2216,7 @@ class TestFormatoCoerente:
     def test_il_tokenizer_viene_registrato_prima_del_dataset(self, method):
         """Registrarlo dopo significherebbe formattare gli esempi senza sapere
         che formato usa il modello."""
-        from core.training.jobs import _build_script_values
+        from core.modules.sigma_training_lab.training.jobs import _build_script_values
 
         values = _build_script_values(
             {"base_model": "gpt2", "method": method, "dataset_id": "x/y",
@@ -2236,7 +2236,7 @@ class TestComposizioneDataset:
     """
 
     def _funzione(self):
-        from core.training.jobs import _build_script_values
+        from core.modules.sigma_training_lab.training.jobs import _build_script_values
 
         values = _build_script_values(
             {"base_model": "gpt2", "method": "trl_sft", "dataset_id": "x/y",
@@ -2293,7 +2293,7 @@ class TestNormalizzazioneDellaPerdita:
     """
 
     def _sonda(self):
-        from core.training.jobs import _ARCH_SHIM
+        from core.modules.sigma_training_lab.training.jobs import _ARCH_SHIM
         inizio = _ARCH_SHIM.index("def normalizza_la_perdita")
         detto = []
         ns = {"sigma": lambda m: detto.append(m)}
@@ -2396,7 +2396,7 @@ class TestNormalizzazioneDellaPerdita:
 
     def test_e_agganciata_prima_di_ogni_training(self):
         """Una sonda che nessuno chiama non corregge niente."""
-        from core.training.jobs import SCRIPT_TEMPLATES
+        from core.modules.sigma_training_lab.training.jobs import SCRIPT_TEMPLATES
         for nome in ("lora_unsloth", "trl_sft"):
             corpo = SCRIPT_TEMPLATES[nome]
             assert "normalizza_la_perdita(trainer)" in corpo, nome
@@ -2411,7 +2411,7 @@ class TestAddestramentoCompleto:
     `lora_r = 0` significa niente LoRA."""
 
     def _sorgente(self, lora_r, learning_rate=2e-4):
-        from core.training.jobs import _build_script_values, SCRIPT_TEMPLATES
+        from core.modules.sigma_training_lab.training.jobs import _build_script_values, SCRIPT_TEMPLATES
         values = _build_script_values(
             {"base_model": "org/piccolo", "method": "trl_sft", "dataset_id": "x/y",
              "hyperparams": {"lora_r": lora_r, "learning_rate": learning_rate}},
@@ -2462,28 +2462,28 @@ class TestGuardiaRankZero:
     nulla — e il run arriverebbe in fondo senza aver aggiornato niente."""
 
     def test_rank_zero_sposta_il_metodo(self):
-        from core.training.jobs import metodo_effettivo
+        from core.modules.sigma_training_lab.training.jobs import metodo_effettivo
         assert metodo_effettivo("lora_unsloth", {"lora_r": 0}) == "trl_sft"
 
     def test_rank_normale_resta_dov_era(self):
-        from core.training.jobs import metodo_effettivo
+        from core.modules.sigma_training_lab.training.jobs import metodo_effettivo
         assert metodo_effettivo("lora_unsloth", {"lora_r": 16}) == "lora_unsloth"
         assert metodo_effettivo("lora_unsloth", {}) == "lora_unsloth"
 
     def test_gli_altri_metodi_non_si_toccano(self):
-        from core.training.jobs import metodo_effettivo
+        from core.modules.sigma_training_lab.training.jobs import metodo_effettivo
         for metodo in ("full_pretrain", "slm_forge", "script_custom", "trl_sft"):
             assert metodo_effettivo(metodo, {"lora_r": 0}) == metodo
 
     def test_un_rank_illeggibile_non_fa_esplodere_la_creazione(self):
-        from core.training.jobs import metodo_effettivo
+        from core.modules.sigma_training_lab.training.jobs import metodo_effettivo
         assert metodo_effettivo("lora_unsloth", {"lora_r": "boh"}) == "lora_unsloth"
         assert metodo_effettivo("lora_unsloth", {"lora_r": None}) == "lora_unsloth"
 
     def test_il_job_creato_riceve_davvero_lo_script_giusto(self):
         """Il guardrail deve valere anche per chi crea job dalle API o
         dall'autopilota, che l'interfaccia non la attraversano."""
-        from core.training.jobs import _build_script_values, SCRIPT_TEMPLATES
+        from core.modules.sigma_training_lab.training.jobs import _build_script_values, SCRIPT_TEMPLATES
         values = _build_script_values(
             {"base_model": "org/piccolo", "method": "lora_unsloth", "dataset_id": "x/y",
              "hyperparams": {"lora_r": 0}}, "tj", Path("unused"))

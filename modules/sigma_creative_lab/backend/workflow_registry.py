@@ -283,7 +283,7 @@ def finalize_params(defaults: dict, params: dict) -> dict:
     Due normalizzazioni non possono vivere nel grafo, che è dati puri: il seed
     casuale (`-1`) e i nomi di sampler in stile A1111, che ComfyUI rifiuta.
     """
-    from core.creative.generators.adapters.comfy_workflows import SAMPLER_ALIASES
+    from core.modules.sigma_creative_lab.generators.adapters.comfy_workflows import SAMPLER_ALIASES
 
     values = dict(defaults or {})
     values.update({k: v for k, v in (params or {}).items() if v is not None})
@@ -334,7 +334,7 @@ def _guess_capability(stem: str) -> str:
 
 def builtin_manifests() -> list[WorkflowManifest]:
     """Workflow forniti da Sigma, esposti come voci normali del registro."""
-    from core.creative.generators.adapters import comfy_workflows as cw
+    from core.modules.sigma_creative_lab.generators.adapters import comfy_workflows as cw
 
     common = {
         "negative_prompt": "", "width": 1024, "height": 1024, "steps": 30,

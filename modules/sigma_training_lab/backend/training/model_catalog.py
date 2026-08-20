@@ -88,7 +88,7 @@ def _twin_of(indice: dict, nome: str) -> dict:
 def _ollama_index() -> dict:
     """Tag Ollama installati, indicizzati per impronta."""
     try:
-        from core.training.benchmarks import get_available_models_for_benchmark
+        from core.modules.sigma_training_lab.training.benchmarks import get_available_models_for_benchmark
         return {_fingerprint(m["id"]): m for m in get_available_models_for_benchmark()}
     except Exception as err:
         log.debug("Elenco Ollama non disponibile: %s", err)
@@ -195,7 +195,7 @@ def _job_models(ollama: dict) -> list:
     """I modelli che abbiamo prodotto noi: il punto di partenza più naturale."""
     out = []
     try:
-        from core.training.jobs import list_training_jobs
+        from core.modules.sigma_training_lab.training.jobs import list_training_jobs
         jobs = list_training_jobs().get("jobs", [])
     except Exception as err:
         log.debug("Elenco job non disponibile: %s", err)
@@ -294,7 +294,7 @@ def local_models() -> dict:
     # Fetch autopilot cycle history and benchmark scores for accuracy & timestamps
     cycles_map = {}
     try:
-        from core.training.autopilot import known_cycles
+        from core.modules.sigma_training_lab.training.autopilot import known_cycles
         for c in known_cycles():
             fp = _fingerprint(c["model"])
             if fp:
@@ -513,7 +513,7 @@ def pull_to_ollama(model: str) -> dict:
                     "error": f"C'è già un download in corso ({_pull_state['model']})."}
         _pull_state.update(running=True, model=model, status="avvio",
                            percent=0.0, error="", done=False)
-    from core.training.benchmarks import OLLAMA_URL
+    from core.modules.sigma_training_lab.training.benchmarks import OLLAMA_URL
     threading.Thread(target=_pull_worker, args=(model, OLLAMA_URL),
                      daemon=True, name="ollama-pull").start()
     return {"success": True, "message": f"Download di {model} avviato.", "model": model}
@@ -718,8 +718,8 @@ def prepare_trainable_weights(repo_id: str) -> str:
 
 
 def _import_worker(repo_id: str, model_name: str, quantization: str):
-    from core.training.benchmarks import OLLAMA_URL
-    from core.training.jobs import register_ollama_model
+    from core.modules.sigma_training_lab.training.benchmarks import OLLAMA_URL
+    from core.modules.sigma_training_lab.training.jobs import register_ollama_model
 
     try:
         if _has_gguf(repo_id):

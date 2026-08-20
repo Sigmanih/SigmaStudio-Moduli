@@ -15,7 +15,7 @@ Two caveats are surfaced to the UI rather than hidden:
 import importlib.util
 import os
 
-from core.tts.base import TTSEngine
+from core.modules.sigma_voice_studio.tts.base import TTSEngine
 
 MODEL_NAME = "tts_models/multilingual/multi-dataset/xtts_v2"
 

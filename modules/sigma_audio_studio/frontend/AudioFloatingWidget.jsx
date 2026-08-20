@@ -6,7 +6,8 @@
 import React, { useState } from 'react';
 import { 
   Play, Pause, SkipForward, SkipBack, Volume2, VolumeX, 
-  Heart, Music, Sparkles, Radio, ExternalLink, ChevronUp, ChevronDown, 
+  Heart, Music, Sparkles, Radio, ExternalLink, ChevronUp, ChevronDown, X
+} from 'lucide-react';
 import { useMusic } from './AudioContext';
 
 export default function AudioFloatingWidget({ onOpenTab, theme: propTheme }) {

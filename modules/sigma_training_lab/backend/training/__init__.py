@@ -4,7 +4,7 @@
 Exports all dataset, hardware, and job management functions for LLM training.
 """
 
-from core.training.datasets import (  # noqa: F401
+from core.modules.sigma_training_lab.training.datasets import (  # noqa: F401
     FEATURED_DATASETS,
     get_featured_datasets,
     search_hf_datasets,
@@ -15,7 +15,7 @@ from core.training.datasets import (  # noqa: F401
     list_datasets,
     delete_dataset,
 )
-from core.training.hardware import (  # noqa: F401
+from core.modules.sigma_training_lab.training.hardware import (  # noqa: F401
     _check_torch_cuda,
     _query_nvidia_smi,
     _query_rocm_smi,
@@ -26,7 +26,7 @@ from core.training.hardware import (  # noqa: F401
     get_autotune,
     restart_ollama_service,
 )
-from core.training.fwe import (  # noqa: F401
+from core.modules.sigma_training_lab.training.fwe import (  # noqa: F401
     FWE_TARGETS,
     FWE_DATASETS,
     fwe_available,
@@ -35,7 +35,7 @@ from core.training.fwe import (  # noqa: F401
     list_fwe_runs,
     run_engine_selftest,
 )
-from core.training.jobs import (  # noqa: F401
+from core.modules.sigma_training_lab.training.jobs import (  # noqa: F401
     JOBS_DIR,
     SCRIPTS_DIR,
     JOBS_FILE,

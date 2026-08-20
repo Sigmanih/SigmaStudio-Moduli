@@ -150,7 +150,7 @@ def cuda_devices() -> list[dict]:
     # Nessuna NVIDIA (o nvidia-smi assente): si ripiega sull'inventario generale,
     # tenendo solo i backend che Ollama sfrutta per l'inferenza.
     try:
-        from core.training_handler import get_hardware_info
+        from core.modules.sigma_training_lab.training_handler import  get_hardware_info
         hardware = get_hardware_info().get("hardware", {})
     except Exception as err:
         log.debug("Informazioni hardware non disponibili: %s", err)
@@ -171,7 +171,7 @@ def _gpu_snapshot() -> dict:
     gpus = cuda_devices()
     ram_free = 0.0
     try:
-        from core.training_handler import get_hardware_info
+        from core.modules.sigma_training_lab.training_handler import  get_hardware_info
         ram_free = round(get_hardware_info().get("hardware", {}).get("ram", {}).get("free_gb", 0), 2)
     except Exception:
         pass
@@ -241,7 +241,7 @@ def estimate_capacity(model: str) -> dict:
     differenza fra i due numeri e' esattamente cio' che si guadagna aggiungendone
     uno, ed e' il motivo per cui `idle_gpus` viene riportato.
     """
-    from core.training.endpoints import active_endpoints
+    from core.modules.sigma_training_lab.training.endpoints import active_endpoints
 
     snapshot = _gpu_snapshot()
     size_gb = _model_size_gb(model)
@@ -404,7 +404,7 @@ def probe_parallel_capacity(model: str, levels=None, timeout: int = 180,
     consiglio finale e' il livello piu' alto che mantiene un'efficienza
     accettabile: oltre, si aggiunge attesa senza aggiungere lavoro svolto.
     """
-    from core.training.endpoints import healthy_urls
+    from core.modules.sigma_training_lab.training.endpoints import healthy_urls
 
     estimate = estimate_capacity(model)
     levels = sorted({int(n) for n in (levels or adaptive_levels(estimate)) if int(n) >= 1})

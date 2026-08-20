@@ -2,9 +2,9 @@ import io
 
 import pytest
 
-from core.creative.asset_graph import AssetGraph
-from core.creative.model_router import ModelRouter
-from core.creative.three_d.blender_bridge import BlenderBridge
+from core.modules.sigma_creative_lab.asset_graph import AssetGraph
+from core.modules.sigma_creative_lab.model_router import ModelRouter
+from core.modules.sigma_creative_lab.three_d.blender_bridge import BlenderBridge
 
 
 def make_png(size=(64, 64), color=(120, 60, 200)) -> bytes:
@@ -31,7 +31,7 @@ class FakeImageAdapter:
 
     async def upscale(self, image_bytes, params):
         self.calls.append(("upscale", params))
-        from core.creative.generators.adapters.pollinations_adapter import PollinationsAdapter
+        from core.modules.sigma_creative_lab.generators.adapters.pollinations_adapter import PollinationsAdapter
         return await PollinationsAdapter().upscale(image_bytes, params)
 
 
@@ -55,7 +55,7 @@ def fake_adapter():
 
 @pytest.fixture
 def generator(graph, router, fake_adapter):
-    from core.creative.generators.image_generator import ImageGenerator
+    from core.modules.sigma_creative_lab.generators.image_generator import ImageGenerator
     gen = ImageGenerator(router, graph)
     gen._get_adapter = lambda name: fake_adapter
     return gen

@@ -13,7 +13,7 @@ import TrainingStudio from './TrainingStudio';
 import AutopilotStudio from './AutopilotStudio';
 import TrainingBenchmark from './TrainingBenchmark';
 import SlmForge from './SlmForge';
-import '../../styles/training-lab.css';
+import './styles/training-lab.css';
 
 // ==============================================================================
 // TRAINING LAB — Sigma Studio v7.0

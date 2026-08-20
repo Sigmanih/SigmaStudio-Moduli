@@ -40,10 +40,12 @@ def register_routes(app=None) -> None:
         from core.fastapi_app import FastAPIHandlerAdapter
         for path, fn in get_routes.items():
             setattr(FastAPIHandlerAdapter, fn.__name__, fn)
-            FastAPIHandlerAdapter._GET_HANDLERS[path] = fn.__name__
+            if hasattr(FastAPIHandlerAdapter, '_GET_HANDLERS') and isinstance(FastAPIHandlerAdapter._GET_HANDLERS, dict):
+                FastAPIHandlerAdapter._GET_HANDLERS[path] = fn.__name__
         for path, fn in post_routes.items():
             setattr(FastAPIHandlerAdapter, fn.__name__, fn)
-            FastAPIHandlerAdapter._POST_HANDLERS[path] = fn.__name__
+            if hasattr(FastAPIHandlerAdapter, '_POST_HANDLERS') and isinstance(FastAPIHandlerAdapter._POST_HANDLERS, dict):
+                FastAPIHandlerAdapter._POST_HANDLERS[path] = fn.__name__
         log.info('[sigma_hardware_lab] Route Hardware collegate a FastAPIHandlerAdapter.')
     except Exception as e:
         log.warning(f'[sigma_hardware_lab] Avviso binding FastAPIHandlerAdapter: {e}')

@@ -165,7 +165,7 @@ def build_inventory(filesystem: dict, runtime: dict | None, backend: str = "comf
     INSTALLED: è la distinzione che mancava.
     """
     tracker = tracker or runtime_tracker
-    from core.creative.model_registry import MODELS
+    from core.modules.sigma_creative_lab.model_registry import MODELS
 
     # filename dichiarato dal registro -> voce del registro
     by_filename = {}

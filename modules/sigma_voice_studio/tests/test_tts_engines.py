@@ -19,10 +19,10 @@ import pytest
 from fastapi.testclient import TestClient
 
 from core.fastapi_app import app
-from core.tts import registry
-from core.tts.base import TTSEngine, pcm_to_wav
-from core.tts.kokoro_engine import KokoroEngine
-from core.tts.xtts_engine import XttsEngine
+from core.modules.sigma_voice_studio.tts import registry
+from core.modules.sigma_voice_studio.tts.base import TTSEngine, pcm_to_wav
+from core.modules.sigma_voice_studio.tts.kokoro_engine import KokoroEngine
+from core.modules.sigma_voice_studio.tts.xtts_engine import XttsEngine
 
 
 class _StubEngine(TTSEngine):

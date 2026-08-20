@@ -24,7 +24,7 @@ import sys
 import tempfile
 
 from core.logger import get_logger
-from core.training.answer_parser import extract_python_code
+from core.modules.sigma_training_lab.training.answer_parser import extract_python_code
 
 log = get_logger(__name__)
 

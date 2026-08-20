@@ -3,7 +3,7 @@ import time
 import aiohttp
 
 from core.logger import get_logger
-from core.creative.model_registry import select_model, set_comfy_inventory
+from core.modules.sigma_creative_lab.model_registry import select_model, set_comfy_inventory
 
 log = get_logger("creative_model_router")
 
@@ -132,7 +132,7 @@ class ModelRouter:
             if not available:
                 # Auto-detect: se Blender è installato nei percorsi standard il
                 # backend è utilizzabile anche senza path esplicito in config.
-                from core.creative.three_d.blender_bridge import BlenderBridge
+                from core.modules.sigma_creative_lab.three_d.blender_bridge import BlenderBridge
                 detected = BlenderBridge()._find_blender()
                 available = bool(detected)
                 url = detected or url
@@ -220,8 +220,8 @@ class ModelRouter:
             set_comfy_inventory(None)
             return None
         try:
-            from core.creative.generators.adapters.comfy_workflows import DEFAULT_CHECKPOINTS
-            from core.creative.generators.adapters.comfyui_adapter import ComfyUIAdapter
+            from core.modules.sigma_creative_lab.generators.adapters.comfy_workflows import DEFAULT_CHECKPOINTS
+            from core.modules.sigma_creative_lab.generators.adapters.comfyui_adapter import ComfyUIAdapter
             inventory = await ComfyUIAdapter(base_url=url, config=cfg).discover()
         except Exception as e:
             log.debug(f"Inventario ComfyUI non disponibile: {e}")
@@ -272,7 +272,7 @@ class ModelRouter:
 
         # Il registro conosce questo task ma nessun modello è eseguibile: proporre
         # comunque un backend porterebbe a un fallimento annunciato.
-        from core.creative.model_registry import models_for_task
+        from core.modules.sigma_creative_lab.model_registry import models_for_task
         if models_for_task(task.task_type):
             return None, None
 

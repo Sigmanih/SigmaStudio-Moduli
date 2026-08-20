@@ -90,7 +90,7 @@ class TrainingMCPServer(BaseMCPServer):
 
     def _handle_import_dataset(self, dataset_name: str = "sample_dataset", data_path: str = "training/datasets/sample.jsonl", **kwargs):
         try:
-            from core.training.datasets import import_dataset_from_path
+            from core.modules.sigma_training_lab.training.datasets import import_dataset_from_path
             name = dataset_name or "sample_dataset"
             path = data_path or kwargs.get("query") or "training/datasets/sample.jsonl"
             res = import_dataset_from_path(name, path)
@@ -100,7 +100,7 @@ class TrainingMCPServer(BaseMCPServer):
 
     def _handle_start_lora_training(self, job_name: str = "job_sample", base_model: str = "llama3.2", dataset_id: str = "sample_dataset", epochs: int = 3, **kwargs):
         try:
-            from core.training.jobs import create_training_job, start_training_job
+            from core.modules.sigma_training_lab.training.jobs import create_training_job, start_training_job
             j_name = job_name or "job_sample"
             b_model = base_model or "llama3.2"
             d_id = dataset_id or "sample_dataset"
@@ -112,7 +112,7 @@ class TrainingMCPServer(BaseMCPServer):
 
     def _handle_export_ollama_model(self, checkpoint_id: str = "ckpt_sample", target_model_name: str = "sigma-lora", **kwargs):
         try:
-            from core.training.jobs import export_to_ollama
+            from core.modules.sigma_training_lab.training.jobs import export_to_ollama
             ckpt = checkpoint_id or "ckpt_sample"
             target = target_model_name or kwargs.get("query") or "sigma-lora"
             res = export_to_ollama(ckpt, target)
@@ -122,14 +122,14 @@ class TrainingMCPServer(BaseMCPServer):
 
     def _read_datasets_list(self, uri: str):
         try:
-            from core.training.datasets import list_imported_datasets
+            from core.modules.sigma_training_lab.training.datasets import list_imported_datasets
             return list_imported_datasets()
         except Exception as exc:
             return {"datasets": [], "error": str(exc)}
 
     def _read_active_jobs(self, uri: str):
         try:
-            from core.training.jobs import list_training_jobs
+            from core.modules.sigma_training_lab.training.jobs import list_training_jobs
             return list_training_jobs()
         except Exception as exc:
             return {"jobs": [], "error": str(exc)}

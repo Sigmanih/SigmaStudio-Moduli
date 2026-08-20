@@ -18,8 +18,8 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from core.training import autopilot
-from core.training.autopilot import (
+from core.modules.sigma_training_lab.training import autopilot
+from core.modules.sigma_training_lab.training.autopilot import (
     ALPHA, CEILING, MIN_ITEMS_PER_SUITE, SKILL_MAP,
     compare, discardable_artifacts, mcnemar_p, pick_targets,
 )
@@ -411,7 +411,7 @@ def test_la_firma_vera_del_benchmark_non_promette_success():
     import ast
     import inspect
 
-    from core.training.benchmarks import start_benchmark_run
+    from core.modules.sigma_training_lab.training.benchmarks import start_benchmark_run
 
     sorgente = inspect.getsource(start_benchmark_run)
     chiavi = set()

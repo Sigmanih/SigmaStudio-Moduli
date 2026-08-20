@@ -3,7 +3,7 @@ import os
 import sqlite3
 import shutil
 from pathlib import Path
-from core.creative.asset_graph import AssetGraph, AssetType, Asset
+from core.modules.sigma_creative_lab.asset_graph import AssetGraph, AssetType, Asset
 
 @pytest.fixture
 def asset_graph(tmp_path):

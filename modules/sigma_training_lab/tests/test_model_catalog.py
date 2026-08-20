@@ -18,7 +18,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from core.training import model_catalog as mc
+from core.modules.sigma_training_lab.training import model_catalog as mc
 
 
 # ==============================================================================

@@ -2,27 +2,27 @@ import json
 import asyncio
 from urllib.parse import parse_qs, urlparse
 from core.logger import get_logger
-from core.creative import AssetGraph, ModelRouter
-from core.creative.params import normalize_params
-from core.creative.generators.image_generator import ImageGenerator
-from core.creative.editors.image_editor import ImageEditor
-from core.creative.three_d.model_generator import ModelGenerator3D
-from core.creative.three_d.blender_bridge import BlenderBridge
-from core.creative.three_d.render_service import SceneRenderer
-from core.creative.mesh.mesh_processor import MeshProcessor
-from core.creative.materials.texture_generator import TextureGenerator
-from core.creative.materials.material_system import MaterialSystem
-from core.creative.pipeline.creative_pipeline_engine import CreativePipelineEngine
-from core.creative.video.video_generator import VideoGenerator
-from core.creative.agents.creative_agents import CREATIVE_AGENTS, register_creative_agents
-from core.creative.agents.vision_agent import VisionAgent
-from core.creative.model_registry import catalog as model_catalog, available_vram_gb
-from core.creative.generators.adapters.comfyui_adapter import ComfyUIAdapter
-from core.creative import model_hub
-from core.creative.backends import get_backend
-from core.creative.model_state import build_inventory, runtime_tracker
-from core.creative.workflow_registry import registry as workflow_registry
-from core.creative.model_downloader import (
+from core.modules.sigma_creative_lab import  AssetGraph, ModelRouter
+from core.modules.sigma_creative_lab.params import normalize_params
+from core.modules.sigma_creative_lab.generators.image_generator import ImageGenerator
+from core.modules.sigma_creative_lab.editors.image_editor import ImageEditor
+from core.modules.sigma_creative_lab.three_d.model_generator import ModelGenerator3D
+from core.modules.sigma_creative_lab.three_d.blender_bridge import BlenderBridge
+from core.modules.sigma_creative_lab.three_d.render_service import SceneRenderer
+from core.modules.sigma_creative_lab.mesh.mesh_processor import MeshProcessor
+from core.modules.sigma_creative_lab.materials.texture_generator import TextureGenerator
+from core.modules.sigma_creative_lab.materials.material_system import MaterialSystem
+from core.modules.sigma_creative_lab.pipeline.creative_pipeline_engine import CreativePipelineEngine
+from core.modules.sigma_creative_lab.video.video_generator import VideoGenerator
+from core.modules.sigma_creative_lab.agents.creative_agents import CREATIVE_AGENTS, register_creative_agents
+from core.modules.sigma_creative_lab.agents.vision_agent import VisionAgent
+from core.modules.sigma_creative_lab.model_registry import catalog as model_catalog, available_vram_gb
+from core.modules.sigma_creative_lab.generators.adapters.comfyui_adapter import ComfyUIAdapter
+from core.modules.sigma_creative_lab import  model_hub
+from core.modules.sigma_creative_lab.backends import get_backend
+from core.modules.sigma_creative_lab.model_state import build_inventory, runtime_tracker
+from core.modules.sigma_creative_lab.workflow_registry import registry as workflow_registry
+from core.modules.sigma_creative_lab.model_downloader import (
     CATALOG as DOWNLOAD_CATALOG, CATALOG_BY_ID, custom_asset, discover_models_root,
     disk_free_gb, download_manager, installed_by_category, installed_state,
 )
@@ -718,7 +718,7 @@ def handle_creative_workflows(self):
     try:
         root = _models_root()
         cfg = model_router.get_config().get("backends", {}).get("comfyui", {})
-        from core.creative.generators.adapters.comfy_workflows import DEFAULT_CHECKPOINTS
+        from core.modules.sigma_creative_lab.generators.adapters.comfy_workflows import DEFAULT_CHECKPOINTS
         checkpoints = {**DEFAULT_CHECKPOINTS, **(cfg.get("checkpoints") or {})}
 
         entries = workflow_registry.status(

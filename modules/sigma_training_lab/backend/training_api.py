@@ -25,7 +25,7 @@ import os
 from urllib.parse import urlparse, parse_qs
 
 from core.logger import get_logger
-from core.training_handler import (
+from core.modules.sigma_training_lab.training_handler import  (
     # dataset
     search_hf_datasets, import_local_dataset, register_hf_dataset,
     list_datasets, delete_dataset, get_featured_datasets,
@@ -217,23 +217,23 @@ def handle_training_export_ollama(self):
 
 
 def handle_training_models_local(self):
-    from core.training.model_catalog import local_models
+    from core.modules.sigma_training_lab.training.model_catalog import local_models
     self.send_json_response(local_models())
 
 
 def handle_training_models_search(self):
-    from core.training.model_catalog import search_hf_models
+    from core.modules.sigma_training_lab.training.model_catalog import search_hf_models
     query = _query(self, "q") or _query(self, "query") or ""
     self.send_json_response(search_hf_models(query, limit=_query_int(self, "limit", 25)))
 
 
 def handle_training_models_pull_status(self):
-    from core.training.model_catalog import pull_status
+    from core.modules.sigma_training_lab.training.model_catalog import pull_status
     self.send_json_response(pull_status())
 
 
 def handle_training_models_import(self):
-    from core.training.model_catalog import import_hf_model
+    from core.modules.sigma_training_lab.training.model_catalog import import_hf_model
     body = self.read_json_body()
     self.send_json_response(import_hf_model(
         body.get("model", ""), body.get("name", ""),
@@ -241,17 +241,17 @@ def handle_training_models_import(self):
 
 
 def handle_training_models_pull(self):
-    from core.training.model_catalog import pull_to_ollama
+    from core.modules.sigma_training_lab.training.model_catalog import pull_to_ollama
     self.send_json_response(pull_to_ollama(self.read_json_body().get("model", "")))
 
 
 def handle_training_autopilot_status(self):
-    from core.training.autopilot import status
+    from core.modules.sigma_training_lab.training.autopilot import status
     self.send_json_response(status(_query(self, "model") or ""))
 
 
 def handle_training_autopilot_start(self):
-    from core.training.autopilot import DEFAULT_ITEMS, start
+    from core.modules.sigma_training_lab.training.autopilot import DEFAULT_ITEMS, start
     body = self.read_json_body()
     self.send_json_response(start(
         body.get("base_model", ""),
@@ -263,28 +263,28 @@ def handle_training_autopilot_start(self):
 
 
 def handle_training_autopilot_stop(self):
-    from core.training.autopilot import request_stop
+    from core.modules.sigma_training_lab.training.autopilot import request_stop
     self.send_json_response(request_stop(self.read_json_body().get("model", "")))
 
 
 def handle_training_autopilot_reopen(self):
-    from core.training.autopilot import reopen_targets
+    from core.modules.sigma_training_lab.training.autopilot import reopen_targets
     self.send_json_response(reopen_targets(self.read_json_body().get("model", "")))
 
 
 def handle_training_autopilot_drop_rounds(self):
-    from core.training.autopilot import drop_rounds
+    from core.modules.sigma_training_lab.training.autopilot import drop_rounds
     body = self.read_json_body()
     self.send_json_response(drop_rounds(body.get("model", ""), int(body.get("quanti") or 0)))
 
 
 def handle_training_autopilot_reset(self):
-    from core.training.autopilot import reset
+    from core.modules.sigma_training_lab.training.autopilot import reset
     self.send_json_response(reset(self.read_json_body().get("model", "")))
 
 
 def handle_training_autopilot_cleanup(self):
-    from core.training.autopilot import cleanup, load_state, save_state
+    from core.modules.sigma_training_lab.training.autopilot import cleanup, load_state, save_state
     state = load_state()
     result = cleanup(state, dry_run=bool(self.read_json_body().get("dry_run")))
     save_state(state)
@@ -293,7 +293,7 @@ def handle_training_autopilot_cleanup(self):
 
 def handle_training_identity(self):
     """Il system prompt con cui esce un modello di Sigma Studio."""
-    from core.training.identity import (SIGMA_CREATOR, SIGMA_NAME, SIGMA_PRODUCT,
+    from core.modules.sigma_training_lab.training.identity import (SIGMA_CREATOR, SIGMA_NAME, SIGMA_PRODUCT,
                                         default_system_prompt)
     self.send_json_response({
         "success": True, "name": SIGMA_NAME, "creator": SIGMA_CREATOR,
@@ -509,19 +509,19 @@ def handle_training_benchmark_models(self):
     distinguere "nessun modello installato" da "Ollama non raggiungibile": prima
     entrambi i casi arrivavano come lista vuota.
     """
-    from core.training.benchmarks import get_benchmark_models_payload
+    from core.modules.sigma_training_lab.training.benchmarks import get_benchmark_models_payload
     self.send_json_response(get_benchmark_models_payload())
 
 
 def handle_training_benchmark_jobs(self):
     """Elenco job con sole metriche aggregate, senza il dettaglio dei quesiti."""
-    from core.training.benchmarks import list_benchmark_jobs
+    from core.modules.sigma_training_lab.training.benchmarks import list_benchmark_jobs
     self.send_json_response(list_benchmark_jobs())
 
 
 def handle_training_benchmark_results(self):
     """Pagina di esiti di un job, filtrabile per verdetto, suite e testo."""
-    from core.training.benchmarks import get_job_detail
+    from core.modules.sigma_training_lab.training.benchmarks import get_job_detail
     self.send_json_response(get_job_detail(
         job_id=_job_id(self),
         page=_query_int(self, "page", 1),
@@ -534,7 +534,7 @@ def handle_training_benchmark_results(self):
 
 def handle_training_benchmark_audit(self):
     """Verifica dei verdetti di un run: falsi positivi e falsi negativi."""
-    from core.training.benchmarks import audit_benchmark_job
+    from core.modules.sigma_training_lab.training.benchmarks import audit_benchmark_job
     self.send_json_response(audit_benchmark_job(
         _query(self, "id") or _query(self, "job_id")
         or self.read_json_body().get("id", "")))
@@ -542,7 +542,7 @@ def handle_training_benchmark_audit(self):
 
 def handle_training_benchmark_review(self):
     """Quesiti da valutare a parte: risposta duplice, illeggibile o in errore."""
-    from core.training.benchmarks import get_review_queue
+    from core.modules.sigma_training_lab.training.benchmarks import get_review_queue
     self.send_json_response(get_review_queue(_job_id(self)))
 
 
@@ -550,7 +550,7 @@ def handle_training_benchmark_review(self):
 
 def handle_training_benchmark_capacity(self):
     """Quante richieste in parallelo regge un modello: stima e ultima misura."""
-    from core.training.capacity import estimate_capacity, get_profile
+    from core.modules.sigma_training_lab.training.capacity import estimate_capacity, get_profile
     model = _query(self, "model")
     if not model:
         return self.send_json_response({"success": False, "error": "Parametro 'model' mancante"}, 400)
@@ -564,7 +564,7 @@ def handle_training_benchmark_capacity(self):
 
 def handle_training_benchmark_capacity_probe(self):
     """Avvia la misura empirica della concorrenza utile per un modello."""
-    from core.training.capacity import DEFAULT_LEVELS, start_capacity_probe
+    from core.modules.sigma_training_lab.training.capacity import DEFAULT_LEVELS, start_capacity_probe
     body = self.read_json_body()
     model = body.get("model", "")
     if not model:
@@ -575,7 +575,7 @@ def handle_training_benchmark_capacity_probe(self):
 
 def handle_training_benchmark_capacity_status(self):
     """Stato di una misura di capacita' in corso."""
-    from core.training.capacity import get_probe_status
+    from core.modules.sigma_training_lab.training.capacity import get_probe_status
     self.send_json_response(get_probe_status(_query(self, "probe_id")))
 
 
@@ -583,8 +583,8 @@ def handle_training_benchmark_capacity_status(self):
 
 def handle_training_benchmark_endpoints(self):
     """Servitori Ollama nel pool, GPU disponibili e comandi per aggiungerne."""
-    from core.training.capacity import cuda_devices
-    from core.training.endpoints import active_endpoints, free_port, instance_command, managed_instances
+    from core.modules.sigma_training_lab.training.capacity import cuda_devices
+    from core.modules.sigma_training_lab.training.endpoints import active_endpoints, free_port, instance_command, managed_instances
 
     endpoints = active_endpoints()
     bound = {e.get("gpu_index") if e.get("gpu_index") is not None else 0
@@ -614,8 +614,8 @@ def handle_training_benchmark_endpoints(self):
 
 def handle_training_benchmark_endpoint_start(self):
     """Avvia un servitore Ollama legato a una GPU e lo aggiunge al pool."""
-    from core.training.capacity import cuda_devices
-    from core.training.endpoints import start_instance
+    from core.modules.sigma_training_lab.training.capacity import cuda_devices
+    from core.modules.sigma_training_lab.training.endpoints import start_instance
 
     body = self.read_json_body()
     if body.get("gpu_index") is None:
@@ -631,7 +631,7 @@ def handle_training_benchmark_endpoint_start(self):
 
 
 def handle_training_benchmark_endpoint_stop(self):
-    from core.training.endpoints import stop_instance
+    from core.modules.sigma_training_lab.training.endpoints import stop_instance
     port = self.read_json_body().get("port")
     if not port:
         return self.send_json_response({"success": False, "error": "Parametro 'port' mancante"}, 400)
@@ -640,19 +640,19 @@ def handle_training_benchmark_endpoint_stop(self):
 
 def handle_training_benchmark_endpoint_add(self):
     """Registra un endpoint esterno (altra macchina, servizio già avviato)."""
-    from core.training.endpoints import add_endpoint
+    from core.modules.sigma_training_lab.training.endpoints import add_endpoint
     body = self.read_json_body()
     self.send_json_response(add_endpoint(
         body.get("url", ""), body.get("gpu_index"), body.get("label", "")))
 
 
 def handle_training_benchmark_endpoint_remove(self):
-    from core.training.endpoints import remove_endpoint
+    from core.modules.sigma_training_lab.training.endpoints import remove_endpoint
     self.send_json_response(remove_endpoint(self.read_json_body().get("url", "")))
 
 
 def handle_training_benchmark_run(self):
-    from core.training.benchmarks import start_benchmark_run
+    from core.modules.sigma_training_lab.training.benchmarks import start_benchmark_run
     body = self.read_json_body()
     job = start_benchmark_run(
         model_name=body.get("model", "qwen2.5-coder:14b"),
@@ -667,25 +667,25 @@ def handle_training_benchmark_run(self):
 
 
 def handle_training_benchmark_delete(self):
-    from core.training.benchmarks import delete_benchmark_job
+    from core.modules.sigma_training_lab.training.benchmarks import delete_benchmark_job
     ok = delete_benchmark_job(self.read_json_body().get("id", ""))
     self.send_json_response({"success": ok})
 
 
 def handle_training_benchmark_cancel(self):
-    from core.training.benchmarks import cancel_benchmark_job
+    from core.modules.sigma_training_lab.training.benchmarks import cancel_benchmark_job
     ok = cancel_benchmark_job(self.read_json_body().get("id", ""))
     self.send_json_response({"success": ok})
 
 
 def handle_training_benchmark_pause(self):
-    from core.training.benchmarks import pause_benchmark_job
+    from core.modules.sigma_training_lab.training.benchmarks import pause_benchmark_job
     ok = pause_benchmark_job(self.read_json_body().get("id", ""))
     self.send_json_response({"success": ok})
 
 
 def handle_training_benchmark_resume(self):
-    from core.training.benchmarks import resume_benchmark_job
+    from core.modules.sigma_training_lab.training.benchmarks import resume_benchmark_job
     ok = resume_benchmark_job(self.read_json_body().get("id", ""))
     self.send_json_response({"success": ok})
 
@@ -693,12 +693,12 @@ def handle_training_benchmark_resume(self):
 # ---------------------------------------------------------------- registration
 
 def handle_training_benchmark_suite_info(self):
-    from core.training.benchmarks import get_suite_info
+    from core.modules.sigma_training_lab.training.benchmarks import get_suite_info
     self.send_json_response(get_suite_info(_query(self, "suite", "all") or "all"))
 
 
 def handle_training_benchmark_download(self):
-    from core.training.benchmarks import download_suite
+    from core.modules.sigma_training_lab.training.benchmarks import download_suite
     self.send_json_response(download_suite(self.read_json_body().get("suite", "all")))
 
 

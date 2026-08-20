@@ -4,8 +4,8 @@ import json
 import pytest
 
 from core.creative import model_registry as reg
-from core.creative.generators.adapters import comfy_workflows as cw
-from core.creative.model_router import CreativeTask, ModelRouter
+from core.modules.sigma_creative_lab.generators.adapters import comfy_workflows as cw
+from core.modules.sigma_creative_lab.model_router import CreativeTask, ModelRouter
 
 
 @pytest.fixture(autouse=True)
@@ -15,7 +15,7 @@ def no_user_workflows(tmp_path, monkeypatch):
     Il registro è ora l'unica fonte di verità: si punta la sua directory su una
     cartella temporanea e si invalida la cache prima e dopo ogni test.
     """
-    from core.creative.workflow_registry import registry
+    from core.modules.sigma_creative_lab.workflow_registry import registry
 
     directory = tmp_path / "workflows"
     monkeypatch.setattr(cw, "WORKFLOW_DIR", directory)
@@ -28,7 +28,7 @@ def no_user_workflows(tmp_path, monkeypatch):
 
 def _write_workflow(directory, workflow_id: str, capability: str):
     """Simula un workflow esportato dall'utente e registrato in Sigma."""
-    from core.creative.workflow_registry import registry
+    from core.modules.sigma_creative_lab.workflow_registry import registry
 
     directory.mkdir(parents=True, exist_ok=True)
     (directory / f"{workflow_id}.json").write_text(json.dumps({
@@ -249,7 +249,7 @@ def test_checkpoint_key_risolve_la_famiglia_di_pesi():
 
 def test_options_legge_entrambi_gli_schemi_comfyui():
     """ComfyUI 0.31 ha cambiato formato: leggerne uno solo nasconde i modelli."""
-    from core.creative.generators.adapters.comfyui_adapter import ComfyUIAdapter
+    from core.modules.sigma_creative_lab.generators.adapters.comfyui_adapter import ComfyUIAdapter
 
     storico = {"input": {"required": {"ckpt_name": [["a.safetensors", "b.safetensors"], {"tooltip": "x"}]}}}
     nuovo = {"input": {"required": {"model_name": ["COMBO", {"multiselect": False,
@@ -297,7 +297,7 @@ def test_vram_e_capacita_non_memoria_libera(monkeypatch):
 # ----------------------------------------------- validazione download esterni
 
 def test_download_esterno_rifiuta_cartelle_e_percorsi_arbitrari():
-    from core.creative.model_downloader import custom_asset
+    from core.modules.sigma_creative_lab.model_downloader import custom_asset
 
     valido = custom_asset({"folder": "loras", "filename": "stile.safetensors",
                            "url": "https://civitai.com/api/download/models/1", "source": "civitai"})
@@ -312,7 +312,7 @@ def test_download_esterno_rifiuta_cartelle_e_percorsi_arbitrari():
 
 
 def test_download_esterno_normalizza_il_nome_file():
-    from core.creative.model_downloader import custom_asset
+    from core.modules.sigma_creative_lab.model_downloader import custom_asset
     asset = custom_asset({"folder": "checkpoints", "filename": "../../../evil.safetensors",
                           "url": "https://huggingface.co/a/resolve/main/x.safetensors"})
     assert asset.filename == "evil.safetensors"

@@ -4,13 +4,13 @@ import os
 import pytest
 from PIL import Image
 
-from core.creative.asset_graph import AssetType
-from core.creative.editors.image_editor import ImageEditor
-from core.creative.materials.material_system import MaterialSystem
-from core.creative.materials.texture_generator import TextureGenerator
-from core.creative.mesh.mesh_processor import MeshProcessor
-from core.creative.params import normalize_params
-from core.creative.three_d.model_generator import ModelGenerator3D
+from core.modules.sigma_creative_lab.asset_graph import AssetType
+from core.modules.sigma_creative_lab.editors.image_editor import ImageEditor
+from core.modules.sigma_creative_lab.materials.material_system import MaterialSystem
+from core.modules.sigma_creative_lab.materials.texture_generator import TextureGenerator
+from core.modules.sigma_creative_lab.mesh.mesh_processor import MeshProcessor
+from core.modules.sigma_creative_lab.params import normalize_params
+from core.modules.sigma_creative_lab.three_d.model_generator import ModelGenerator3D
 
 
 # ---------------------------------------------------------------- generatori
@@ -68,7 +68,7 @@ def test_fallback_su_backend_che_non_implementa_l_operazione(graph, router, gene
 
 
 def _pollinations():
-    from core.creative.generators.adapters.pollinations_adapter import PollinationsAdapter
+    from core.modules.sigma_creative_lab.generators.adapters.pollinations_adapter import PollinationsAdapter
     return PollinationsAdapter()
 
 

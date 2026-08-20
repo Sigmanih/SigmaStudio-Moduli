@@ -21,7 +21,7 @@ import {
   loadUserCategories,
   saveUserCategories,
   DEFAULT_USER_CATEGORIES
-} from '../services/musicRecommendation';
+} from './services/musicRecommendation';
 
 const MusicContext = createContext(null);
 
@@ -704,3 +704,7 @@ export function useMusic() {
   }
   return context;
 }
+
+export const AudioProvider = MusicProvider;
+export const useAudio = useMusic;
+

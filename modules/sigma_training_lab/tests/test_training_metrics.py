@@ -15,7 +15,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from core.training.metrics import (METRIC_PREFIX, METRIC_GUIDE, diagnose,
+from core.modules.sigma_training_lab.training.metrics import (METRIC_PREFIX, METRIC_GUIDE, diagnose,
                                    read_metric_history, summarize)
 
 
@@ -164,7 +164,7 @@ class TestRunSeparation:
     """
 
     def _log(self, tmp_path, runs):
-        from core.training.metrics import RUN_HEADER
+        from core.modules.sigma_training_lab.training.metrics import RUN_HEADER
         lines = []
         for run in runs:
             lines.append(RUN_HEADER)
@@ -174,7 +174,7 @@ class TestRunSeparation:
         return path
 
     def test_runs_are_split_on_the_start_header(self, tmp_path):
-        from core.training.metrics import split_runs
+        from core.modules.sigma_training_lab.training.metrics import split_runs
         path = self._log(tmp_path, [
             [{"step": 1, "loss": 8.0}, {"step": 2, "loss": 4.0}],
             [{"step": 1, "loss": 0.4}, {"step": 2, "loss": 0.3}],
@@ -186,7 +186,7 @@ class TestRunSeparation:
     def test_only_the_last_run_drives_the_verdict(self, tmp_path):
         """Il caso reale: 815 punti di un tentativo precedente falsavano la
         tendenza del run in corso."""
-        from core.training.metrics import job_metrics
+        from core.modules.sigma_training_lab.training.metrics import job_metrics
         noisy = [{"step": i, "loss": 8.0 - i * 0.01} for i in range(1, 300)]
         calm = [{"step": i, "loss": 0.33} for i in range(1, 60)]
         path = self._log(tmp_path, [noisy, calm])
@@ -197,7 +197,7 @@ class TestRunSeparation:
         assert payload["summary"]["last_loss"] == 0.33
 
     def test_a_log_without_headers_counts_as_one_run(self, tmp_path):
-        from core.training.metrics import split_runs
+        from core.modules.sigma_training_lab.training.metrics import split_runs
         path = tmp_path / "train.log"
         path.write_text(f'{METRIC_PREFIX} {{"step": 1, "loss": 2.0}}', encoding="utf-8")
         assert len(split_runs(path)) == 1

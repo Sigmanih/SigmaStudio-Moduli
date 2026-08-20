@@ -557,7 +557,7 @@ def valuta_parallelo(model: str, quesiti: int) -> dict:
 
     # `cuda_devices` vive in capacity: e' li' che si interroga nvidia-smi con
     # gli indici che CUDA_VISIBLE_DEVICES usera' davvero.
-    from core.training.capacity import cuda_devices
+    from core.modules.sigma_training_lab.training.capacity import cuda_devices
 
     schede = cuda_devices()
     if len(schede) < 2:

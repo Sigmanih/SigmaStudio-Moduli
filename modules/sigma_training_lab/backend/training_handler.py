@@ -19,7 +19,7 @@ from urllib.request import urlopen, Request
 from urllib.parse import quote, urlencode
 from urllib.error import URLError
 
-from core.training.datasets import (
+from core.modules.sigma_training_lab.training.datasets import (
     BASE_DIR,
     TRAINING_DIR,
     DATASETS_DIR,
@@ -33,7 +33,7 @@ from core.training.datasets import (
     list_datasets,
     delete_dataset,
 )
-from core.training.hardware import (
+from core.modules.sigma_training_lab.training.hardware import (
     _check_torch_cuda,
     _query_nvidia_smi,
     _query_rocm_smi,
@@ -44,7 +44,7 @@ from core.training.hardware import (
     get_autotune,
     restart_ollama_service,
 )
-from core.training.fwe import (
+from core.modules.sigma_training_lab.training.fwe import (
     FWE_TARGETS,
     FWE_DATASETS,
     fwe_available,
@@ -53,7 +53,7 @@ from core.training.fwe import (
     list_fwe_runs,
     run_engine_selftest,
 )
-from core.training.forge import (
+from core.modules.sigma_training_lab.training.forge import (
     ARCHITECTURES,
     TRAINING_MODES,
     TEACHER_MODELS,
@@ -69,12 +69,12 @@ from core.training.forge import (
     search_teacher_models,
     model_accessible,
 )
-from core.training.checkpoint_chat import (
+from core.modules.sigma_training_lab.training.checkpoint_chat import (
     list_checkpoints,
     chat as checkpoint_chat,
     unload as unload_checkpoint,
 )
-from core.training.jobs import (
+from core.modules.sigma_training_lab.training.jobs import (
     JOBS_DIR,
     SCRIPTS_DIR,
     JOBS_FILE,

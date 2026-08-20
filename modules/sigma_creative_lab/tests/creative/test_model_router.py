@@ -1,6 +1,6 @@
 import pytest
 import asyncio
-from core.creative.model_router import ModelRouter, CreativeTask
+from core.modules.sigma_creative_lab.model_router import ModelRouter, CreativeTask
 
 @pytest.fixture
 def config():

@@ -2,10 +2,10 @@ import asyncio
 
 import pytest
 
-from core.creative.asset_graph import AssetType
-from core.creative.editors.image_editor import ImageEditor
-from core.creative.materials.texture_generator import TextureGenerator
-from core.creative.pipeline.creative_pipeline_engine import CreativePipelineEngine
+from core.modules.sigma_creative_lab.asset_graph import AssetType
+from core.modules.sigma_creative_lab.editors.image_editor import ImageEditor
+from core.modules.sigma_creative_lab.materials.texture_generator import TextureGenerator
+from core.modules.sigma_creative_lab.pipeline.creative_pipeline_engine import CreativePipelineEngine
 
 
 @pytest.fixture
@@ -140,7 +140,7 @@ def test_texture_gen_da_immagine(engine, image_asset):
 
 
 def test_catalogo_nodi_allineato_agli_executor(engine):
-    from core.creative.creative_router import NODE_CATALOG
+    from core.modules.sigma_creative_lab.creative_router import NODE_CATALOG
 
     catalog_types = {n["type"] for n in NODE_CATALOG}
     assert catalog_types == set(engine.node_types)

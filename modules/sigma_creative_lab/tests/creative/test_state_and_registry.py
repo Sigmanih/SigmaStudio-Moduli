@@ -3,11 +3,11 @@ import json
 import pytest
 
 from core.creative import model_state
-from core.creative.backends import get_backend
-from core.creative.backends.base import BackendJob
-from core.creative.backends.comfyui_backend import ComfyUIBackend
-from core.creative.model_state import ModelState, RuntimeTracker, build_inventory
-from core.creative.workflow_registry import WorkflowRegistry, substitute
+from core.modules.sigma_creative_lab.backends import get_backend
+from core.modules.sigma_creative_lab.backends.base import BackendJob
+from core.modules.sigma_creative_lab.backends.comfyui_backend import ComfyUIBackend
+from core.modules.sigma_creative_lab.model_state import ModelState, RuntimeTracker, build_inventory
+from core.modules.sigma_creative_lab.workflow_registry import WorkflowRegistry, substitute
 
 
 # ---------------------------------------------------------------- stato modelli
