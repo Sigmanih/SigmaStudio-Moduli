@@ -372,11 +372,33 @@ export default function HardwareLab({ addToast }) {
           { label: 'Temperatura', val: `${targetGpu.temp_c ? targetGpu.temp_c + '°C' : 'N/A'}`, color: targetGpu.temp_c > 75 ? '#ef4444' : '#10b981' },
           { label: 'Consumo Elettrico', val: `${targetGpu.power_draw_w ? targetGpu.power_draw_w + ' W' : 'N/A'}`, color: '#ffb86c' }
         ]
-      };
     }
 
-    return null;
+    // Default safe fallback to CPU inspector when no dedicated/integrated GPUs exist (e.g. Raspberry Pi, CPU server)
+    return {
+      id: 'cpu_sys',
+      type: 'CPU & Host RAM',
+      name: cpu.name || 'Processore Host Multi-Core',
+      subtitle: `${cpu.cores_physical || 'N/A'} Core Fisici • ${cpu.cores_logical || 'N/A'} Thread${cpu.freq_mhz ? ` • ${cpu.freq_mhz} MHz` : ''}`,
+      availableCharts: [
+        { id: 'compute', label: 'Carico CPU', icon: Cpu, color: '#00d2ff', unit: '%', max: 100, data: systemHistory.cpu },
+        { id: 'vram', label: 'RAM Host', icon: HardDrive, color: '#10b981', unit: 'GB', max: ram.total_gb || 32, data: systemHistory.ram, format: v => `${typeof v === 'number' ? v.toFixed(1) : v} GB` },
+      ],
+      metrics: [
+        { label: 'Carico CPU', val: `${cpu.usage_pct ?? 0}%`, color: '#00d2ff', progress: cpu.usage_pct ?? 0 },
+        { label: 'RAM Occupata', val: `${ram.used_gb || 0} / ${ram.total_gb || 0} GB`, color: '#10b981', progress: ram.usage_pct ?? 0 },
+        { label: 'RAM Libera', val: `${ram.free_gb || 0} GB`, color: '#bc8cff' },
+        { label: 'Frequenza', val: `${cpu.freq_mhz || 'N/A'} MHz`, color: '#ffb86c' }
+      ]
+    };
   }, [selectedDeviceId, cpu, ram, storage, network, disks, gpus, historyData, systemHistory]);
+
+  // Auto-select CPU inspector if machine has no dedicated/integrated GPUs (e.g. Raspberry Pi)
+  useEffect(() => {
+    if (gpus.length === 0 && selectedDeviceId.startsWith('gpu_')) {
+      setSelectedDeviceId('cpu_sys');
+    }
+  }, [gpus.length, selectedDeviceId]);
 
   // Adjust active chart tab if not available for currently selected device
   useEffect(() => {

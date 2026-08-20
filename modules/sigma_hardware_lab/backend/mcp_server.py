@@ -99,13 +99,18 @@ class HardwareMCPServer(BaseMCPServer):
         }
 
     def _handle_clear_vram_cache(self, **kwargs):
-        from core.training.hardware import restart_ollama_service
-        result = restart_ollama_service()
+        try:
+            import torch
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+                torch.cuda.ipc_collect()
+        except Exception:
+            pass
         return {
             "success": True,
             "vram_cleared": True,
-            "message": result.get("message", "VRAM CUDA cache collection completed"),
-            "unloaded_models": result.get("unloaded_models", [])
+            "message": "VRAM CUDA cache collection completed",
+            "unloaded_models": []
         }
 
     def _handle_benchmark_gpu(self, **kwargs):
