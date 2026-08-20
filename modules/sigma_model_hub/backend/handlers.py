@@ -9,7 +9,7 @@ import urllib.parse
 from core.logger import get_logger
 from .hf_client import search_hf_models, get_hf_model_details
 from .downloader_engine import downloader_manager, DEFAULT_MODELS_DIR
-from .model_inventory import scan_local_models, deploy_model_to_sigma_engine, unload_sigma_engine_model
+from .model_inventory import scan_local_models, deploy_model_to_sigma_engine, unload_sigma_engine_model, delete_local_model
 
 log = get_logger(__name__)
 
@@ -296,6 +296,25 @@ def handle_models_config_save(self):
         self.send_json_response({"success": False, "error": str(e)}, 500)
 
 
+def handle_models_local_delete(self):
+    """POST /api/models/local/delete — Elimina un modello scaricato dallo storage locale."""
+    try:
+        body = self.read_json_body() if hasattr(self, 'read_json_body') else {}
+        model_path = body.get("model_path") or body.get("path") or body.get("model_id") or body.get("filename")
+        if not model_path:
+            self.send_json_response({"success": False, "error": "model_path o model_id mancante"}, 400)
+            return
+
+        cfg = _load_hub_config()
+        custom_dir = cfg.get("models_dir")
+        res = delete_local_model(model_path, custom_dir=custom_dir)
+        status_code = 200 if res.get("success") else 400
+        self.send_json_response(res, status_code)
+    except Exception as e:
+        log.error("Error in handle_models_local_delete: %s", e)
+        self.send_json_response({"success": False, "error": str(e)}, 500)
+
+
 def register_routes(app=None) -> None:
     """Registra tutte le route HTTP di Model Hub su FastAPI / Handler Adapter."""
     get_routes = {
@@ -309,6 +328,8 @@ def register_routes(app=None) -> None:
     post_routes = {
         '/api/models/hf/download/start': handle_models_hf_download_start,
         '/api/models/hf/download/cancel': handle_models_hf_download_cancel,
+        '/api/models/local/delete': handle_models_local_delete,
+        '/api/models/delete': handle_models_local_delete,
         '/api/models/engine/load': handle_models_engine_load,
         '/api/models/engine/unload': handle_models_engine_unload,
         '/api/models/config': handle_models_config_save,
