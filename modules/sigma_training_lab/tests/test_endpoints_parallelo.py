@@ -15,7 +15,6 @@ from pathlib import Path
 
 import pytest
 
-sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from core.modules.sigma_training_lab.training import endpoints as ep
 
@@ -24,7 +23,7 @@ from core.modules.sigma_training_lab.training import endpoints as ep
 def macchina(monkeypatch):
     """Sostituisce hardware, catalogo e servitori attivi."""
     def configura(schede=(), peso=0.0, attivi=()):
-        monkeypatch.setattr("core.training.capacity.cuda_devices", lambda: list(schede))
+        monkeypatch.setattr("core.modules.sigma_training_lab.training.capacity.cuda_devices", lambda: list(schede))
         monkeypatch.setattr(ep, "_peso_modello_gb", lambda m: peso)
         monkeypatch.setattr(ep, "active_endpoints",
                             lambda refresh=True: [{"url": u, "healthy": True} for u in attivi])

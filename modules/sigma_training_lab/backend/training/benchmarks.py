@@ -37,6 +37,7 @@ import uuid
 
 import requests
 
+from core import paths
 from core.logger import get_logger
 from core.modules.sigma_training_lab.training import benchmark_store as store
 from core.modules.sigma_training_lab.training.answer_parser import (
@@ -309,7 +310,7 @@ BBH_TASKS = (
 
 def _get_hf_token() -> str:
     try:
-        with open("config.json", "r", encoding="utf-8") as f:
+        with open(paths.config_file(), "r", encoding="utf-8") as f:
             return json.load(f).get("hf_token", "")
     except Exception:
         return ""

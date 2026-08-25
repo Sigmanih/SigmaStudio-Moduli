@@ -19,10 +19,15 @@ from urllib.request import urlopen, Request
 from urllib.parse import quote, urlencode
 from urllib.error import URLError
 
-from core.modules.sigma_training_lab.training.datasets import (
-    BASE_DIR,
+from core.modules.sigma_training_lab.paths import (
+    JOBS_DIR,
+    JOBS_FILE,
+    PROJECT_ROOT,
+    SCRIPTS_DIR,
     TRAINING_DIR,
     DATASETS_DIR,
+)
+from core.modules.sigma_training_lab.training.datasets import (
     FEATURED_DATASETS,
     get_featured_datasets,
     search_hf_datasets,
@@ -74,10 +79,11 @@ from core.modules.sigma_training_lab.training.checkpoint_chat import (
     chat as checkpoint_chat,
     unload as unload_checkpoint,
 )
+#: Alias storico della radice del progetto: prima era una risalita di
+#: directory dentro datasets.py, ora e' il servizio percorsi del modulo.
+BASE_DIR = PROJECT_ROOT
+
 from core.modules.sigma_training_lab.training.jobs import (
-    JOBS_DIR,
-    SCRIPTS_DIR,
-    JOBS_FILE,
     SCRIPT_TEMPLATES,
     METHOD_LABELS,
     resolve_dataset,
@@ -120,6 +126,7 @@ __all__ = [
     "urlencode",
     "URLError",
     "BASE_DIR",
+    "PROJECT_ROOT",
     "TRAINING_DIR",
     "DATASETS_DIR",
     "JOBS_DIR",

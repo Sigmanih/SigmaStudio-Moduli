@@ -16,7 +16,6 @@ from pathlib import Path
 
 import pytest
 
-sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from core.modules.sigma_training_lab.training import autopilot
 from core.modules.sigma_training_lab.training.autopilot import (
@@ -142,8 +141,11 @@ class TestTargetChoice:
         dati sintetici, non lo split di MATH.
         """
         import re
-        source = (Path(__file__).parent.parent
-                  / "core" / "training" / "benchmarks.py").read_text(encoding="utf-8")
+        # Il file si chiede al modulo importato invece di ricostruirne il
+        # percorso: la risalita puntava a core/training/, il posto in cui il
+        # codice stava prima della modularizzazione.
+        from core.modules.sigma_training_lab.training import benchmarks
+        source = Path(benchmarks.__file__).read_text(encoding="utf-8")
         benchmark_ids = {m.lower() for m in re.findall(r'load_dataset\("([^"]+)"', source)}
         assert benchmark_ids, "nessun dataset di benchmark trovato: il test è cieco"
 
@@ -164,7 +166,7 @@ class TestCleanup:
             folder = tmp_path / "training" / "jobs" / round_["job_id"]
             folder.mkdir(parents=True, exist_ok=True)
             (folder / "adapter.bin").write_bytes(b"x" * 2048)
-        autopilot.BASE_DIR = tmp_path
+        autopilot.JOBS_DIR = tmp_path / "training" / "jobs"
         return {"rounds": rounds, "champion": {}}
 
     def test_rejected_rounds_are_offered_for_deletion(self, tmp_path):
@@ -375,12 +377,12 @@ def test_il_benchmark_restituisce_un_job_non_un_esito(monkeypatch):
     sempre None e fermava il ciclo prima ancora di profilare il modello."""
     import types
 
-    finto = types.ModuleType("core.training.benchmarks")
+    finto = types.ModuleType("core.modules.sigma_training_lab.training.benchmarks")
     finto.start_benchmark_run = lambda *a, **k: {
         "id": "bm_20260802_192837_ab12", "model": a[0] if a else k.get("model_name"),
         "status": "preparing", "concurrency": 4,
     }
-    monkeypatch.setitem(sys.modules, "core.training.benchmarks", finto)
+    monkeypatch.setitem(sys.modules, "core.modules.sigma_training_lab.training.benchmarks", finto)
     monkeypatch.setattr(autopilot, "_wait_for_job", lambda *a, **k: "completed")
     monkeypatch.setattr(autopilot, "_benchmark_scores", lambda jid, only=None: {"q1": True})
     monkeypatch.setattr(autopilot, "save_state", lambda s: None)
@@ -396,9 +398,9 @@ def test_un_benchmark_senza_job_lo_dice(monkeypatch):
     una diagnosi."""
     import types
 
-    finto = types.ModuleType("core.training.benchmarks")
+    finto = types.ModuleType("core.modules.sigma_training_lab.training.benchmarks")
     finto.start_benchmark_run = lambda *a, **k: {"error": "Ollama non raggiungibile"}
-    monkeypatch.setitem(sys.modules, "core.training.benchmarks", finto)
+    monkeypatch.setitem(sys.modules, "core.modules.sigma_training_lab.training.benchmarks", finto)
     monkeypatch.setattr(autopilot, "save_state", lambda s: None)
 
     with pytest.raises(RuntimeError, match="Ollama non raggiungibile"):
@@ -426,9 +428,9 @@ def test_l_elenco_dei_benchmark_e_una_lista(monkeypatch):
     chiamarci .get() sopra sollevava AttributeError alla prima attesa."""
     import types
 
-    finto = types.ModuleType("core.training.benchmarks")
+    finto = types.ModuleType("core.modules.sigma_training_lab.training.benchmarks")
     finto.list_benchmark_jobs = lambda: [{"id": "bm_1", "status": "completed"}]
-    monkeypatch.setitem(sys.modules, "core.training.benchmarks", finto)
+    monkeypatch.setitem(sys.modules, "core.modules.sigma_training_lab.training.benchmarks", finto)
     monkeypatch.setattr(autopilot, "save_state", lambda s: None)
 
     esito = autopilot._wait_for_job("bm_1", "benchmark", autopilot._blank_state())
@@ -440,14 +442,14 @@ def test_un_training_che_non_parte_non_blocca_il_ciclo(monkeypatch):
     controllo sull'esito dell'avvio il ciclo aspetterebbe per sempre."""
     import types
 
-    jobs = types.ModuleType("core.training.jobs")
+    jobs = types.ModuleType("core.modules.sigma_training_lab.training.jobs")
     jobs.create_training_job = lambda d: {"success": True, "job_id": "j1"}
     jobs.start_training_job = lambda jid: {"success": False, "error": "CUDA occupata"}
     jobs.merge_job_adapter = lambda *a, **k: {"success": True, "job_id": "m1"}
-    datasets = types.ModuleType("core.training.datasets")
+    datasets = types.ModuleType("core.modules.sigma_training_lab.training.datasets")
     datasets.register_hf_dataset = lambda d: {"success": True, "dataset": {"id": "d1"}}
-    monkeypatch.setitem(sys.modules, "core.training.jobs", jobs)
-    monkeypatch.setitem(sys.modules, "core.training.datasets", datasets)
+    monkeypatch.setitem(sys.modules, "core.modules.sigma_training_lab.training.jobs", jobs)
+    monkeypatch.setitem(sys.modules, "core.modules.sigma_training_lab.training.datasets", datasets)
     monkeypatch.setattr(autopilot, "save_state", lambda s: None)
     monkeypatch.setattr(autopilot, "_wait_for_job",
                         lambda *a, **k: pytest.fail("non deve mettersi in attesa"))
@@ -763,7 +765,7 @@ def test_la_sostituzione_si_riprova(monkeypatch, tmp_path):
 # voleva liberare, e un modello inutile in mezzo a quelli scegliibili.
 
 def _stato_con_round(tmp_path, monkeypatch, accettato=False):
-    monkeypatch.setattr(autopilot, "BASE_DIR", tmp_path)
+    monkeypatch.setattr(autopilot, "JOBS_DIR", tmp_path / "training" / "jobs")
     for jid in ("j-train", "j-merge"):
         cartella = tmp_path / "training" / "jobs" / jid
         cartella.mkdir(parents=True)
@@ -856,14 +858,14 @@ def test_il_contesto_scelto_arriva_al_training(monkeypatch):
     import types
 
     creati = []
-    jobs = types.ModuleType("core.training.jobs")
+    jobs = types.ModuleType("core.modules.sigma_training_lab.training.jobs")
     jobs.create_training_job = lambda d: creati.append(d) or {"success": False, "error": "stop"}
     jobs.start_training_job = lambda j: {"success": True}
     jobs.merge_job_adapter = lambda *a, **k: {"success": True}
-    datasets = types.ModuleType("core.training.datasets")
+    datasets = types.ModuleType("core.modules.sigma_training_lab.training.datasets")
     datasets.register_hf_dataset = lambda d: {"success": True, "dataset": {"id": "d1"}}
-    monkeypatch.setitem(sys.modules, "core.training.jobs", jobs)
-    monkeypatch.setitem(sys.modules, "core.training.datasets", datasets)
+    monkeypatch.setitem(sys.modules, "core.modules.sigma_training_lab.training.jobs", jobs)
+    monkeypatch.setitem(sys.modules, "core.modules.sigma_training_lab.training.datasets", datasets)
     monkeypatch.setattr(autopilot, "save_state", lambda s: None)
     monkeypatch.setattr(autopilot, "note", lambda s, l, m: None)
 
@@ -958,10 +960,10 @@ def test_lo_stop_chiude_il_lavoro_in_corso(monkeypatch):
     import types
 
     chiusi = []
-    jobs = types.ModuleType("core.training.jobs")
+    jobs = types.ModuleType("core.modules.sigma_training_lab.training.jobs")
     jobs.get_job_status = lambda j: {"job": {"status": "running"}}
     jobs.stop_training_job = lambda j: chiusi.append(j) or {"success": True}
-    monkeypatch.setitem(sys.modules, "core.training.jobs", jobs)
+    monkeypatch.setitem(sys.modules, "core.modules.sigma_training_lab.training.jobs", jobs)
     monkeypatch.setattr(autopilot, "save_state", lambda s: None)
     monkeypatch.setattr(autopilot, "note", lambda s, l, m: None)
     monkeypatch.setattr(autopilot.time, "sleep",
@@ -980,10 +982,10 @@ def test_lo_stop_chiude_anche_una_valutazione(monkeypatch):
     import types
 
     annullati = []
-    bench = types.ModuleType("core.training.benchmarks")
+    bench = types.ModuleType("core.modules.sigma_training_lab.training.benchmarks")
     bench.list_benchmark_jobs = lambda: [{"id": "bm1", "status": "running"}]
     bench.cancel_benchmark_job = lambda j: annullati.append(j) or True
-    monkeypatch.setitem(sys.modules, "core.training.benchmarks", bench)
+    monkeypatch.setitem(sys.modules, "core.modules.sigma_training_lab.training.benchmarks", bench)
     monkeypatch.setattr(autopilot, "save_state", lambda s: None)
     monkeypatch.setattr(autopilot, "note", lambda s, l, m: None)
 
@@ -1000,10 +1002,10 @@ def test_senza_stop_si_continua_ad_aspettare(monkeypatch):
     import types
 
     stati = iter(["running", "completed"])
-    jobs = types.ModuleType("core.training.jobs")
+    jobs = types.ModuleType("core.modules.sigma_training_lab.training.jobs")
     jobs.get_job_status = lambda j: {"job": {"status": next(stati)}}
     jobs.stop_training_job = lambda j: pytest.fail("non deve chiudere niente")
-    monkeypatch.setitem(sys.modules, "core.training.jobs", jobs)
+    monkeypatch.setitem(sys.modules, "core.modules.sigma_training_lab.training.jobs", jobs)
     monkeypatch.setattr(autopilot, "save_state", lambda s: None)
     monkeypatch.setattr(autopilot.time, "sleep", lambda s: None)
 
@@ -1019,7 +1021,7 @@ def _stato_con_storia(tmp_path, monkeypatch):
     monkeypatch.setattr(autopilot, "STATE_DIR", tmp_path / "cicli")
     monkeypatch.setattr(autopilot, "ACTIVE_FILE", tmp_path / "cicli" / "_attivo.json")
     monkeypatch.setattr(autopilot, "STATE_FILE", tmp_path / "storico.json")
-    monkeypatch.setattr(autopilot, "BASE_DIR", tmp_path)
+    monkeypatch.setattr(autopilot, "JOBS_DIR", tmp_path / "training" / "jobs")
     monkeypatch.setattr(autopilot, "note", lambda s, l, m: None)
     monkeypatch.setattr(autopilot, "_rimuovi_da_ollama", lambda n: True)
     for jid in ("j1", "j2", "j3"):

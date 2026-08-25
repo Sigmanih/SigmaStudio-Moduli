@@ -1,13 +1,15 @@
 # ==============================================================================
 # tests/test_training_api_routes.py — Ogni rotta dichiarata deve avere un handler
 # ==============================================================================
-"""Sigma serve le richieste con due pipeline (http.server legacy e adapter
-FastAPI). Quando gli handler erano duplicati nei due file, le copie sono
-divergute: tutto il lato scrittura del Training Lab esisteva solo sul server
-legacy e sul server FastAPI rispondeva 404 "Endpoint non trovato".
+"""Sigma serviva le richieste con due pipeline (http.server legacy e adapter
+FastAPI) e la lista degli handler era scritta due volte. Le copie sono divergute
+esattamente come ci si aspetta: tutto il lato scrittura del Training Lab
+esisteva solo su una delle due, e sull'altra rispondeva 404.
 
-Questi test falliscono se una rotta viene dichiarata in api_router senza un
-handler corrispondente, o se le due pipeline tornano a divergere.
+La pipeline legacy non veniva mai istanziata ed e' stata rimossa: ne resta una
+sola, quella FastAPI. Questi test falliscono se una rotta viene dichiarata in
+api_router senza un handler corrispondente, o se qualcuno reintroduce una
+seconda tabella di handler da tenere allineata a mano.
 """
 
 import sys
@@ -15,10 +17,9 @@ from pathlib import Path
 
 import pytest
 
-sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from core.api_router import register_get_handlers, register_post_handlers
-from core.training_api import HANDLERS, register_training_handlers
+from core.modules.sigma_training_lab.training_api import HANDLERS, register_training_handlers
 
 
 class _FakeHandler:
@@ -40,11 +41,9 @@ class TestRouteCoverage:
                    if not hasattr(adapter, name)]
         assert missing == [], f"rotte FastAPI senza handler: {missing}"
 
-    def test_training_routes_exist_on_both_pipelines(self):
-        """Le rotte del Training Lab devono essere servite da entrambe le pipeline."""
+    def test_training_routes_are_served(self):
+        """Ogni rotta del Training Lab dichiarata nel router ha il suo handler."""
         from core.fastapi_app import FastAPIHandlerAdapter as fastapi_cls
-        import sigma_server
-        legacy_cls = sigma_server.SigmaAPIHandler
 
         get_map, post_map = _route_tables()
         training = {p: h for p, h in {**get_map, **post_map}.items()
@@ -52,8 +51,21 @@ class TestRouteCoverage:
         assert training, "nessuna rotta training trovata nel router"
 
         for path, name in training.items():
-            assert hasattr(fastapi_cls, name), f"{path} manca sul server FastAPI"
-            assert hasattr(legacy_cls, name), f"{path} manca sul server legacy"
+            assert hasattr(fastapi_cls, name), f"{path} manca sul server"
+
+    def test_there_is_only_one_handler_table(self):
+        """Nessuno ha reintrodotto una seconda pipeline da tenere allineata.
+
+        La copia legacy montava 121 handler a mano in sigma_server.py e li
+        lasciava divergere in silenzio: due esistevano solo li' e rispondevano
+        404 sul server vero.
+        """
+        import sigma_server
+
+        assert not hasattr(sigma_server, "SigmaAPIHandler"), (
+            "sigma_server ha di nuovo una classe handler propria: gli handler "
+            "vanno montati solo su core.fastapi_app.FastAPIHandlerAdapter"
+        )
 
     @pytest.mark.parametrize("path", [
         "/api/training/job/create",
@@ -158,7 +170,7 @@ class TestEndToEndOverHttp:
         return TestClient(app)
 
     def test_gradus_job_lifecycle(self, client, tmp_path):
-        import core.training_handler as th
+        import core.modules.sigma_training_lab.training_handler as th
         saved = {n: getattr(th, n) for n in ("TRAINING_DIR", "JOBS_DIR", "JOBS_FILE", "SCRIPTS_DIR")}
         th.TRAINING_DIR = tmp_path / "training"
         th.JOBS_DIR = th.TRAINING_DIR / "jobs"

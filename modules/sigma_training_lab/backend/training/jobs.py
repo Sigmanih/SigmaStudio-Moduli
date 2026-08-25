@@ -34,17 +34,17 @@ from core.logger import get_logger
 from core.modules.sigma_training_lab.training import gpu as gpu_layer
 from core.modules.sigma_training_lab.training.datasets import HF_DATASET_CONFIGS, LEGACY_HF_DATASETS
 
+from core.modules.sigma_training_lab.paths import (
+    DATASETS_DIR,
+    JOBS_DIR,
+    JOBS_FILE,
+    LLAMA_CPP_DIR,
+    PROJECT_ROOT,
+    SCRIPTS_DIR,
+    TRAINING_DIR,
+)
+
 log = get_logger(__name__)
-
-BASE_DIR = Path(__file__).parent.parent.parent
-TRAINING_DIR = BASE_DIR / "training"
-JOBS_DIR = TRAINING_DIR / "jobs"
-SCRIPTS_DIR = TRAINING_DIR / "scripts"
-DATASETS_DIR = TRAINING_DIR / "datasets"
-JOBS_FILE = TRAINING_DIR / "training_jobs.json"
-
-for _d in [TRAINING_DIR, JOBS_DIR, SCRIPTS_DIR]:
-    _d.mkdir(parents=True, exist_ok=True)
 
 _ACTIVE_PROCESSES: dict[str, subprocess.Popen] = {}
 _MONITORS: dict[str, threading.Thread] = {}
@@ -1879,9 +1879,8 @@ sigma("FATTO")
 # ============================================================== dependencies
 
 def _get_subprocess_run():
-    th = sys.modules.get("core.training_handler")
-    if th and hasattr(th, "subprocess") and hasattr(th.subprocess, "run"):
-        return th.subprocess.run
+    #: Risolto a ogni chiamata: i test sostituiscono `subprocess` a livello di
+    #: modulo per non lanciare processi veri.
     return subprocess.run
 
 
@@ -1915,8 +1914,7 @@ def check_training_dependencies(method: str = "lora_unsloth") -> dict:
 # ============================================================== persistence
 
 def _load_jobs() -> dict:
-    th = sys.modules.get("core.training_handler")
-    jobs_file = getattr(th, "JOBS_FILE", JOBS_FILE) if th else JOBS_FILE
+    jobs_file = JOBS_FILE
     if jobs_file.exists():
         try:
             return json.loads(jobs_file.read_text(encoding="utf-8"))
@@ -1926,8 +1924,7 @@ def _load_jobs() -> dict:
 
 
 def _save_jobs(jobs: dict):
-    th = sys.modules.get("core.training_handler")
-    jobs_file = getattr(th, "JOBS_FILE", JOBS_FILE) if th else JOBS_FILE
+    jobs_file = JOBS_FILE
     jobs_file.write_text(json.dumps(jobs, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
@@ -2106,7 +2103,7 @@ def _build_script_values(data: dict, job_id: str, job_dir: Path) -> dict:
 
     values = {
         "job_id": job_id,
-        "base_dir": str(BASE_DIR).replace("\\", "/"),
+        "base_dir": str(PROJECT_ROOT).replace("\\", "/"),
         "method_label": METHOD_LABELS.get(method, method),
         "base_model": model_base,
         "dataset_name": dataset["name"],
@@ -2161,8 +2158,7 @@ def _build_script_values(data: dict, job_id: str, job_dir: Path) -> dict:
 
 def create_training_job(data: dict) -> dict:
     """Generate the training script for a job, auto-tuned for this machine."""
-    th = sys.modules.get("core.training_handler")
-    target_jobs_dir = getattr(th, "JOBS_DIR", JOBS_DIR) if th else JOBS_DIR
+    target_jobs_dir = JOBS_DIR
 
     dataset_id = data.get("dataset_id", "local_dataset")
     hyper = data.get("hyperparams") or data.get("config") or {}
@@ -2798,9 +2794,7 @@ def start_training_job(job_id: str, total_steps: int | None = None) -> dict:
         if not refreshed.get("success"):
             return refreshed
 
-    th = sys.modules.get("core.training_handler")
-    sub_popen = getattr(th, "subprocess", subprocess).Popen if th and hasattr(th, "subprocess") \
-        else subprocess.Popen
+    sub_popen = subprocess.Popen
 
     log_path = Path(job.get("log_path") or (Path(job["dir"]) / "train.log"))
     log_path.parent.mkdir(parents=True, exist_ok=True)
@@ -2810,7 +2804,7 @@ def start_training_job(job_id: str, total_steps: int | None = None) -> dict:
     if visible is None:
         visible = job.get("autotune", {}).get("gpu_indices")
     env.update(gpu_layer.cuda_env_vars(visible))
-    env["PYTHONPATH"] = str(BASE_DIR) + os.pathsep + env.get("PYTHONPATH", "")
+    env["PYTHONPATH"] = str(PROJECT_ROOT) + os.pathsep + env.get("PYTHONPATH", "")
     if total_steps:
         env["GRADUS_STEPS"] = str(int(total_steps))
 
@@ -3388,8 +3382,7 @@ def delete_job(job_id: str) -> dict:
         return {"success": False, "error": f"Job '{job_id}' non trovato."}
     stop_training_job(job_id)
 
-    th = sys.modules.get("core.training_handler")
-    target_jobs_dir = getattr(th, "JOBS_DIR", JOBS_DIR) if th else JOBS_DIR
+    target_jobs_dir = JOBS_DIR
     job_dir = target_jobs_dir / job_id
     if job_dir.exists():
         try:
@@ -3408,8 +3401,7 @@ def get_job_logs(job_id: str, offset: int = 0) -> dict:
     if job_id not in jobs:
         return {"success": False, "error": f"Job '{job_id}' non trovato."}
 
-    th = sys.modules.get("core.training_handler")
-    target_jobs_dir = getattr(th, "JOBS_DIR", JOBS_DIR) if th else JOBS_DIR
+    target_jobs_dir = JOBS_DIR
     job_dir = target_jobs_dir / job_id
     log_path = job_dir / "train.log"
     if not log_path.exists():
@@ -3435,8 +3427,7 @@ def clear_job_logs(job_id: str) -> dict:
     jobs = _load_jobs()
     if job_id not in jobs:
         return {"success": False, "error": f"Job '{job_id}' non trovato."}
-    th = sys.modules.get("core.training_handler")
-    target_jobs_dir = getattr(th, "JOBS_DIR", JOBS_DIR) if th else JOBS_DIR
+    target_jobs_dir = JOBS_DIR
     job_dir = target_jobs_dir / job_id
     log_path = job_dir / "train.log"
     if not log_path.exists():
@@ -3461,8 +3452,7 @@ def materialize_fwe_model(job_id: str) -> dict:
     if job_id not in jobs:
         return {"success": False, "error": f"Job '{job_id}' non trovato."}
 
-    th = sys.modules.get("core.training_handler")
-    target_jobs_dir = getattr(th, "JOBS_DIR", JOBS_DIR) if th else JOBS_DIR
+    target_jobs_dir = JOBS_DIR
     job_dir = target_jobs_dir / job_id
     ckpt = job_dir / "output" / "fwe_run" / "engine_ckpt.pt"
     if not ckpt.exists():
@@ -3472,7 +3462,7 @@ def materialize_fwe_model(job_id: str) -> dict:
 
     out_dir = job_dir / "output" / "model"
     try:
-        sys.path.insert(0, str(BASE_DIR))
+        sys.path.insert(0, str(PROJECT_ROOT))
         from gradus.export import reconstruct_to_hf
         result = reconstruct_to_hf(ckpt, out_dir, device="auto", logger=log)
     except Exception as exc:
@@ -3505,7 +3495,7 @@ def find_gguf_converter() -> Path | None:
     non c'e' niente da scaricare.
     """
     candidates = [Path.home() / ".unsloth" / "llama.cpp" / "convert_hf_to_gguf.py",
-                  BASE_DIR / "llama.cpp" / "convert_hf_to_gguf.py"]
+                  LLAMA_CPP_DIR / "convert_hf_to_gguf.py"]
     env_dir = os.environ.get("LLAMA_CPP_DIR")
     if env_dir:
         candidates.insert(0, Path(env_dir) / "convert_hf_to_gguf.py")
@@ -3811,8 +3801,7 @@ def export_to_ollama(job_id: str, model_name: str = "custom_model",
     if job.get("status") != "completed":
         return {"success": False, "error": f"Job '{job_id}' non completato."}
 
-    th = sys.modules.get("core.training_handler")
-    target_jobs_dir = getattr(th, "JOBS_DIR", JOBS_DIR) if th else JOBS_DIR
+    target_jobs_dir = JOBS_DIR
     job_dir = target_jobs_dir / job_id
 
     # Prefer a merged model (self-contained), fall back to the LoRA adapter.

@@ -23,11 +23,9 @@ from pathlib import Path
 from core.logger import get_logger
 from core.modules.sigma_training_lab.training import gpu as gpu_layer
 
-log = get_logger(__name__)
+from core.modules.sigma_training_lab.paths import GRADUS_DIR, JOBS_DIR, MODULE_DIR
 
-BASE_DIR = Path(__file__).parent.parent.parent
-GRADUS_DIR = BASE_DIR / "gradus"
-JOBS_DIR = BASE_DIR / "training" / "jobs"
+log = get_logger(__name__)
 
 # Tensor families the generator can compress, in increasing order of coverage.
 FWE_TARGETS = [
@@ -66,7 +64,7 @@ def fwe_available() -> dict:
     # Il decoder AILO non e' un requisito bloccante: se manca viene scaricato e
     # convertito automaticamente al primo run (una volta sola, ~600 MB).
     try:
-        sys.path.insert(0, str(BASE_DIR))
+        sys.path.insert(0, str(MODULE_DIR))
         from gradus.backbone import backbone_status
         backbone = backbone_status()
     except Exception as exc:                                    # pragma: no cover
@@ -182,7 +180,7 @@ def run_engine_selftest(brick: int = 1, device: str = "auto", steps: int = 200,
            "--brick", str(int(brick)), "--device", device, "--steps", str(int(steps))]
     started = time.time()
     try:
-        res = subprocess.run(cmd, cwd=str(BASE_DIR), capture_output=True, text=True,
+        res = subprocess.run(cmd, cwd=str(MODULE_DIR), capture_output=True, text=True,
                              timeout=timeout, encoding="utf-8", errors="replace")
     except subprocess.TimeoutExpired:
         return {"success": False, "error": f"Self-test oltre {timeout}s", "brick": brick}

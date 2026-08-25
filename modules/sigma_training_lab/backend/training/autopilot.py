@@ -40,13 +40,19 @@ from pathlib import Path
 
 from core.logger import get_logger
 
+from core.modules.sigma_training_lab.paths import (
+    AUTOPILOT_DIR,
+    AUTOPILOT_STATE_FILE,
+    JOBS_DIR,
+    PROJECT_ROOT,
+)
+
 log = get_logger(__name__)
 
-BASE_DIR = Path(__file__).parent.parent.parent
 #: Lo stato storico, quando c'era un ciclo solo per tutti i modelli.
-STATE_FILE = BASE_DIR / "training_lab" / "autopilot_state.json"
+STATE_FILE = AUTOPILOT_STATE_FILE
 #: Un file per modello, piu' il puntatore a quello che si sta guardando.
-STATE_DIR = BASE_DIR / "training_lab" / "autopilot"
+STATE_DIR = AUTOPILOT_DIR
 ACTIVE_FILE = STATE_DIR / "_attivo.json"
 
 _lock = threading.RLock()
@@ -351,7 +357,7 @@ def discardable_artifacts(state: dict) -> list[dict]:
     keep.add(campione.get("job_id"))
 
     def peso(job_id):
-        cartella = BASE_DIR / "training" / "jobs" / str(job_id)
+        cartella = JOBS_DIR / str(job_id)
         if not cartella.is_dir():
             return 0
         return sum(f.stat().st_size for f in cartella.rglob("*") if f.is_file())
@@ -413,7 +419,7 @@ def cleanup(state: dict, dry_run: bool = False) -> dict:
         try:
             for job_id in (victim["job_id"], victim.get("merge_job_id")):
                 if job_id:
-                    shutil.rmtree(BASE_DIR / "training" / "jobs" / str(job_id),
+                    shutil.rmtree(JOBS_DIR / str(job_id),
                                   ignore_errors=True)
             if victim.get("ollama_model"):
                 _rimuovi_da_ollama(victim["ollama_model"])
@@ -450,7 +456,7 @@ PHASES = ("profile", "train", "materialize", "evaluate", "judge", "soup")
 
 
 def _free_gb() -> float:
-    return shutil.disk_usage(BASE_DIR).free / 1024 ** 3
+    return shutil.disk_usage(PROJECT_ROOT).free / 1024 ** 3
 
 
 def _ferma_lavoro(job_id: str, kind: str) -> None:
@@ -1190,7 +1196,7 @@ def drop_rounds(model: str = "", quanti: int = 0) -> dict:
         for job_id in (round_.get("job_id"), round_.get("merge_job_id")):
             if not job_id:
                 continue
-            cartella = BASE_DIR / "training" / "jobs" / str(job_id)
+            cartella = JOBS_DIR / str(job_id)
             if cartella.is_dir():
                 liberati += sum(f.stat().st_size for f in cartella.rglob("*") if f.is_file())
                 shutil.rmtree(cartella, ignore_errors=True)

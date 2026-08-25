@@ -21,7 +21,6 @@ può solo misurare, solo addestrare, o entrambe le cose.
 import json
 import os
 import re
-import sys
 import threading
 import time
 from functools import lru_cache
@@ -32,10 +31,9 @@ from urllib.request import Request, urlopen
 
 from core.logger import get_logger
 
-log = get_logger("training.model_catalog")
+from core.modules.sigma_training_lab.paths import IMPORTS_DIR, JOBS_DIR, OFFICIAL_BENCHMARK_FILE
 
-BASE_DIR = Path(__file__).parent.parent.parent
-JOBS_DIR = BASE_DIR / "training" / "jobs"
+log = get_logger("training.model_catalog")
 
 HF_MODELS_API = "https://huggingface.co/api/models"
 
@@ -304,7 +302,7 @@ def local_models() -> dict:
 
     # Benchmark results map
     bench_map = {}
-    bench_file = BASE_DIR / "training_lab" / "official_benchmark_results.json"
+    bench_file = OFFICIAL_BENCHMARK_FILE
     if bench_file.exists():
         try:
             b_data = json.loads(bench_file.read_text(encoding="utf-8"))
@@ -378,10 +376,12 @@ def local_models() -> dict:
 # ==============================================================================
 
 def _urlopen():
-    """L'indirezione che permette ai test di rispondere al posto della rete."""
-    th = sys.modules.get("core.training_handler")
-    if th and hasattr(th, "urlopen"):
-        return th.urlopen
+    """L'indirezione che permette ai test di rispondere al posto della rete.
+
+    Risolta sul globale di questo modulo: e' li' che monkeypatch sostituisce
+    `urlopen`. Prima passava da `core.training_handler`, modulo rimosso con la
+    modularizzazione, quindi il ramo di override non era piu' raggiungibile.
+    """
     return urlopen
 
 
@@ -573,7 +573,7 @@ def _flatten(snapshot: Path, repo_id: str) -> Path:
     cartella del modello. Gli hardlink risolvono senza occupare spazio — sono
     lo stesso contenuto su disco, con un secondo nome.
     """
-    dest = BASE_DIR / "training" / "imports" / repo_id.replace("/", "--")
+    dest = IMPORTS_DIR / repo_id.replace("/", "--")
     dest.mkdir(parents=True, exist_ok=True)
     for src in snapshot.iterdir():
         if not src.is_file():

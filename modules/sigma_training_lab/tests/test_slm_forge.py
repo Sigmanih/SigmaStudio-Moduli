@@ -11,9 +11,8 @@ from pathlib import Path
 
 import pytest
 
-sys.path.insert(0, str(Path(__file__).parent.parent))
 
-import core.training_handler as th
+import core.modules.sigma_training_lab.training_handler as th
 from core.modules.sigma_training_lab.training import forge as forge_mod
 from core.modules.sigma_training_lab.training import checkpoint_chat as chat_mod
 from core.modules.sigma_training_lab.training.gguf_export import permute_rope, _bpe_merges
@@ -224,7 +223,7 @@ class TestGgufConversion:
     def test_only_writable_quantizations_are_offered(self):
         """Q4_K/Q6_K sono di sola lettura in Python: offrirli darebbe file F32
         etichettati come quantizzati, cioè più grandi dell'F16."""
-        import gguf
+        gguf = pytest.importorskip("gguf", reason="export GGUF non installato")
         from core.modules.sigma_training_lab.training.gguf_export import QUANT_TYPES
 
         for name in QUANT_TYPES.values():
@@ -236,6 +235,7 @@ class TestGgufConversion:
 
     def test_quantization_actually_shrinks_the_file(self, tmp_path):
         """Il bug era proprio questo: il Q8_0 usciva più grande dell'F16."""
+        pytest.importorskip("gguf", reason="export GGUF non installato")
         from transformers import LlamaConfig, LlamaForCausalLM, AutoTokenizer
         from core.modules.sigma_training_lab.training.gguf_export import export_gguf
 

@@ -13,7 +13,6 @@ from pathlib import Path
 
 import pytest
 
-sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from core.modules.sigma_training_lab.training.metrics import (METRIC_PREFIX, METRIC_GUIDE, diagnose,
                                    read_metric_history, summarize)

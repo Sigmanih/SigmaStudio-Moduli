@@ -10,7 +10,6 @@ import json
 import os
 import shutil
 import csv
-import sys
 import time
 from datetime import datetime
 from pathlib import Path
@@ -19,12 +18,9 @@ from urllib.parse import quote, urlencode
 from urllib.error import URLError
 from core.logger import get_logger
 
-log = get_logger(__name__)
+from core.modules.sigma_training_lab.paths import DATASETS_DIR, TRAINING_DIR
 
-BASE_DIR = Path(__file__).parent.parent.parent
-TRAINING_DIR = BASE_DIR / "training"
-DATASETS_DIR = TRAINING_DIR / "datasets"
-DATASETS_DIR.mkdir(parents=True, exist_ok=True)
+log = get_logger(__name__)
 
 HF_API_BASE = "https://huggingface.co/api/datasets"
 
@@ -59,9 +55,8 @@ def get_featured_datasets() -> dict:
 
 
 def _get_urlopen():
-    th = sys.modules.get("core.training_handler")
-    if th and hasattr(th, "urlopen"):
-        return th.urlopen
+    #: Indirezione conservata perche' i test sostituiscono `urlopen` a livello
+    #: di modulo per non uscire in rete.
     return urlopen
 
 
@@ -219,8 +214,7 @@ def resolve_hf_dataset_id(dataset_id: str) -> str:
 
 
 def import_local_dataset(source_path: str, dataset_name: str = None, format_hint: str = "auto") -> dict:
-    th = sys.modules.get("core.training_handler")
-    target_datasets_dir = getattr(th, "DATASETS_DIR", DATASETS_DIR) if th else DATASETS_DIR
+    target_datasets_dir = DATASETS_DIR
     src = Path(source_path)
     if not src.exists():
         return {"success": False, "error": f"File non trovato: {source_path}"}
@@ -285,9 +279,8 @@ def import_local_dataset(source_path: str, dataset_name: str = None, format_hint
 
 def register_hf_dataset(dataset_id: str, split: str = "train",
                         config: str = "") -> dict:
-    th = sys.modules.get("core.training_handler")
-    fn_get_info = getattr(th, "get_hf_dataset_info", get_hf_dataset_info) if th else get_hf_dataset_info
-    target_datasets_dir = getattr(th, "DATASETS_DIR", DATASETS_DIR) if th else DATASETS_DIR
+    fn_get_info = get_hf_dataset_info
+    target_datasets_dir = DATASETS_DIR
 
     info = fn_get_info(dataset_id)
     if not info["success"]: return info
@@ -339,8 +332,7 @@ def register_hf_dataset(dataset_id: str, split: str = "train",
 
 
 def list_imported_datasets() -> dict:
-    th = sys.modules.get("core.training_handler")
-    target_datasets_dir = getattr(th, "DATASETS_DIR", DATASETS_DIR) if th else DATASETS_DIR
+    target_datasets_dir = DATASETS_DIR
     search_dirs = [target_datasets_dir, target_datasets_dir.parent / "Private", target_datasets_dir.parent / "Private" / "datasets"]
     datasets = []
     seen_ids = set()
@@ -363,8 +355,7 @@ def list_datasets() -> dict:
 
 
 def delete_dataset(dataset_id: str) -> dict:
-    th = sys.modules.get("core.training_handler")
-    target_datasets_dir = getattr(th, "DATASETS_DIR", DATASETS_DIR) if th else DATASETS_DIR
+    target_datasets_dir = DATASETS_DIR
     safe_name = dataset_id.replace("/", "_").replace("\\", "_")
     target_dir = target_datasets_dir / safe_name
     if not target_dir.exists():

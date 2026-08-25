@@ -546,7 +546,7 @@ class TestParallelCapacity(unittest.TestCase):
         ]
         with patch.object(self.capacity, "_gpu_snapshot", return_value=snapshot), \
              patch.object(self.capacity, "_model_size_gb", return_value=size_gb), \
-             patch("core.training.endpoints.active_endpoints", return_value=pool):
+             patch("core.modules.sigma_training_lab.training.endpoints.active_endpoints", return_value=pool):
             return self.capacity.estimate_capacity("modello-di-prova")
 
     def test_small_model_on_large_gpu_allows_many_slots(self):
@@ -724,6 +724,23 @@ class TestParallelCapacity(unittest.TestCase):
 
 
 class TestBenchmarkMCPServer(unittest.TestCase):
+    """I server MCP del modulo finiscono sull'hub del kernel.
+
+    La registrazione avviene quando il ModuleLoader chiama `register_mcp` sul
+    modulo installato. Qui la si esegue esplicitamente invece di dare per
+    scontato che qualcun altro abbia gia' importato l'app: cosi' il test
+    verifica proprio il contratto del modulo — `handlers.register_mcp` deve
+    registrare sia Training sia Benchmark — invece di dipendere dall'ordine di
+    import della suite.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        from core.mcp.mcp_hub import mcp_hub
+        from core.modules.sigma_training_lab import handlers
+
+        handlers.register_mcp(mcp_hub)
+
     def test_tools_are_registered_on_the_hub(self):
         from core.mcp.mcp_hub import mcp_hub
         names = {t["name"] for t in mcp_hub.get_aggregated_tools()}

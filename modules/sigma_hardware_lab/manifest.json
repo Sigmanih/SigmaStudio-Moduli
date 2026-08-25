@@ -14,13 +14,21 @@
   "repository": "https://github.com/Sigmanih/SigmaStudio-Moduli",
   "branch": "main",
   "path": "modules/sigma_hardware_lab",
-  "tags": ["NVIDIA NVML", "GPU VRAM", "Ollama Daemon", "Process Manager", "CUDA Telemetry"],
+  "tags": [
+    "NVIDIA NVML",
+    "GPU VRAM",
+    "Ollama Daemon",
+    "Process Manager",
+    "CUDA Telemetry"
+  ],
   "size": "~1 MB",
   "icon": "Zap",
   "color": "#00d2ff",
   "frontend": {
     "entrypoint": "frontend/index.jsx",
-    "styles": ["frontend/styles/hardware-lab.css"],
+    "styles": [
+      "frontend/styles/hardware-lab.css"
+    ],
     "install_to": "sigma_studio/src/modules/sigma_hardware_lab/"
   },
   "backend": {
@@ -37,5 +45,13 @@
       "date": "2026-08-15",
       "notes": "Initial release — extracted Hardware Lab and GPU telemetry from Sigma Studio kernel."
     }
-  ]
+  ],
+  "requires": {
+    "hardware": {
+      "requires": {},
+      "recommended": {},
+      "reason_if_unavailable": null
+    },
+    "modules": []
+  }
 }

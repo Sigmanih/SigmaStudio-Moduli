@@ -13,7 +13,6 @@ from pathlib import Path
 
 import pytest
 
-sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from core.modules.sigma_training_lab.training.audit import (
     BLOCKING_FINDINGS, FINDING_FALSE_NEGATIVE, FINDING_FALSE_POSITIVE,

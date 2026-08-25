@@ -14,7 +14,15 @@
   "repository": "https://github.com/Sigmanih/SigmaStudio-Moduli",
   "branch": "main",
   "path": "modules/sigma_knowledge",
-  "tags": ["D3.js", "Knowledge Graph", "File Creation MCP", "AST Validation", "Universal Nodes", "Topic Hierarchy", "RAG"],
+  "tags": [
+    "D3.js",
+    "Knowledge Graph",
+    "File Creation MCP",
+    "AST Validation",
+    "Universal Nodes",
+    "Topic Hierarchy",
+    "RAG"
+  ],
   "size": "~2 MB",
   "icon": "PieChart",
   "color": "#00d2ff",
@@ -41,5 +49,13 @@
       "date": "2026-08-15",
       "notes": "Initial release — extracted Knowledge Graph, MappaArgomenti, KnowledgeNodeExplorer and Memory MCP Server from kernel."
     }
-  ]
+  ],
+  "requires": {
+    "hardware": {
+      "requires": {},
+      "recommended": {},
+      "reason_if_unavailable": null
+    },
+    "modules": []
+  }
 }

@@ -23,14 +23,12 @@ from __future__ import annotations
 import json
 import urllib.parse
 import urllib.request
-from pathlib import Path
 
 from core.logger import get_logger
 from core.modules.sigma_training_lab.training import gpu as gpu_layer
 
 log = get_logger(__name__)
 
-BASE_DIR = Path(__file__).parent.parent.parent
 HF_API = "https://huggingface.co/api"
 
 

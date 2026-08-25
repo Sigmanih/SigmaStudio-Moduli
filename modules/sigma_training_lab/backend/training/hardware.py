@@ -11,7 +11,6 @@ with the capability/auto-tune data the Training Lab now shows.
 """
 
 import os
-import sys
 import shutil
 import subprocess
 
@@ -22,9 +21,9 @@ log = get_logger(__name__)
 
 
 # ---------------------------------------------------------------- probes
-# NOTE: these three keep their historical names and payload shape — the test
-# suite patches them on `core.training_handler` and `get_hardware_info` resolves
-# them dynamically through that module.
+# NOTE: these keep their historical names and payload shape. `get_hardware_info`
+# resolves them through this module's own globals, so a test can substitute one
+# with monkeypatch.setattr(hardware, "_query_nvidia_smi", ...).
 
 def _check_torch_cuda() -> dict:
     """Torch/CUDA capability probe (also reports ROCm, XPU, MPS, DirectML)."""
@@ -64,9 +63,8 @@ def _query_wmi_gpus() -> list[dict]:
 # ---------------------------------------------------------------- report
 
 def _resolve(name: str, default):
-    """Resolve a probe through core.training_handler so patches apply."""
-    th = sys.modules.get("core.training_handler")
-    return getattr(th, name, default) if th else default
+    """Resolve a probe through this module, so monkeypatched versions apply."""
+    return globals().get(name, default)
 
 
 def _multi_gpu_strategy(gpus: list[dict]) -> str:

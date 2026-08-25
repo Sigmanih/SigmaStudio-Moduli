@@ -15,11 +15,10 @@ import threading
 from pathlib import Path
 from unittest.mock import patch, MagicMock, mock_open
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 import pytest
 
-import core.training_handler as th
+import core.modules.sigma_training_lab.training_handler as th
 
 from core.modules.sigma_training_lab.training_handler import  (
     # Dataset
@@ -43,30 +42,39 @@ from core.modules.sigma_training_lab.training_handler import  (
 # ===========================================================================
 
 @pytest.fixture(autouse=True)
-def isolate_training_dirs(tmp_path):
-    """Isola file system del training in directory temporanea."""
-    # Salva riferimenti originali
-    orig_training_dir = th.TRAINING_DIR
-    orig_datasets_dir = th.DATASETS_DIR
-    orig_jobs_dir = th.JOBS_DIR
-    orig_jobs_file = th.JOBS_FILE
-    orig_scripts_dir = th.SCRIPTS_DIR
+def isolate_training_dirs(tmp_path, monkeypatch):
+    """Isola il filesystem del training in una directory temporanea.
 
-    # Patchiamo i percorsi con tmp_path
-    th.TRAINING_DIR = tmp_path / "training"
-    th.DATASETS_DIR = tmp_path / "training" / "datasets"
-    th.JOBS_DIR = tmp_path / "training" / "jobs"
-    th.JOBS_FILE = tmp_path / "training" / "training_jobs.json"
-    th.SCRIPTS_DIR = tmp_path / "training" / "scripts"
-    for d in [th.TRAINING_DIR, th.DATASETS_DIR, th.JOBS_DIR, th.SCRIPTS_DIR]:
+    I percorsi vanno riscritti sui moduli che li *possiedono* — jobs.py e
+    datasets.py — non solo sulla facciata: e' li' che le funzioni li leggono.
+    Prima bastava assegnarli su `th` perche' ogni funzione passava da un
+    override dinamico su `core.training_handler`; quel modulo non esiste piu'
+    dalla modularizzazione, l'override era diventato codice morto ed e' stato
+    rimosso. La facciata resta allineata perche' alcuni test leggono th.JOBS_DIR
+    per costruire i percorsi attesi.
+    """
+    from core.modules.sigma_training_lab.training import datasets as datasets_mod
+    from core.modules.sigma_training_lab.training import jobs as jobs_mod
+
+    training_dir = tmp_path / "training"
+    percorsi = {
+        "TRAINING_DIR": training_dir,
+        "DATASETS_DIR": training_dir / "datasets",
+        "JOBS_DIR": training_dir / "jobs",
+        "JOBS_FILE": training_dir / "training_jobs.json",
+        "SCRIPTS_DIR": training_dir / "scripts",
+    }
+
+    for nome, valore in percorsi.items():
+        for modulo in (th, jobs_mod, datasets_mod):
+            if hasattr(modulo, nome):
+                monkeypatch.setattr(modulo, nome, valore, raising=False)
+
+    for d in (percorsi["TRAINING_DIR"], percorsi["DATASETS_DIR"],
+              percorsi["JOBS_DIR"], percorsi["SCRIPTS_DIR"]):
         d.mkdir(parents=True, exist_ok=True)
+
     yield
-    # Ripristina originali
-    th.TRAINING_DIR = orig_training_dir
-    th.DATASETS_DIR = orig_datasets_dir
-    th.JOBS_DIR = orig_jobs_dir
-    th.JOBS_FILE = orig_jobs_file
-    th.SCRIPTS_DIR = orig_scripts_dir
 
 
 # ===========================================================================
@@ -116,7 +124,7 @@ class TestFeaturedDatasets:
 class TestHuggingFaceSearch:
     """Test ricerca dataset su HuggingFace (con mock per evitare chiamate reali)."""
 
-    @patch("core.training_handler.urlopen")
+    @patch("core.modules.sigma_training_lab.training.datasets.urlopen")
     def test_search_hf_datasets_mock(self, mock_urlopen):
         """Ricerca mockata che restituisce risultati strutturati."""
         mock_response = MagicMock()
@@ -146,7 +154,7 @@ class TestHuggingFaceSearch:
         assert ds["downloads"] == 100000
         assert isinstance(ds["task_categories"], list)
 
-    @patch("core.training_handler.urlopen")
+    @patch("core.modules.sigma_training_lab.training.datasets.urlopen")
     def test_search_hf_empty_results(self, mock_urlopen):
         """API HuggingFace restituisce lista vuota."""
         mock_response = MagicMock()
@@ -157,7 +165,7 @@ class TestHuggingFaceSearch:
         assert result["success"] is True
         assert len(result["results"]) == 0
 
-    @patch("core.training_handler.urlopen")
+    @patch("core.modules.sigma_training_lab.training.datasets.urlopen")
     def test_search_hf_network_error(self, mock_urlopen):
         """Errore di rete non causa crash."""
         from urllib.error import URLError
@@ -168,7 +176,7 @@ class TestHuggingFaceSearch:
         assert "error" in result
         assert result["results"] == []
 
-    @patch("core.training_handler.urlopen")
+    @patch("core.modules.sigma_training_lab.training.datasets.urlopen")
     def test_get_hf_dataset_info_mock(self, mock_urlopen):
         """Info dettagliate dataset con preview.
 
@@ -299,7 +307,7 @@ class TestLocalDatasetImport:
 
     def test_register_hf_dataset(self):
         """Registrazione dataset HF (solo metadati, senza download)."""
-        with patch("core.training_handler.get_hf_dataset_info") as mock_info:
+        with patch("core.modules.sigma_training_lab.training.datasets.get_hf_dataset_info") as mock_info:
             mock_info.return_value = {
                 "success": True,
                 "id": "test/dataset",
@@ -455,7 +463,7 @@ class TestTrainingJobCreation:
 class TestJobExecution:
     """Test avvio/stop/esecuzione job (con mock del subprocess)."""
 
-    @patch("core.training_handler.subprocess.Popen")
+    @patch("core.modules.sigma_training_lab.training.jobs.subprocess.Popen")
     def test_start_job_creates_process(self, mock_popen):
         """Avvio job crea un processo."""
         # Crea job prima
@@ -498,7 +506,7 @@ class TestJobExecution:
         assert status["success"] is True
         assert status["job"]["status"] in ("running", "completed")
 
-    @patch("core.training_handler.subprocess.Popen")
+    @patch("core.modules.sigma_training_lab.training.jobs.subprocess.Popen")
     def test_stop_running_job(self, mock_popen):
         """Ferma un job in esecuzione."""
         config = {"base_model": "test", "method": "script_custom", "hyperparams": {}}
@@ -557,7 +565,7 @@ class TestJobExecution:
 class TestOllamaExport:
     """Test export modello trainato verso Ollama."""
 
-    @patch("core.training_handler.subprocess.run")
+    @patch("core.modules.sigma_training_lab.training.jobs.subprocess.run")
     def test_export_creates_modelfile(self, mock_run):
         """Export genera Modelfile valido quando c'e' un artefatto da esportare."""
         mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
@@ -593,7 +601,7 @@ class TestOllamaExport:
         assert result["success"] is False
         assert "esportabile" in result["error"].lower()
 
-    @patch("core.training_handler.subprocess.run")
+    @patch("core.modules.sigma_training_lab.training.jobs.subprocess.run")
     def test_export_reports_ollama_failure(self, mock_run):
         """Un `ollama create` fallito non deve passare per riuscito."""
         mock_run.return_value = MagicMock(returncode=1, stdout="",
@@ -626,7 +634,7 @@ class TestOllamaExport:
             target.write_bytes(b"GGUF")
         return job_id, job_dir
 
-    @patch("core.training_handler.subprocess.run")
+    @patch("core.modules.sigma_training_lab.training.jobs.subprocess.run")
     def test_an_existing_gguf_wins_over_the_safetensors(self, mock_run):
         """Ollama carica un .gguf com'e'; sui safetensors deve convertire e puo'
         non saperlo fare, quindi il .gguf ha la precedenza."""
@@ -639,7 +647,7 @@ class TestOllamaExport:
         assert result["source"] == "gguf"
         assert "modello-f16.gguf" in result["modelfile"]
 
-    @patch("core.training_handler.subprocess.run")
+    @patch("core.modules.sigma_training_lab.training.jobs.subprocess.run")
     def test_ollama_progress_bars_do_not_swallow_the_error(self, mock_run):
         """Il vero errore va estratto da spinner e sequenze ANSI, non perso."""
         noisy = ("\x1b[?25lcopying file sha256:abc 100%\x1b[K\r"
@@ -654,8 +662,8 @@ class TestOllamaExport:
             assert result["error"].endswith("improper type for 'qwen35.rope.scaling.factor'")
             assert "\x1b" not in result["error"] and "copying file" not in result["error"]
 
-    @patch("core.training.jobs._convert_to_gguf")
-    @patch("core.training_handler.subprocess.run")
+    @patch("core.modules.sigma_training_lab.training.jobs._convert_to_gguf")
+    @patch("core.modules.sigma_training_lab.training.jobs.subprocess.run")
     def test_i_pesi_passano_sempre_da_llama_cpp(self, mock_run, mock_convert):
         """Non e' piu' un ripiego: e' la strada principale.
 
@@ -682,8 +690,8 @@ class TestOllamaExport:
         assert mock_convert.call_count == 1, "senza aspettare che Ollama fallisca"
         assert "convertito-f16.gguf" in result["modelfile"]
 
-    @patch("core.training.jobs._convert_to_gguf")
-    @patch("core.training_handler.subprocess.run")
+    @patch("core.modules.sigma_training_lab.training.jobs._convert_to_gguf")
+    @patch("core.modules.sigma_training_lab.training.jobs.subprocess.run")
     def test_se_llama_cpp_non_ce_la_fa_prova_comunque_ollama(self, mock_run, mock_convert):
         """Meglio il convertitore imperfetto che nessun export."""
         if not shutil.which("ollama"):
@@ -696,7 +704,7 @@ class TestOllamaExport:
         assert result["success"] is True
         assert result["source"] == "merged", "si ricade sui pesi cosi' come sono"
 
-    @patch("core.training_handler.subprocess.run")
+    @patch("core.modules.sigma_training_lab.training.jobs.subprocess.run")
     def test_quantization_is_passed_to_ollama(self, mock_run):
         mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
         job_id, _ = self._completed_job_with("adapter")
@@ -714,7 +722,7 @@ class TestOllamaExport:
         assert result["success"] is False
         assert "non riconosciuta" in result["error"]
 
-    @patch("core.training_handler.subprocess.run")
+    @patch("core.modules.sigma_training_lab.training.jobs.subprocess.run")
     def test_no_quantization_leaves_the_command_alone(self, mock_run):
         mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
         job_id, _ = self._completed_job_with("adapter")
@@ -748,9 +756,9 @@ class TestOllamaExport:
 class TestHardwareInfo:
     """Test rilevamento hardware e diagnostica CUDA."""
 
-    @patch("core.training_handler._query_wmi_gpus")
-    @patch("core.training_handler._query_nvidia_smi")
-    @patch("core.training_handler._check_torch_cuda")
+    @patch("core.modules.sigma_training_lab.training.hardware._query_wmi_gpus")
+    @patch("core.modules.sigma_training_lab.training.hardware._query_nvidia_smi")
+    @patch("core.modules.sigma_training_lab.training.hardware._check_torch_cuda")
     def test_hardware_info_structure(self, mock_torch, mock_smi, mock_wmi):
         """Struttura informazione hardware è completa."""
         mock_wmi.return_value = []
@@ -785,9 +793,9 @@ class TestHardwareInfo:
         assert hw["cpu_count"] > 0
         assert hw["ram_gb"] > 0
 
-    @patch("core.training_handler._query_wmi_gpus")
-    @patch("core.training_handler._query_nvidia_smi")
-    @patch("core.training_handler._check_torch_cuda")
+    @patch("core.modules.sigma_training_lab.training.hardware._query_wmi_gpus")
+    @patch("core.modules.sigma_training_lab.training.hardware._query_nvidia_smi")
+    @patch("core.modules.sigma_training_lab.training.hardware._check_torch_cuda")
     def test_multi_gpu_detection(self, mock_torch, mock_smi, mock_wmi):
         """Rilevamento multi-GPU corretto."""
         mock_wmi.return_value = []
@@ -809,9 +817,9 @@ class TestHardwareInfo:
         assert hw["multi_gpu"]["total_vram_gb"] == 48.0
         assert "device_map" in hw["multi_gpu"]["strategy"]
 
-    @patch("core.training_handler._query_wmi_gpus")
-    @patch("core.training_handler._query_nvidia_smi")
-    @patch("core.training_handler._check_torch_cuda")
+    @patch("core.modules.sigma_training_lab.training.hardware._query_wmi_gpus")
+    @patch("core.modules.sigma_training_lab.training.hardware._query_nvidia_smi")
+    @patch("core.modules.sigma_training_lab.training.hardware._check_torch_cuda")
     def test_no_gpu_detection(self, mock_torch, mock_smi, mock_wmi):
         """Nessuna GPU rilevata → diagnostica."""
         mock_wmi.return_value = []
@@ -919,7 +927,7 @@ class TestJobPersistence:
 class TestDependencyCheck:
     """Test controllo dipendenze pre-training."""
 
-    @patch("core.training_handler.subprocess.run")
+    @patch("core.modules.sigma_training_lab.training.jobs.subprocess.run")
     def test_check_dependencies_all_installed(self, mock_run):
         """Tutte le dipendenze installate."""
         mock_run.return_value.returncode = 0
@@ -928,7 +936,7 @@ class TestDependencyCheck:
         assert result["method"] == "lora_unsloth"
         assert result["all_installed"] is True
 
-    @patch("core.training_handler.subprocess.run")
+    @patch("core.modules.sigma_training_lab.training.jobs.subprocess.run")
     def test_check_dependencies_missing(self, mock_run):
         """Alcune dipendenze mancanti."""
         def side_effect(*args, **kwargs):

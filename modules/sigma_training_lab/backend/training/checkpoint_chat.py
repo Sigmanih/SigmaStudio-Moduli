@@ -25,10 +25,9 @@ from pathlib import Path
 from core.logger import get_logger
 from core.modules.sigma_training_lab.training import gpu as gpu_layer
 
-log = get_logger(__name__)
+from core.modules.sigma_training_lab.paths import JOBS_DIR
 
-BASE_DIR = Path(__file__).parent.parent.parent
-JOBS_DIR = BASE_DIR / "training" / "jobs"
+log = get_logger(__name__)
 
 _CACHE: dict = {"path": None, "model": None, "tokenizer": None, "device": None}
 _LOCK = threading.Lock()

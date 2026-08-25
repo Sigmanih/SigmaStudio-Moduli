@@ -16,7 +16,6 @@ from pathlib import Path
 
 import pytest
 
-sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from core.modules.sigma_training_lab.training import model_catalog as mc
 
@@ -301,10 +300,10 @@ def test_senza_gguf_si_scarica_e_si_registra(monkeypatch, tmp_path):
     hub.snapshot_download = lambda repo, **k: str(tmp_path)
     monkeypatch.setitem(sys.modules, "huggingface_hub", hub)
     registrati = []
-    jobs = types.ModuleType("core.training.jobs")
+    jobs = types.ModuleType("core.modules.sigma_training_lab.training.jobs")
     jobs.register_ollama_model = lambda p, n, **k: (registrati.append((str(p), n, k)),
                                                     {"success": True})[1]
-    monkeypatch.setitem(sys.modules, "core.training.jobs", jobs)
+    monkeypatch.setitem(sys.modules, "core.modules.sigma_training_lab.training.jobs", jobs)
 
     mc._pull_state.update(running=True, error="", done=False)
     mc._import_worker("org/pesi", "sigma-pesi", "q4_K_M")
@@ -320,10 +319,10 @@ def test_un_import_fallito_lascia_il_motivo(monkeypatch, tmp_path):
     hub = types.ModuleType("huggingface_hub")
     hub.snapshot_download = lambda repo, **k: str(tmp_path)
     monkeypatch.setitem(sys.modules, "huggingface_hub", hub)
-    jobs = types.ModuleType("core.training.jobs")
+    jobs = types.ModuleType("core.modules.sigma_training_lab.training.jobs")
     jobs.register_ollama_model = lambda p, n, **k: {"success": False,
                                                     "error": "architettura sconosciuta"}
-    monkeypatch.setitem(sys.modules, "core.training.jobs", jobs)
+    monkeypatch.setitem(sys.modules, "core.modules.sigma_training_lab.training.jobs", jobs)
 
     mc._pull_state.update(running=True, error="", done=False)
     mc._import_worker("org/pesi", "sigma-pesi", "")
@@ -347,7 +346,7 @@ def test_i_link_della_cache_diventano_file_veri(tmp_path, monkeypatch):
     """`ollama create` rifiuta i file della cache HuggingFace — sono link a
     ../../blobs e il percorso esce dalla cartella del modello: *insecure path*.
     Vanno materializzati, ma senza pagarli una seconda volta in spazio."""
-    monkeypatch.setattr(mc, "BASE_DIR", tmp_path)
+    monkeypatch.setattr(mc, "IMPORTS_DIR", tmp_path / "training" / "imports")
     blobs = tmp_path / "blobs"
     blobs.mkdir()
     (blobs / "sha123").write_bytes(b"pesi veri")

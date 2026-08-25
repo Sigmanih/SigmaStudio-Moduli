@@ -14,13 +14,22 @@
   "repository": "https://github.com/Sigmanih/SigmaStudio-Moduli",
   "branch": "main",
   "path": "modules/sigma_training_lab",
-  "tags": ["Unsloth QLoRA", "GGUF Export", "Gradus FWE", "Benchmarks", "SLM Forge", "Autopilot"],
+  "tags": [
+    "Unsloth QLoRA",
+    "GGUF Export",
+    "Gradus FWE",
+    "Benchmarks",
+    "SLM Forge",
+    "Autopilot"
+  ],
   "size": "~3 MB (solo codice)",
   "icon": "Brain",
   "color": "#d29922",
   "frontend": {
     "entrypoint": "frontend/index.jsx",
-    "styles": ["frontend/styles/training-lab.css"],
+    "styles": [
+      "frontend/styles/training-lab.css"
+    ],
     "install_to": "sigma_studio/src/modules/sigma_training_lab/"
   },
   "backend": {
@@ -36,5 +45,17 @@
       "date": "2026-08-15",
       "notes": "Initial release — extracted Training Lab, SLM Forge, Autopilot and Benchmarks from Sigma Studio kernel."
     }
-  ]
+  ],
+  "requires": {
+    "hardware": {
+      "requires": {
+        "cuda": true
+      },
+      "recommended": {
+        "total_vram_gb": 6.0
+      },
+      "reason_if_unavailable": "Serve una GPU NVIDIA con CUDA per il fine-tuning"
+    },
+    "modules": []
+  }
 }
