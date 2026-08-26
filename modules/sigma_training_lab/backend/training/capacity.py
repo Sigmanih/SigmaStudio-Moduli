@@ -35,10 +35,11 @@ import uuid
 import requests
 
 from core.logger import get_logger
+from core.modules.sigma_training_lab import paths as module_paths
 
 log = get_logger(__name__)
 
-PROFILES_FILE = os.path.join("training_lab", "capacity_profiles.json")
+PROFILES_FILE = str(module_paths.TRAINING_LAB_DIR / "capacity_profiles.json")
 OLLAMA_URL = os.environ.get("OLLAMA_HOST", "http://localhost:11434").rstrip("/")
 
 _profiles_lock = threading.RLock()
@@ -78,7 +79,7 @@ def _load_profiles() -> dict:
 
 
 def _save_profile(model: str, profile: dict) -> None:
-    os.makedirs("training_lab", exist_ok=True)
+    os.makedirs(module_paths.TRAINING_LAB_DIR, exist_ok=True)
     with _profiles_lock:
         profiles = _load_profiles()
         profiles[model] = profile
@@ -611,21 +612,40 @@ def resolve_concurrency(model: str, requested) -> tuple[int, str]:
     e' cio' che rende dinamico il parallelismo invece di lasciarlo a un numero
     scelto a mano che l'hardware potrebbe non reggere.
     """
+    if model.startswith("sigma:") or model in ("sigma", "sigmaengine"):
+        # Il motore locale serve un modello alla volta: mandargli richieste
+        # concorrenti non le esegue in parallelo, le mette in coda dietro il
+        # suo lucchetto di generazione, e quelle che scadono tornano indietro
+        # con "Motore occupato" al posto di una risposta — che il correttore
+        # poi conta come esito da rivedere. Il parallelismo qui non sono le
+        # richieste, e' il lotto: un solo passaggio in avanti su piu' prompt.
+        if requested is None or (isinstance(requested, str)
+                                 and requested.strip().lower() in ("auto", "")):
+            try:
+                from core.engine.unified_runtime import sigma_engine
+                size = sigma_engine.auto_batch_size()
+            except Exception as err:
+                log.debug("Dimensione lotto non stimabile: %s", err)
+                size = 1
+            return max(1, size), f"SigmaEngine: lotto da {size} prompt per passaggio"
+        try:
+            return max(1, min(int(requested), 64)), "SigmaEngine: lotto impostato manualmente"
+        except (TypeError, ValueError):
+            return 1, "SigmaEngine: valore non valido, lotto da 1"
+    if model.startswith("lmstudio:"):
+        return 1, "LM Studio Direct Execution"
+
     # Un valore assente vale "auto": meglio dedurlo dall'hardware che ripiegare
     # su 1 e rallentare il run senza motivo.
     if requested is None or (isinstance(requested, str) and requested.strip().lower() in ("auto", "")):
+        if any(model.startswith(f"{p}:") for p in ("openai", "deepseek", "anthropic", "groq", "google", "mistral", "openrouter", "together", "xai")):
+            return 8, "Cloud API Parallel Worker Pool"
+
         profile = get_profile(model)
         if profile and profile.get("recommended_parallel"):
             value = int(profile["recommended_parallel"])
             return max(1, value), f"auto: misurato il {profile.get('measured_at', '')[:10]}"
         estimate = estimate_capacity(model)
-        # Il tetto e' prudenza contro un servitore che accoda: se Ollama serve
-        # una richiesta alla volta, alzare i worker non serve a niente. Ma su
-        # questa macchina non e' cosi', misurato il 2026-08-02 su 24 richieste
-        # a qwen2.5:0.5b-instruct: 1w 7.7 req/s, 4w 26.5, 8w 37.6, 16w 41.8.
-        # Fermarsi a 4 costava il 42% del throughput. Per i modelli grandi il
-        # limite lo mette comunque la VRAM (`max_parallel_now`), e li' 4 e 2
-        # rendono uguale — Qwythos 9B: 2w 2.66 req/s, 4w 2.65.
         ceiling = 8 * max(1, int(estimate.get("endpoint_count", 1) or 1))
         value = min(int(estimate.get("max_parallel_now", 1) or 1), ceiling)
         return max(1, value), "auto: stima da VRAM (nessuna misura disponibile)"

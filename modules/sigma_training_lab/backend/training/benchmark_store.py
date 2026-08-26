@@ -24,12 +24,14 @@ from __future__ import annotations
 import json
 import os
 import threading
+import time
 
 from core.logger import get_logger
+from core.modules.sigma_training_lab import paths as module_paths
 
 log = get_logger(__name__)
 
-RUNS_DIR = os.path.join("training_lab", "benchmark_runs")
+RUNS_DIR = str(module_paths.TRAINING_LAB_DIR / "benchmark_runs")
 
 _locks: dict[str, threading.Lock] = {}
 _locks_guard = threading.Lock()
@@ -52,7 +54,33 @@ def _ensure_dir() -> None:
     os.makedirs(RUNS_DIR, exist_ok=True)
 
 
+#: L'indice del run in corso, tenuto in memoria. Prima ogni quesito completato
+#: rileggeva e riscriveva l'intero sidecar: costo quadratico sulla lunghezza del
+#: run, e — su Windows — una collisione continua con la UI che lo sta leggendo
+#: per il polling. `os.replace` vuole il permesso di cancellare la destinazione,
+#: e un lettore aperto glielo nega: e' il `WinError 5` che interrompeva il run.
+_index_cache: dict[str, list[list]] = {}
+#: Da quanti esiti l'indice non viene scritto su disco, e da quanto tempo.
+_index_dirty: dict[str, int] = {}
+_index_written_at: dict[str, float] = {}
+
+#: Ogni quanti esiti, e ogni quanti secondi, riversare l'indice. La UI puo'
+#: leggerlo in ritardo di un secondo senza che nessuno se ne accorga; non puo'
+#: leggerlo mentre viene sostituito.
+_INDEX_FLUSH_EVERY = 25
+_INDEX_FLUSH_SECONDS = 2.0
+
+#: Tentativi di sostituzione del file indice prima di arrendersi. Su Windows il
+#: fallimento e' transitorio quasi sempre: un lettore, l'antivirus o l'indicizza-
+#: tore tiene il file per qualche millisecondo.
+_REPLACE_TENTATIVI = 8
+_REPLACE_ATTESA_S = 0.05
+
+
 def _load_index(job_id: str) -> list[list]:
+    cached = _index_cache.get(job_id)
+    if cached is not None:
+        return cached
     _, idx_path = _paths(job_id)
     if not os.path.exists(idx_path):
         return []
@@ -64,12 +92,59 @@ def _load_index(job_id: str) -> list[list]:
         return []
 
 
-def _save_index(job_id: str, entries: list[list]) -> None:
+def _replace_with_retry(tmp: str, destination: str) -> None:
+    """`os.replace`, con la pazienza che Windows richiede.
+
+    Su NTFS la sostituzione fallisce con "Accesso negato" finche' qualcuno tiene
+    aperto il file di destinazione — e qualcuno lo tiene aperto praticamente
+    sempre, perche' la UI lo interroga durante il run. Non e' un errore di
+    permessi: e' una condizione di corsa che si risolve da sola in millisecondi.
+    """
+    ultimo: Exception | None = None
+    for tentativo in range(_REPLACE_TENTATIVI):
+        try:
+            os.replace(tmp, destination)
+            return
+        except PermissionError as err:
+            ultimo = err
+            time.sleep(_REPLACE_ATTESA_S * (tentativo + 1))
+    raise ultimo if ultimo else OSError("sostituzione non riuscita")
+
+
+def _save_index(job_id: str, entries: list[list], force: bool = True) -> None:
+    """Scrive il sidecar, con un freno quando il run e' in corso."""
+    _index_cache[job_id] = entries
+    if not force:
+        _index_dirty[job_id] = _index_dirty.get(job_id, 0) + 1
+        scaduto = (time.time() - _index_written_at.get(job_id, 0.0)) >= _INDEX_FLUSH_SECONDS
+        if _index_dirty[job_id] < _INDEX_FLUSH_EVERY and not scaduto:
+            return
+
     _, idx_path = _paths(job_id)
     tmp = idx_path + ".tmp"
-    with open(tmp, "w", encoding="utf-8") as fh:
-        json.dump({"entries": entries}, fh)
-    os.replace(tmp, idx_path)
+    try:
+        with open(tmp, "w", encoding="utf-8") as fh:
+            json.dump({"entries": entries}, fh)
+        _replace_with_retry(tmp, idx_path)
+    except Exception as err:
+        # Il sidecar si puo' ricostruire dal file degli esiti in una passata:
+        # non scriverlo adesso e' un rallentamento, non una perdita, e non deve
+        # fermare un run lungo ore.
+        log.warning("Indice di %s non scritto (%s); si riprovera'.", job_id, err)
+        return
+    _index_dirty[job_id] = 0
+    _index_written_at[job_id] = time.time()
+
+
+def flush_index(job_id: str) -> None:
+    """Forza la scrittura del sidecar e libera la copia in memoria."""
+    entries = _index_cache.get(job_id)
+    if entries is not None:
+        with _lock_for(job_id):
+            _save_index(job_id, entries, force=True)
+            _index_cache.pop(job_id, None)
+            _index_dirty.pop(job_id, None)
+            _index_written_at.pop(job_id, None)
 
 
 def append_results(job_id: str, results: list[dict]) -> None:
@@ -98,7 +173,9 @@ def append_results(job_id: str, results: list[dict]) -> None:
                     result.get("suite", ""),
                 ])
                 offset += len(line.encode("utf-8")) + 1
-        _save_index(job_id, entries)
+        # Gli esiti sono gia' su disco: l'indice puo' seguire con calma, e in
+        # caso di interruzione si ricostruisce da loro con una sola passata.
+        _save_index(job_id, entries, force=False)
 
 
 def count_results(job_id: str) -> int:
@@ -274,6 +351,9 @@ def read_review_queue(job_id: str, limit: int = 5000) -> list[dict]:
 
 def delete_results(job_id: str) -> None:
     """Cancella dettaglio e indice di un job eliminato."""
+    _index_cache.pop(job_id, None)
+    _index_dirty.pop(job_id, None)
+    _index_written_at.pop(job_id, None)
     for path in _paths(job_id):
         try:
             if os.path.exists(path):

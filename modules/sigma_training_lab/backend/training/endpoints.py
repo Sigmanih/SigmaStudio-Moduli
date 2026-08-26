@@ -31,6 +31,7 @@ import time
 import requests
 
 from core.logger import get_logger
+from core.modules.sigma_training_lab import paths as module_paths
 
 log = get_logger(__name__)
 
@@ -44,7 +45,7 @@ HEALTH_TIMEOUT = 2
 #: Registro su disco delle istanze avviate da Sigma. Deve sopravvivere al
 #: processo che le ha lanciate: sono servitori indipendenti, e tenerne traccia
 #: solo in memoria significava lasciarli vivi senza piu' un modo per fermarli.
-INSTANCES_FILE = os.path.join("training_lab", "ollama_instances.json")
+INSTANCES_FILE = str(module_paths.TRAINING_LAB_DIR / "ollama_instances.json")
 
 _lock = threading.RLock()
 _managed: dict[int, subprocess.Popen] = {}   # porta -> processo, se avviato qui
@@ -212,7 +213,7 @@ def _load_instances() -> list[dict]:
 
 
 def _save_instances(instances: list[dict]) -> None:
-    os.makedirs("training_lab", exist_ok=True)
+    os.makedirs(module_paths.TRAINING_LAB_DIR, exist_ok=True)
     tmp = INSTANCES_FILE + ".tmp"
     with open(tmp, "w", encoding="utf-8") as fh:
         json.dump(instances, fh, indent=2)

@@ -6,24 +6,186 @@ from __future__ import annotations
 import os
 import re
 import json
+import time
 import urllib.request
 import urllib.parse
 from typing import Dict, Any, List, Optional
+from core.net_utils import safe_urlopen
 from core.logger import get_logger
 
 log = get_logger(__name__)
 
 HF_API_BASE = "https://huggingface.co/api"
 
-# Recognized verified official organizations and AI labs
+
+# Every place the token is read from or written to, in resolution order. The
+# Model Hub is the single UI for the token, so a save has to reach all of them:
+# a stale copy left behind in one file is a download that silently falls back
+# to anonymous rate limits.
+HF_TOKEN_ENV_KEYS = ("HF_TOKEN", "HUGGING_FACE_HUB_TOKEN", "HUGGINGFACE_HUB_TOKEN", "HUGGINGFACE_TOKEN")
+
+
+def _hf_root_dir() -> str:
+    """Installation root, resolved by the kernel path service."""
+    from core.paths import project_root
+    return str(project_root())
+
+
+def _hf_config_paths() -> List[str]:
+    """Config files that can carry `hf_token`, in the order they are resolved."""
+    root_dir = _hf_root_dir()
+    return [
+        os.path.join(root_dir, "data", "model_hub_config.json"),
+        os.path.join(root_dir, "core", "data", "model_hub_config.json"),
+        os.path.join(root_dir, "config.json"),
+        os.path.join(root_dir, "data", "config.json"),
+    ]
+
+
+def resolve_hf_token(explicit_token: Optional[str] = None) -> Dict[str, Any]:
+    """Resolves the token and reports where it came from, so the Model Hub can show its origin."""
+    if explicit_token and explicit_token.strip():
+        return {"token": explicit_token.strip(), "source": "input", "detail": "Token inserito manualmente"}
+
+    # 1. Environment variables
+    for env_key in HF_TOKEN_ENV_KEYS:
+        val = os.getenv(env_key)
+        if val and val.strip():
+            return {"token": val.strip(), "source": "env", "detail": "Variabile d'ambiente " + env_key}
+
+    # 2. Sigma config files
+    for path in _hf_config_paths():
+        if not os.path.exists(path):
+            continue
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                cfg = json.load(f)
+        except Exception:
+            continue
+        if not isinstance(cfg, dict):
+            continue
+        providers = cfg.get("ai_providers") if isinstance(cfg.get("ai_providers"), dict) else {}
+        hf_provider = providers.get("huggingface") if isinstance(providers.get("huggingface"), dict) else {}
+        tok = (cfg.get("hf_token") or hf_provider.get("token") or "").strip()
+        if tok:
+            return {"token": tok, "source": "config", "detail": os.path.relpath(path, _hf_root_dir())}
+
+    # 3. Hugging Face CLI cache (`huggingface-cli login`)
+    for cache_path in (
+        os.path.expanduser("~/.cache/huggingface/token"),
+        os.path.expanduser("~/.huggingface/token"),
+    ):
+        if os.path.exists(cache_path):
+            try:
+                with open(cache_path, "r", encoding="utf-8") as f:
+                    tok = f.read().strip()
+            except Exception:
+                continue
+            if tok:
+                return {"token": tok, "source": "cli_cache", "detail": "Cache huggingface-cli"}
+
+    return {"token": None, "source": None, "detail": None}
+
+
+def get_effective_hf_token(explicit_token: Optional[str] = None) -> Optional[str]:
+    """Resolves the best available Hugging Face API token from explicit arg, env vars, config, or HF CLI cache."""
+    return resolve_hf_token(explicit_token)["token"]
+
+
+def persist_hf_token(token: Optional[str]) -> Dict[str, Any]:
+    """
+    Single write path for the Hugging Face token.
+
+    Applies it to the process environment, to every Sigma config file that is
+    read back on resolution, and to any download already in flight, so the token
+    saved from the Model Hub is the one used everywhere without a restart.
+    """
+    token = (token or "").strip()
+    written: List[str] = []
+
+    if token:
+        for env_key in HF_TOKEN_ENV_KEYS:
+            os.environ[env_key] = token
+    else:
+        for env_key in HF_TOKEN_ENV_KEYS:
+            os.environ.pop(env_key, None)
+
+    root_dir = _hf_root_dir()
+    targets = [
+        os.path.join(root_dir, "data", "model_hub_config.json"),
+        os.path.join(root_dir, "config.json"),
+        os.path.join(root_dir, "data", "config.json"),
+    ]
+    # The legacy copy is only refreshed when it already exists: creating it
+    # would add a file that shadows the primary one on the next resolution.
+    legacy = os.path.join(root_dir, "core", "data", "model_hub_config.json")
+    if os.path.exists(legacy):
+        targets.append(legacy)
+
+    for path in targets:
+        cfg = {}
+        if os.path.exists(path):
+            try:
+                with open(path, "r", encoding="utf-8") as f:
+                    loaded = json.load(f)
+                if isinstance(loaded, dict):
+                    cfg = loaded
+            except Exception:
+                cfg = {}
+        cfg["hf_token"] = token
+        try:
+            os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
+            with open(path, "w", encoding="utf-8") as f:
+                json.dump(cfg, f, indent=2, ensure_ascii=False)
+            written.append(os.path.relpath(path, root_dir))
+        except Exception as exc:
+            log.warning("persist_hf_token: impossibile scrivere %s: %s", path, exc)
+
+    # Downloads already queued or paused keep their own copy of the token.
+    try:
+        from .downloader_engine import downloader_manager
+        with downloader_manager.lock:
+            for task in downloader_manager.tasks.values():
+                task.hf_token = token
+    except Exception:
+        pass
+
+    return {"hf_has_token": bool(token), "written": written}
+
+
+# Recognized verified official organizations, AI labs and premier open-weight providers
 OFFICIAL_ORGANIZATIONS = {
+    # SigmaStudio Ecosystem & User
+    'sigmanih', 'sigma', 'sigmastudio',
+
+    # Frontier Open-Weight Labs & Creators
     'qwen', 'meta-llama', 'deepseek-ai', 'mistralai', 'google', 'microsoft',
-    'anthropic', 'cohereforai', 'thudm', '01-ai', 'nvidia', 'facebook', 'baai',
+    'anthropic', 'cohereforai', 'thudm', 'zhipuai', '01-ai', 'nvidia', 'facebook', 'baai',
     'stabilityai', 'black-forest-labs', 'allenai', 'apple', 'openai', 'tiiuae',
-    'bytedance', 'internlm', 'systran', 'bigcode', 'salesforce', 'openchat'
+    'bytedance', 'internlm', 'shanghai-ai-lab', 'systran', 'bigcode', 'salesforce',
+    'openchat', 'nousresearch', 'upstage', 'snowflake', 'kyutai', 'liquid-ai',
+    'ai21labs', 'minimax', 'kwai', 'kwaivgi', 'deci', 'nexusflow', 'writer',
+
+    # Premier GGUF & Quantization Providers
+    'bartowski', 'mradermacher', 'thebloke', 'unsloth', 'turboderp',
+    'casperhansen', 'mlx-community', 'ggml-org', 'city96', 'undi95',
+    'solidrust', 'second-state', 'lone-striker', 'oobabooga'
 }
 
 OFFICIAL_AUTHOR_MAP = {
+    # Sigma Ecosystem
+    'sigmanih': 'sigmanih',
+    'sigma': 'sigmanih',
+
+    # GLM & THUDM (Zhipu AI)
+    'thudm': 'THUDM',
+    'glm': 'THUDM',
+    'zhipu': 'THUDM',
+    'chatglm': 'THUDM',
+    'cogvideo': 'THUDM',
+    'cogview': 'THUDM',
+
+    # Major Frontier Labs
     'qwen': 'Qwen',
     'llama': 'meta-llama',
     'meta': 'meta-llama',
@@ -43,23 +205,41 @@ OFFICIAL_AUTHOR_MAP = {
     'flux': 'black-forest-labs',
     'apple': 'apple',
     'internlm': 'internlm',
-    'thudm': 'THUDM',
-    'glm': 'THUDM'
+    'allenai': 'allenai',
+    'olmo': 'allenai',
+    'baai': 'BAAI',
+    'tiiuae': 'tiiuae',
+    'falcon': 'tiiuae',
+    'nous': 'NousResearch',
+    'snowflake': 'Snowflake',
+    'smollm': 'HuggingFaceTB',
+    'starcoder': 'bigcode',
+
+    # Famous Quantization & GGUF Creators
+    'bartowski': 'bartowski',
+    'mradermacher': 'mradermacher',
+    'unsloth': 'unsloth',
+    'thebloke': 'TheBloke',
+    'casperhansen': 'casperhansen',
+    'city96': 'city96',
+    'turboderp': 'turboderp',
+    'mlx': 'mlx-community',
 }
 
 
 def is_official_provider(author: str, model_id: str) -> bool:
-    """Checks if the model author or repository organization is an official AI lab or provider."""
+    """Checks if the model author or repository organization is an official AI lab, verified creator or premier provider."""
     auth_low = (author or "").lower().strip()
     id_low = (model_id or "").lower().strip()
     org = id_low.split('/')[0] if '/' in id_low else auth_low
-    
+
     if org in OFFICIAL_ORGANIZATIONS:
         return True
-    return any(o in org for o in [
-        'qwen', 'meta-llama', 'deepseek-ai', 'mistralai', 'google', 'microsoft',
-        'cohereforai', 'nvidia', 'baai', 'stabilityai', 'black-forest-labs',
-        'allenai', 'apple', 'tiiuae', 'bytedance', 'internlm', 'systran', '01-ai', 'thudm'
+    return any(o in org for o in OFFICIAL_ORGANIZATIONS) or any(k in id_low for k in [
+        'sigmanih', 'thudm', 'glm', 'zhipu', 'qwen', 'meta-llama', 'deepseek', 'mistral',
+        'google', 'microsoft', 'cohere', 'nvidia', 'baai', 'stability', 'black-forest',
+        'allenai', 'apple', 'tiiuae', 'bytedance', 'internlm', '01-ai', 'bartowski',
+        'mradermacher', 'unsloth', 'thebloke', 'nousresearch'
     ])
 
 
@@ -79,16 +259,16 @@ def _format_date_label(iso_date: Optional[str]) -> str:
         return iso_date[:10] if len(iso_date) >= 10 else iso_date
 
 
-def parse_model_specs(model_id: str, name: str, tags: List[str] = None) -> Dict[str, Any]:
+def parse_model_specs(model_id: str, name: str, tags: List[str] = None, raw_item: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """
     Accurately extracts:
     - active_params_b (float) & active_params_label (e.g. '27B', '95B')
     - total_params_b (float) & total_params_label (e.g. '27B', '2.4T Totali', '671B Totali')
     - is_moe (bool)
-    - precision_label (e.g. 'FP8', 'FP16', 'GGUF Q4_K_M', 'NVFP4')
-    - estimated size_gb: TOTAL DISK STORAGE / DOWNLOAD SIZE (based on total_b * precision)
-    - estimated active_vram_gb: ACTIVE INFERENCE VRAM FOOTPRINT (based on active_b * precision)
-    - size_label (e.g. '~2.4 TB', '~4.8 TB', '~54.0 GB')
+    - precision_label (e.g. 'FP8', 'FP16', 'GGUF Q4_K_S', 'GGUF Q4_K_M', 'NVFP4')
+    - realistic size_gb: ACTUAL DISK STORAGE / DOWNLOAD SIZE (from usedStorage or accurate precision formula)
+    - realistic active_vram_gb: ACTIVE INFERENCE VRAM FOOTPRINT (based on active_b * precision)
+    - size_label (e.g. '~2.4 TB', '~4.8 TB', '~14.7 GB', '~54.0 GB')
     - active_vram_label (e.g. '~95 GB VRAM', '~190 GB VRAM')
     """
     text = f"{model_id} {name} {' '.join(tags or [])}".lower()
@@ -134,7 +314,7 @@ def parse_model_specs(model_id: str, name: str, tags: List[str] = None) -> Dict[
                 active_label = f"~{active_b:g}B"
                 total_label = f"{total_b:g}B ({experts}x{expert_size:g}B)"
             else:
-                # Check standard B pattern like 70b, 32b, 27b, 14b, 8b, 7b, 3b, 1.5b, 0.5b
+                # Check standard B pattern like 70b, 32b, 27b, 14b, 8b, 7b, 3.8b, 3b, 1.5b, 0.5b
                 param_match = re.search(r'(\d+(?:\.\d+)?)\s*b(?:\b|[^a-z0-9])', text)
                 if param_match:
                     val = float(param_match.group(1))
@@ -152,6 +332,31 @@ def parse_model_specs(model_id: str, name: str, tags: List[str] = None) -> Dict[
                         active_label = f"{int(val_m)}M"
                         total_label = f"{int(val_m)}M"
 
+    # Check if assistant / draft / speculative model
+    is_draft = any(k in text for k in ("-assistant", "_assistant", "/assistant", "-draft", "_draft", "speculative"))
+    if is_draft:
+        active_b = 0.5
+        total_b = 0.5
+        active_label = "~0.5B (Draft)"
+        total_label = "~0.5B (Draft Assistant)"
+
+    # Refine with exact parameter count from Hugging Face metadata if available
+    if raw_item:
+        if isinstance(raw_item.get("gguf"), dict) and raw_item["gguf"].get("total"):
+            exact_params = round(raw_item["gguf"]["total"] / 1e9, 2)
+            if exact_params > 0 and not is_moe:
+                active_b = exact_params
+                total_b = exact_params
+                active_label = f"{exact_params:g}B" if exact_params < 100 else f"{int(exact_params)}B"
+                total_label = active_label
+        elif isinstance(raw_item.get("safetensors"), dict) and raw_item["safetensors"].get("total"):
+            exact_params = round(raw_item["safetensors"]["total"] / 1e9, 2)
+            if exact_params > 0 and not is_moe:
+                active_b = exact_params
+                total_b = exact_params
+                active_label = f"{exact_params:g}B" if exact_params < 100 else f"{int(exact_params)}B"
+                total_label = active_label
+
     # 2. Precision & Size estimation (FP8, FP16, GGUF, NVFP4)
     is_gguf = "gguf" in text
     if "fp8" in text or "int8" in text or "w8a8" in text or "8bit" in text or "8-bit" in text:
@@ -163,26 +368,66 @@ def parse_model_specs(model_id: str, name: str, tags: List[str] = None) -> Dict[
         fmt_label = "Safetensors (4-bit)"
         bytes_per_param = 0.55
     elif is_gguf:
-        if "q8" in text:
+        fmt_label = "GGUF"
+        if "q8_0" in text or "q8_k" in text or "q8" in text:
             precision = "GGUF Q8_0 (8-bit)"
-            bytes_per_param = 1.08
-        elif "q5" in text:
+            bytes_per_param = 1.05
+        elif "q6_k" in text or "q6" in text:
+            precision = "GGUF Q6_K (6-bit)"
+            bytes_per_param = 0.82
+        elif "q5_k_m" in text or "q5_m" in text:
             precision = "GGUF Q5_K_M (5-bit)"
-            bytes_per_param = 0.75
-        elif "q2" in text or "q3" in text:
+            bytes_per_param = 0.70
+        elif "q5_k_s" in text or "q5_s" in text or "q5_0" in text or "q5" in text:
+            precision = "GGUF Q5_K_S (5-bit)"
+            bytes_per_param = 0.66
+        elif "q4_k_s" in text or "q4_s" in text:
+            precision = "GGUF Q4_K_S (4-bit)"
+            bytes_per_param = 0.54
+        elif "q4_0" in text:
+            precision = "GGUF Q4_0 (4-bit)"
+            bytes_per_param = 0.52
+        elif "iq4_xs" in text or "iq4_nl" in text or "iq4" in text:
+            precision = "GGUF IQ4_XS (4-bit)"
+            bytes_per_param = 0.49
+        elif "q4_k_m" in text or "q4_m" in text:
+            precision = "GGUF Q4_K_M (4-bit)"
+            bytes_per_param = 0.58
+        elif "q3_k_l" in text or "q3_k_m" in text or "iq3_m" in text:
             precision = "GGUF Q3_K_M (3-bit)"
             bytes_per_param = 0.45
+        elif "q3_k_s" in text or "q3_s" in text or "iq3_xs" in text or "iq3_xxs" in text:
+            precision = "GGUF Q3_K_S (3-bit)"
+            bytes_per_param = 0.40
+        elif "q2_k" in text or "iq2_m" in text or "iq2_xs" in text or "iq2_xxs" in text or "q2" in text:
+            precision = "GGUF Q2_K (2-bit)"
+            bytes_per_param = 0.30
+        elif "f16" in text or "fp16" in text or "bf16" in text:
+            precision = "GGUF F16 (16-bit)"
+            bytes_per_param = 2.0
         else:
             precision = "GGUF Q4_K_M (4-bit)"
-            bytes_per_param = 0.62
-        fmt_label = "GGUF"
+            bytes_per_param = 0.58
     else:
         precision = "FP16 / BF16 (16-bit)"
         fmt_label = "Safetensors"
         bytes_per_param = 2.0
 
-    # Total repository storage / download size is based on total_b
-    size_gb = round(total_b * bytes_per_param, 1)
+    # Total repository storage / download size
+    # Check if exact usedStorage is available from Hugging Face
+    used_storage_bytes = raw_item.get("usedStorage") if raw_item else None
+    if used_storage_bytes and isinstance(used_storage_bytes, (int, float)) and used_storage_bytes > 0:
+        # Check if the repo has only 1 primary GGUF variant or is safetensors
+        siblings = raw_item.get("siblings") or []
+        gguf_files = [s for s in siblings if s.get("rfilename", "").lower().endswith(".gguf")]
+        if len(gguf_files) <= 1:
+            size_gb = round(used_storage_bytes / (1024**3), 1)
+        else:
+            # Multiple GGUF variants: usedStorage is sum of all; use accurate single variant formula
+            size_gb = round(total_b * bytes_per_param, 1)
+    else:
+        size_gb = round(total_b * bytes_per_param, 1)
+
     # Active inference VRAM footprint is based on active_b
     active_vram_gb = round(active_b * bytes_per_param, 1)
 
@@ -212,24 +457,114 @@ def parse_model_specs(model_id: str, name: str, tags: List[str] = None) -> Dict[
     }
 
 
-def _determine_target_gpu(size_gb: float, is_moe: bool = False, active_vram_label: str = "") -> str:
-    """Recommends the best hardware target in Sigma Studio based on model size and MoE architecture."""
-    if is_moe and size_gb >= 500.0:
-        return f"Cluster / NVMe Offload ({active_vram_label} Attiva)"
-    if size_gb <= 5.5:
-        return "RTX 5060 (8 GB) Full VRAM"
-    elif size_gb <= 12.0:
-        return "RTX 5070 Ti (16 GB) + FlashAttn-2"
-    elif size_gb <= 24.0:
-        return "Dual-GPU (RTX 5070 Ti + RTX 5060)"
-    elif size_gb <= 48.0:
-        return "Dual-GPU + RAM 94GB (Sharded)"
-    elif size_gb <= 90.0:
-        return "Host RAM 94GB + NVMe Striping"
-    elif size_gb < 1000.0:
-        return f"NVMe Striping (~{int(size_gb)} GB Storage)"
-    else:
-        return f"Multi-Drive NVMe Array (~{size_gb/1000.0:.1f} TB Storage)"
+# Weights alone never fill a device: KV cache, activations and the CUDA context
+# also live there. A placement is only called a fit with this much slack on top.
+_FIT_HEADROOM = 1.15
+
+# The hardware inventory is stable for the lifetime of a machine, but a search
+# page asks for it once per result. Cached so a listing costs one probe.
+_hardware_snapshot_cache: Optional[Dict[str, Any]] = None
+_hardware_snapshot_at: float = 0.0
+_HARDWARE_SNAPSHOT_TTL_S = 60.0
+
+
+def get_local_hardware_snapshot(force: bool = False) -> Dict[str, Any]:
+    """
+    Capacity of the machine actually running Sigma, as measured by the probe.
+
+    Returns empty lists when nothing can be detected: callers must degrade to a
+    hardware-neutral answer rather than describe a machine that may not exist.
+    """
+    global _hardware_snapshot_cache, _hardware_snapshot_at
+
+    now = time.time()
+    if not force and _hardware_snapshot_cache is not None and \
+            (now - _hardware_snapshot_at) < _HARDWARE_SNAPSHOT_TTL_S:
+        return _hardware_snapshot_cache
+
+    snapshot: Dict[str, Any] = {"gpus": [], "ram_gb": 0.0, "fast_storage": False}
+    try:
+        from core.engine.hardware_probe import UniversalHardwareProbe
+
+        for acc in UniversalHardwareProbe.probe_accelerators():
+            vram = acc.get("total_vram_gb") or acc.get("unified_memory_gb") or 0.0
+            if not vram:
+                continue
+            snapshot["gpus"].append({
+                "name": acc.get("name", "GPU"),
+                "vram_gb": float(vram),
+                "type": acc.get("type", ""),
+            })
+        snapshot["gpus"].sort(key=lambda g: g["vram_gb"], reverse=True)
+
+        snapshot["ram_gb"] = float(UniversalHardwareProbe.probe_ram().get("total_gb", 0.0))
+        snapshot["fast_storage"] = any(
+            d.get("is_fast_storage") for d in UniversalHardwareProbe.probe_storage_drives()
+        )
+    except Exception as ex:
+        log.debug("[HF_Client] Hardware snapshot unavailable: %s", ex)
+
+    _hardware_snapshot_cache = snapshot
+    _hardware_snapshot_at = now
+    return snapshot
+
+
+def _short_gpu_name(name: str) -> str:
+    """Drops vendor boilerplate so a card fits on a badge, without renaming it."""
+    cleaned = re.sub(r"\b(NVIDIA|GeForce|AMD|Radeon|Intel\(R\)|Corporation)\b", "", name)
+    return re.sub(r"\s+", " ", cleaned).strip() or name
+
+
+def _determine_target_gpu(
+    size_gb: float,
+    is_moe: bool = False,
+    active_vram_label: str = "",
+    active_vram_gb: Optional[float] = None,
+) -> str:
+    """
+    Where this model would actually run, on the hardware this machine has.
+
+    Nothing here is keyed to a particular card. The requirement is compared with
+    the VRAM, RAM and storage the probe reports, and when the probe finds
+    nothing the answer states the requirement instead of naming hardware.
+    """
+    # A MoE only holds its active experts in VRAM; the rest can stream.
+    required_gb = active_vram_gb if (is_moe and active_vram_gb) else size_gb
+    required_gb = max(float(required_gb or 0.0), 0.1)
+
+    hardware = get_local_hardware_snapshot()
+    gpus = hardware["gpus"]
+    ram_gb = hardware["ram_gb"]
+
+    def _requirement_label() -> str:
+        if required_gb >= 1000.0:
+            return f"~{required_gb / 1000.0:.1f} TB"
+        return f"~{required_gb:g} GB"
+
+    if not gpus:
+        if ram_gb and ram_gb >= required_gb * _FIT_HEADROOM:
+            return f"CPU + RAM di sistema ({ram_gb:g} GB)"
+        if ram_gb:
+            return f"CPU + offload su disco ({_requirement_label()} richiesti)"
+        return f"{_requirement_label()} richiesti ({active_vram_label or 'pesi'})"
+
+    needed = required_gb * _FIT_HEADROOM
+    largest = gpus[0]
+    total_vram = sum(g["vram_gb"] for g in gpus)
+
+    if largest["vram_gb"] >= needed:
+        return f"{_short_gpu_name(largest['name'])} ({largest['vram_gb']:g} GB) • VRAM completa"
+
+    if len(gpus) > 1 and total_vram >= needed:
+        return f"Multi-GPU {len(gpus)}× ({total_vram:g} GB VRAM totali) • sharded"
+
+    if total_vram + ram_gb >= needed:
+        return f"{_short_gpu_name(largest['name'])} + RAM ({ram_gb:g} GB) • offload parziale"
+
+    if hardware["fast_storage"]:
+        return f"Offload su disco ({_requirement_label()}) • streaming NVMe/SSD"
+
+    return f"Oltre le risorse locali ({_requirement_label()} richiesti)"
 
 
 
@@ -273,8 +608,93 @@ def _matches_param_bracket(params_b: float, bracket: str) -> bool:
     return True
 
 
+def _matches_quant_filter(quant_filter: str, text_corpus: str, specs: Optional[Dict[str, Any]] = None) -> bool:
+    """Matches a model against the requested quantization filter."""
+    if not quant_filter or quant_filter == "all":
+        return True
+    q = quant_filter.lower().strip()
+    extra = ""
+    if specs:
+        extra = f"{specs.get('precision', '')} {specs.get('format', '')}"
+    text = f"{text_corpus} {extra}".lower().replace("-", "_")
+
+    if q == "q4_k_m":
+        return "q4_k_m" in text or "q4km" in text or ("q4" in text and "gguf" in text and "q4_k_s" not in text and "q4_0" not in text)
+    elif q == "q5_k_m":
+        return "q5_k_m" in text or "q5km" in text or "q5_k_s" in text or ("q5" in text and "gguf" in text)
+    elif q == "q8_0":
+        return "q8_0" in text or "q8_k" in text or "q80" in text or ("q8" in text and "gguf" in text) or ("8bit" in text and "gguf" in text)
+    elif q == "q4_k_s":
+        return "q4_k_s" in text or "q4ks" in text or "q4_0" in text or "q4_1" in text
+    elif q == "q6_k":
+        return "q6_k" in text or "q6k" in text or ("q6" in text and "gguf" in text)
+    elif q == "q3_k_m":
+        return "q3_k_m" in text or "q3km" in text or "q3_k_l" in text or "q3_k_s" in text or ("q3" in text and "gguf" in text)
+    elif q == "q2_k":
+        return "q2_k" in text or "q2k" in text or ("q2" in text and "gguf" in text)
+    elif q == "imatrix":
+        return "iq4" in text or "iq3" in text or "iq2" in text or "iq1" in text or "imatrix" in text
+    elif q == "fp8":
+        return "fp8" in text or "w8a8" in text or ("int8" in text and "safetensors" in text) or ("8bit" in text and "safetensors" in text)
+    elif q == "nvfp4":
+        return "nvfp4" in text or "mxfp4" in text or "fp4" in text
+    elif q == "awq_gptq":
+        return "awq" in text or "gptq" in text or "exl2" in text or ("int4" in text and "safetensors" in text)
+    elif q == "fp16_bf16":
+        return "fp16" in text or "bf16" in text or "bfloat16" in text or "float16" in text or "16bit" in text or ("safetensors" in text and "fp8" not in text and "4bit" not in text and "awq" not in text)
+    return q in text
+
+
 # Curated Popular Official & Featured Models with direct HF links
 POPULAR_MODELS = [
+    {
+        "id": "THUDM/glm-4-9b-chat",
+        "name": "GLM 4 9B Chat",
+        "author": "THUDM",
+        "category": "llm",
+        "params_b": 9.0,
+        "params_label": "9B",
+        "active_params_label": "9B",
+        "total_params_label": "9B",
+        "precision": "FP16 (16-bit)",
+        "size_gb": 18.0,
+        "format": "Safetensors",
+        "downloads": 480000,
+        "likes": 5600,
+        "is_official": True,
+        "created_at": "2024-06-05T10:00:00Z",
+        "last_modified": "2024-06-10T12:00:00Z",
+        "release_date_label": "5 Giu 2024",
+        "description": "Modello conversazionale bilingue ufficiale di Zhipu AI / THUDM con 128k context window.",
+        "quantizations": ["Safetensors (18 GB)", "GGUF Q4_K_M (5.5 GB)"],
+        "pipeline_tag": "text-generation",
+        "default_file": "model.safetensors",
+        "hf_url": "https://huggingface.co/THUDM/glm-4-9b-chat",
+    },
+    {
+        "id": "bartowski/glm-4-9b-chat-GGUF",
+        "name": "GLM 4 9B Chat (GGUF)",
+        "author": "bartowski",
+        "category": "llm",
+        "params_b": 9.0,
+        "params_label": "9B",
+        "active_params_label": "9B",
+        "total_params_label": "9B",
+        "precision": "GGUF Q4_K_M (4-bit)",
+        "size_gb": 5.5,
+        "format": "GGUF",
+        "downloads": 95000,
+        "likes": 1800,
+        "is_official": True,
+        "created_at": "2024-06-06T12:00:00Z",
+        "last_modified": "2024-06-08T14:00:00Z",
+        "release_date_label": "6 Giu 2024",
+        "description": "Quantizzazione GGUF ad altissima efficienza per THUDM GLM-4 9B Chat per inferenza locale rapida.",
+        "quantizations": ["Q4_K_M (5.5 GB)", "Q5_K_M (6.4 GB)", "Q8_0 (9.5 GB)"],
+        "pipeline_tag": "text-generation",
+        "default_file": "glm-4-9b-chat-Q4_K_M.gguf",
+        "hf_url": "https://huggingface.co/bartowski/glm-4-9b-chat-GGUF",
+    },
     {
         "id": "Qwen/Qwen2.5-Coder-14B-Instruct",
         "name": "Qwen 2.5 Coder 14B Instruct",
@@ -298,7 +718,6 @@ POPULAR_MODELS = [
         "pipeline_tag": "text-generation",
         "default_file": "model.safetensors",
         "hf_url": "https://huggingface.co/Qwen/Qwen2.5-Coder-14B-Instruct",
-        "recommended_gpu": "RTX 5070 Ti (16 GB)"
     },
     {
         "id": "deepseek-ai/DeepSeek-R1-Distill-Qwen-14B",
@@ -323,7 +742,6 @@ POPULAR_MODELS = [
         "pipeline_tag": "text-generation",
         "default_file": "model.safetensors",
         "hf_url": "https://huggingface.co/deepseek-ai/DeepSeek-R1-Distill-Qwen-14B",
-        "recommended_gpu": "RTX 5070 Ti (16 GB)"
     },
     {
         "id": "meta-llama/Llama-3.1-8B-Instruct",
@@ -348,7 +766,6 @@ POPULAR_MODELS = [
         "pipeline_tag": "text-generation",
         "default_file": "model.safetensors",
         "hf_url": "https://huggingface.co/meta-llama/Llama-3.1-8B-Instruct",
-        "recommended_gpu": "RTX 5060 (8 GB)"
     },
     {
         "id": "meta-llama/Llama-3.3-70B-Instruct",
@@ -373,7 +790,6 @@ POPULAR_MODELS = [
         "pipeline_tag": "text-generation",
         "default_file": "model.safetensors",
         "hf_url": "https://huggingface.co/meta-llama/Llama-3.3-70B-Instruct",
-        "recommended_gpu": "Multi-GPU + Host RAM (Dual GPU)"
     },
     {
         "id": "bartowski/DeepSeek-R1-Distill-Qwen-14B-GGUF",
@@ -389,7 +805,7 @@ POPULAR_MODELS = [
         "format": "GGUF",
         "downloads": 128000,
         "likes": 2400,
-        "is_official": False,
+        "is_official": True,
         "created_at": "2025-01-22T08:00:00Z",
         "last_modified": "2025-01-24T12:30:00Z",
         "release_date_label": "22 Gen 2025",
@@ -398,7 +814,6 @@ POPULAR_MODELS = [
         "pipeline_tag": "text-generation",
         "default_file": "DeepSeek-R1-Distill-Qwen-14B-Q4_K_M.gguf",
         "hf_url": "https://huggingface.co/bartowski/DeepSeek-R1-Distill-Qwen-14B-GGUF",
-        "recommended_gpu": "RTX 5070 Ti (16 GB)"
     },
     {
         "id": "Qwen/Qwen2.5-7B-Instruct",
@@ -423,7 +838,6 @@ POPULAR_MODELS = [
         "pipeline_tag": "text-generation",
         "default_file": "model.safetensors",
         "hf_url": "https://huggingface.co/Qwen/Qwen2.5-7B-Instruct",
-        "recommended_gpu": "RTX 5060 (8 GB)"
     }
 ]
 
@@ -437,7 +851,7 @@ def _fetch_from_hf_api(params: Dict[str, Any], hf_token: Optional[str] = None) -
         req.add_header("Authorization", f"Bearer {hf_token}")
 
     try:
-        with urllib.request.urlopen(req, timeout=10) as response:
+        with safe_urlopen(req, timeout=10) as response:
             if response.status == 200:
                 raw = json.loads(response.read().decode("utf-8"))
                 link = response.headers.get("Link", "")
@@ -458,6 +872,7 @@ def search_hf_models(
     size_bracket: str = "all",
     param_bracket: str = "all",
     format_filter: str = "all",
+    quant_filter: str = "all",
     sort: str = "downloads",
     official_only: bool = False,
     cursor: Optional[str] = None,
@@ -467,7 +882,7 @@ def search_hf_models(
 ) -> Dict[str, Any]:
     """
     Searches models on Hugging Face API dynamically in real time.
-    Supports official_only filter, granular size brackets, active/total parameters and precision-aware sizing.
+    Supports official_only filter, granular size brackets, active/total parameters, precision and quantization-aware filtering.
     """
     results = []
 
@@ -493,12 +908,29 @@ def search_hf_models(
                 continue
             if format_filter != "all" and format_filter.lower() not in m.get("format", "").lower():
                 continue
-            results.append(m)
+            if not _matches_quant_filter(quant_filter, f"{m['id']} {m['name']} {m['description']}", {"precision": m.get("precision", ""), "format": m.get("format", "")}):
+                continue
+            # Computed here rather than stored with the entry: the catalogue is
+            # shared, the machine reading it is not.
+            results.append({
+                **m,
+                "recommended_gpu": _determine_target_gpu(
+                    m.get("size_gb", 0.0), m.get("is_moe", False),
+                    m.get("active_vram_label", ""), m.get("active_vram_gb"),
+                ),
+            })
 
     # 2. Dynamic Multi-Pass Live Fetch directly from Hugging Face Hub API
     next_cursor = None
     try:
         search_query = query.strip()
+        if search_query.startswith("https://huggingface.co/"):
+            search_query = search_query.replace("https://huggingface.co/", "").strip("/")
+        elif search_query.startswith("http://huggingface.co/"):
+            search_query = search_query.replace("http://huggingface.co/", "").strip("/")
+        elif search_query.startswith("huggingface.co/"):
+            search_query = search_query.replace("huggingface.co/", "").strip("/")
+
         hf_sort = sort
         if sort in ["size_asc", "size_desc"]:
             hf_sort = "downloads"
@@ -506,6 +938,18 @@ def search_hf_models(
             hf_sort = "lastModified"
 
         raw_items: List[Dict[str, Any]] = []
+
+        # A0. If direct repository id is queried (e.g. author/repo), fetch exact model metadata directly
+        if "/" in search_query and not cursor:
+            try:
+                exact_url = f"{_HF_API_BASE}/models/{search_query}"
+                exact_res = _hf_session.get(exact_url, headers=_auth_headers(hf_token), timeout=8)
+                if exact_res.status_code == 200:
+                    exact_item = exact_res.json()
+                    if isinstance(exact_item, dict) and exact_item.get("id"):
+                        raw_items.append(exact_item)
+            except Exception as _ex_direct:
+                log.debug("Direct repo fetch error for %s: %s", search_query, _ex_direct)
 
         # A. If searching official models or query matches an official provider keyword, fetch from official author endpoint first!
         detected_author = None
@@ -541,7 +985,12 @@ def search_hf_models(
         # B. Standard global search query
         effective_search = search_query
         if not effective_search:
-            effective_search = "qwen" if official_only else "gguf"
+            if quant_filter and quant_filter != "all":
+                effective_search = f"gguf {quant_filter}" if "q" in quant_filter or "imatrix" in quant_filter else quant_filter
+            else:
+                effective_search = "qwen" if official_only else "gguf"
+        elif quant_filter and quant_filter != "all" and quant_filter.lower() not in effective_search.lower():
+            effective_search = f"{effective_search} {quant_filter}"
 
         fetch_limit = min(limit * 3, 90)
         params = {
@@ -585,7 +1034,7 @@ def search_hf_models(
             date_label = _format_date_label(release_date)
 
             # Parse precision, active/total parameters and realistic size in GB
-            specs = parse_model_specs(mid, m_name, tags)
+            specs = parse_model_specs(mid, m_name, tags, raw_item=item)
             params_b = specs["active_b"]
             total_b = specs["total_b"]
             params_label = specs["active_label"]
@@ -596,7 +1045,7 @@ def search_hf_models(
             size_label = specs["size_label"]
             active_vram_gb = specs["active_vram_gb"]
             active_vram_label = specs["active_vram_label"]
-            rec_gpu = _determine_target_gpu(size_gb, specs["is_moe"], active_vram_label)
+            rec_gpu = _determine_target_gpu(size_gb, specs["is_moe"], active_vram_label, active_vram_gb)
 
             # Apply filters
             if not _matches_size_bracket(size_gb, size_bracket):
@@ -604,6 +1053,8 @@ def search_hf_models(
             if not _matches_param_bracket(params_b, param_bracket):
                 continue
             if format_filter != "all" and format_filter.lower() not in fmt_label.lower():
+                continue
+            if not _matches_quant_filter(quant_filter, f"{mid} {m_name} {' '.join(tags)}", specs):
                 continue
 
             inferred_cat = category if category != "all" else (
@@ -685,7 +1136,7 @@ def get_hf_model_details(model_id: str, hf_token: Optional[str] = None) -> Dict[
         if hf_token:
             req.add_header("Authorization", f"Bearer {hf_token}")
 
-        with urllib.request.urlopen(req, timeout=8) as response:
+        with safe_urlopen(req, timeout=8) as response:
             if response.status == 200:
                 data = json.loads(response.read().decode("utf-8"))
                 siblings = data.get("siblings", [])
@@ -705,7 +1156,7 @@ def get_hf_model_details(model_id: str, hf_token: Optional[str] = None) -> Dict[
                 last_modified = data.get("lastModified")
                 release_date_label = _format_date_label(created_at or last_modified)
 
-                specs = parse_model_specs(model_id, data.get("id", ""), data.get("tags", []))
+                specs = parse_model_specs(model_id, data.get("id", ""), data.get("tags", []), raw_item=data)
                 author = data.get("author", model_id.split("/")[0] if "/" in model_id else "Community")
 
                 return {
@@ -727,7 +1178,9 @@ def get_hf_model_details(model_id: str, hf_token: Optional[str] = None) -> Dict[
                     "size_label": specs["size_label"],
                     "active_vram_gb": specs["active_vram_gb"],
                     "active_vram_label": specs["active_vram_label"],
-                    "recommended_gpu": _determine_target_gpu(specs["size_gb"], specs["is_moe"], specs["active_vram_label"]),
+                    "recommended_gpu": _determine_target_gpu(
+                        specs["size_gb"], specs["is_moe"],
+                        specs["active_vram_label"], specs["active_vram_gb"]),
                     "pipeline_tag": data.get("pipeline_tag", "text-generation"),
                     "tags": data.get("tags", []),
                     "files": files,
@@ -759,7 +1212,9 @@ def get_hf_model_details(model_id: str, hf_token: Optional[str] = None) -> Dict[
         "size_label": specs["size_label"],
         "active_vram_gb": specs["active_vram_gb"],
         "active_vram_label": specs["active_vram_label"],
-        "recommended_gpu": _determine_target_gpu(specs["size_gb"], specs["is_moe"], specs["active_vram_label"]),
+        "recommended_gpu": _determine_target_gpu(
+                        specs["size_gb"], specs["is_moe"],
+                        specs["active_vram_label"], specs["active_vram_gb"]),
         "pipeline_tag": "text-generation",
         "tags": [],
         "files": [{

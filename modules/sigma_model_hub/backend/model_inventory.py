@@ -10,31 +10,51 @@ from typing import Dict, Any, List, Optional
 from core.logger import get_logger
 from core.engine.unified_runtime import sigma_engine
 from core.engine.hardware_probe import UniversalHardwareProbe
-from core.engine.weight_profiler import WeightSaliencyProfiler
 
 log = get_logger(__name__)
 
 
 def _get_workspace_root() -> str:
-    """Finds the root directory containing data/ or sigma_server.py."""
-    cwd = os.getcwd()
-    if os.path.exists(os.path.join(cwd, "data")):
-        return cwd
-    curr = os.path.abspath(os.path.dirname(__file__))
-    for _ in range(6):
-        if os.path.exists(os.path.join(curr, "sigma_server.py")) or os.path.exists(os.path.join(curr, "data")):
-            return curr
-        curr = os.path.dirname(curr)
-    return cwd
+    """The installation root, from the kernel path service.
+
+    Cercava prima os.getcwd(), quindi rispondeva diversamente a seconda di
+    dove veniva lanciato il server.
+    """
+    from core.paths import project_root
+    return str(project_root())
 
 
-ROOT_DIR = _get_workspace_root()
-MODELS_DIR = os.path.join(ROOT_DIR, "data", "models")
+from core.model_paths import models_dir as _active_models_dir, project_root
+
+ROOT_DIR = project_root()
+
+
+def _models_dir() -> str:
+    """The active models directory, shared with the engine and downloader."""
+    return _active_models_dir()
+
+
+def _earliest_weight_time(folder: str, weight_files) -> float:
+    """
+    When this model first appeared on disk.
+
+    The oldest weight file, not the folder's own timestamp: a directory keeps
+    being touched as files are added, so it says when the download finished
+    rather than when it started, and it says nothing at all about a model that
+    was simply pointed at where it already lived.
+    """
+    times = []
+    for name in weight_files:
+        try:
+            times.append(os.path.getctime(os.path.join(folder, name)))
+        except Exception:
+            continue
+    return min(times) if times else os.path.getctime(folder)
 
 
 def scan_local_models(custom_dir: Optional[str] = None) -> List[Dict[str, Any]]:
     """Scans local disk for downloaded model files (.gguf, .safetensors, .bin, multi-shard repos)."""
-    base_dir = custom_dir if custom_dir and os.path.exists(custom_dir) else MODELS_DIR
+    base_dir = custom_dir if custom_dir and os.path.exists(custom_dir) else _models_dir()
     os.makedirs(base_dir, exist_ok=True)
     results = []
 
@@ -52,23 +72,48 @@ def scan_local_models(custom_dir: Optional[str] = None) -> List[Dict[str, Any]]:
             try:
                 dir_files = os.listdir(full_entry_path)
                 shard_files = [f for f in dir_files if f.endswith((".safetensors", ".bin", ".gguf", ".pt"))]
-                if not shard_files:
+                part_files = [f for f in dir_files if f.endswith((".part", ".download", ".tmp"))]
+                has_tokenizer = any(f in dir_files for f in ("tokenizer.json", "tokenizer_config.json", "vocab.json", "tokenizer.model")) or any(f.endswith(".gguf") for f in shard_files)
+                
+                if not shard_files and not part_files:
                     continue
 
-                total_bytes = sum(os.path.getsize(os.path.join(full_entry_path, f)) for f in shard_files)
+                main_shards = [f for f in shard_files if not (
+                    f.lower().startswith("mmproj") or "mmproj" in f.lower() or
+                    "-clip-" in f.lower() or "_clip_" in f.lower() or f.lower().startswith("clip-")
+                )]
+                target_shards = main_shards if main_shards else shard_files
+                has_mmproj = any(f not in main_shards for f in shard_files)
+
+                total_bytes = sum(os.path.getsize(os.path.join(full_entry_path, f)) for f in target_shards)
                 size_gb = round(total_bytes / (1024**3), 2)
                 size_mb = round(total_bytes / (1024**2), 1)
 
                 raw_name = entry.replace("--", "/")
-                is_sharded = len(shard_files) > 1
-                primary_file = os.path.join(full_entry_path, "model.safetensors.index.json") if os.path.exists(os.path.join(full_entry_path, "model.safetensors.index.json")) else os.path.join(full_entry_path, shard_files[0])
+                is_sharded = len(target_shards) > 1
+                primary_file = os.path.join(full_entry_path, "model.safetensors.index.json") if os.path.exists(os.path.join(full_entry_path, "model.safetensors.index.json")) else (os.path.join(full_entry_path, target_shards[0]) if target_shards else full_entry_path)
 
-                if any(f.endswith(".gguf") for f in shard_files):
-                    fmt = f"GGUF ({len(shard_files)} Shard)" if is_sharded else "GGUF"
-                elif any(f.endswith(".safetensors") for f in shard_files):
-                    fmt = f"Safetensors ({len(shard_files)} Shards • Completo)" if is_sharded else "Safetensors"
+                # Check if all declared shards exist
+                is_complete = True
+                if part_files:
+                    is_complete = False
+                elif not has_tokenizer and not any(f.endswith(".gguf") for f in target_shards):
+                    is_complete = False
+
+                if any(f.endswith(".gguf") for f in target_shards):
+                    fmt = f"GGUF ({len(target_shards)} Shard)" if is_sharded else "GGUF"
+                    if has_mmproj:
+                        fmt += " + Vision (CLIP)"
+                    fmt_tag = "GGUF"
+                elif any(f.endswith(".safetensors") for f in target_shards):
+                    if is_complete:
+                        fmt = f"Safetensors ({len(target_shards)} Shards • Completo)" if is_sharded else "Safetensors"
+                    else:
+                        fmt = f"Safetensors ({len(target_shards)} Shards • Incompleto)"
+                    fmt_tag = "SAFETENSORS"
                 else:
                     fmt = "PyTorch Bin"
+                    fmt_tag = "BIN"
 
                 quant_match = re.search(r'(Q[0-9]_[A-Z0-9_]+|FP16|FP32|BF16|FP8|INT8|INT4|AWQ|EXL2)', entry, re.IGNORECASE)
                 quantization = quant_match.group(1).upper() if quant_match else ("FP16 / BF16" if "safetensors" in fmt.lower() else "Standard")
@@ -82,6 +127,28 @@ def scan_local_models(custom_dir: Optional[str] = None) -> List[Dict[str, Any]]:
                     sigma_engine.loaded_model_name == full_entry_path
                 )
 
+                cfg_path = os.path.join(full_entry_path, "config.json")
+                param_label = None
+                arch_name = None
+                if os.path.exists(cfg_path):
+                    try:
+                        with open(cfg_path, "r", encoding="utf-8") as f_cfg:
+                            cfg_data = json.load(f_cfg)
+                        text_cfg = cfg_data.get("text_config") if isinstance(cfg_data.get("text_config"), dict) else cfg_data
+                        h_dim = text_cfg.get("hidden_size") or text_cfg.get("d_model")
+                        n_lay = text_cfg.get("num_hidden_layers") or text_cfg.get("n_layer")
+                        v_sz = text_cfg.get("vocab_size", 32000)
+                        inter_sz = text_cfg.get("intermediate_size") or (h_dim * 4 if h_dim else 0)
+                        arch_name = cfg_data.get("architectures", [""])[0] if cfg_data.get("architectures") else cfg_data.get("model_type", "")
+                        if h_dim and n_lay:
+                            tot_p = n_lay * (4 * h_dim**2 + 3 * h_dim * inter_sz) + v_sz * h_dim
+                            p_b = round(tot_p / 1e9, 2)
+                            param_label = f"{p_b:g}B" if p_b >= 1.0 else f"{int(p_b*1000)}M"
+                            if "assistant" in str(arch_name).lower() or "draft" in str(arch_name).lower() or "assistant" in raw_name.lower():
+                                param_label += " (Draft Assistant)"
+                    except Exception:
+                        pass
+
                 results.append({
                     "filename": raw_name,
                     "model_id": raw_name,
@@ -89,16 +156,27 @@ def scan_local_models(custom_dir: Optional[str] = None) -> List[Dict[str, Any]]:
                     "path": full_entry_path,
                     "primary_file": primary_file,
                     "format": fmt,
+                    "format_tag": fmt_tag,
                     "quantization": quantization,
+                    "params_label": param_label,
+                    "architecture": arch_name,
                     "is_repo_folder": True,
-                    "total_shards": len(shard_files),
+                    "is_complete": is_complete,
+                    "is_multimodal": has_mmproj,
+                    "has_part_files": len(part_files) > 0,
+                    "total_shards": len(target_shards),
                     "size_gb": size_gb,
                     "size_mb": size_mb,
                     "size_label": f"~{size_gb:.1f} GB" if size_gb < 1000 else f"~{size_gb/1000:.1f} TB",
                     "est_vram_gb": est_vram_gb,
                     "is_active_in_engine": is_active,
-                    "modified_at": time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(stat.st_mtime))
+                    "modified_at": time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(stat.st_mtime)),
+                    "added_at": time.strftime(
+                        '%Y-%m-%d %H:%M:%S',
+                        time.localtime(_earliest_weight_time(full_entry_path, target_shards))
+                    ),
                 })
+
             except Exception as ex:
                 log.debug(f"[ModelInventory] Error reading directory {full_entry_path}: {ex}")
 
@@ -111,6 +189,8 @@ def scan_local_models(custom_dir: Optional[str] = None) -> List[Dict[str, Any]]:
                 size_mb = round(size_bytes / (1024**2), 1)
 
                 fmt = "GGUF" if entry.endswith(".gguf") else ("Safetensors" if entry.endswith(".safetensors") else "PyTorch Bin")
+                fmt_tag = ("GGUF" if entry.endswith(".gguf")
+                           else "SAFETENSORS" if entry.endswith(".safetensors") else "BIN")
                 quant_match = re.search(r'(Q[0-9]_[A-Z0-9_]+|FP16|FP32|BF16|FP8|INT8|INT4|AWQ|EXL2)', entry, re.IGNORECASE)
                 quantization = quant_match.group(1).upper() if quant_match else "Standard"
                 est_vram_gb = round(size_gb * 1.15 + 0.8, 1)
@@ -127,6 +207,7 @@ def scan_local_models(custom_dir: Optional[str] = None) -> List[Dict[str, Any]]:
                     "path": full_entry_path,
                     "primary_file": full_entry_path,
                     "format": fmt,
+                    "format_tag": fmt_tag,
                     "quantization": quantization,
                     "is_repo_folder": False,
                     "total_shards": 1,
@@ -135,7 +216,8 @@ def scan_local_models(custom_dir: Optional[str] = None) -> List[Dict[str, Any]]:
                     "size_label": f"~{size_gb:.1f} GB" if size_gb < 1000 else f"~{size_gb/1000:.1f} TB",
                     "est_vram_gb": est_vram_gb,
                     "is_active_in_engine": is_active,
-                    "modified_at": time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(stat.st_mtime))
+                    "modified_at": time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(stat.st_mtime)),
+                    "added_at": time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(stat.st_ctime)),
                 })
             except Exception as ex:
                 log.debug(f"[ModelInventory] Error reading file {full_entry_path}: {ex}")
@@ -148,16 +230,15 @@ def deploy_model_to_sigma_engine(
     model_path: str,
     quantization: Optional[str] = None,
     primary_gpu_layers: int = -1,
-    enable_moe_cache: bool = True
 ) -> Dict[str, Any]:
     """Registers and activates a local model inside UniversalSigmaEngine."""
     resolved_path = model_path
 
     if not os.path.exists(resolved_path):
         # 1. Try relative to MODELS_DIR
-        candidate1 = os.path.join(MODELS_DIR, model_path)
-        candidate2 = os.path.join(MODELS_DIR, model_path.replace("/", "--"))
-        candidate3 = os.path.join(MODELS_DIR, model_path.replace("--", "/"))
+        candidate1 = os.path.join(_models_dir(), model_path)
+        candidate2 = os.path.join(_models_dir(), model_path.replace("/", "--"))
+        candidate3 = os.path.join(_models_dir(), model_path.replace("--", "/"))
         if os.path.exists(candidate1):
             resolved_path = candidate1
         elif os.path.exists(candidate2):
@@ -182,34 +263,38 @@ def deploy_model_to_sigma_engine(
     else:
         file_size_gb = round(os.path.getsize(resolved_path) / (1024**3), 2)
 
-    # Calculate optimal tiering across available GPUs and RAM
-    probe = UniversalHardwareProbe.probe_all()
-    accs = probe.get("accelerators", [])
-    vram_0 = accs[0].get("free_vram_gb", 16.0) if accs else 16.0
-    vram_1 = accs[1].get("free_vram_gb", 8.0) if len(accs) > 1 else 0.0
-    ram_gb = probe.get("ram", {}).get("available_gb", 64.0)
+    # Ask the engine to plan this model against real hardware. Planning is
+    # cheap and does not touch VRAM, so selecting a model stays responsive
+    # while still reporting where it would actually land.
+    canonical_name = model_name
+    resolved = sigma_engine.find_valid_model_directory(model_path) or \
+        sigma_engine.find_valid_model_directory(model_name)
+    if resolved:
+        canonical_name = resolved[1]
 
-    tiering = WeightSaliencyProfiler.partition_model_layers(
-        total_layers=32 if "27b" not in model_name.lower() and "70b" not in model_name.lower() else 64,
-        vram_primary_gb=vram_0,
-        vram_secondary_gb=vram_1,
-        system_ram_gb=ram_gb,
-        model_size_gb=file_size_gb,
-        is_moe=("moe" in model_name.lower() or "16x" in model_name.lower() or "8x" in model_name.lower())
-    )
+    planned = sigma_engine.plan_for_model(canonical_name)
+    tiering = planned.get("plan", {}) if planned.get("success") else {}
 
-    # Set as active model in SigmaEngine
-    sigma_engine.loaded_model_name = model_name
-    sigma_engine.loaded_model = {
-        "name": model_name,
-        "path": resolved_path,
-        "format": "GGUF" if model_name.endswith(".gguf") else "Safetensors",
-        "size_gb": file_size_gb,
-        "quantization": quantization or "Auto (Tiered)",
-        "backend": sigma_engine.active_backend,
-        "tiering": tiering,
-        "loaded_at": time.time()
-    }
+    # Only claim a model is loaded when one really is. The engine compares
+    # loaded_model_name against the directory name it resolves from a request;
+    # writing a different spelling here (Qwen/X instead of Qwen--X) makes every
+    # later generate believe the wrong model is resident and reload on top of
+    # it, briefly holding two copies in VRAM and spilling the second to CPU.
+    if sigma_engine.model_instance is None:
+        sigma_engine.loaded_model_name = canonical_name
+        sigma_engine.loaded_model = {
+            "name": canonical_name,
+            "path": resolved_path,
+            "format": "GGUF" if resolved_path.endswith(".gguf") else "Safetensors",
+            "size_gb": file_size_gb,
+            "quantization": (
+                quantization or tiering.get("quantization", "Auto (Tiered)")
+            ),
+            "backend": sigma_engine.active_backend,
+            "plan": tiering,
+            "status": "selected",
+            "loaded_at": time.time(),
+        }
 
     # Automatically set this model as active for Chat
     try:
@@ -233,12 +318,18 @@ def deploy_model_to_sigma_engine(
     except Exception as ex:
         log.debug(f"[ModelInventory] Note updating ai_config: {ex}")
 
-    log.info(f"[ModelInventory] Modello {model_name} caricato con successo in SigmaEngine!")
+    log.info(
+        "[ModelInventory] Modello %s selezionato in SigmaEngine (piano: %s).",
+        canonical_name, tiering.get("quantization", "n/d"),
+    )
 
     return {
         "success": True,
-        "message": f"Modello {model_name} allocato e pronto in SigmaEngine.",
-        "model_name": model_name,
+        "message": (
+            f"Modello {model_name} selezionato. Verra' caricato al primo "
+            "messaggio, oppure e' gia' residente se in uso."
+        ),
+        "model_name": canonical_name,
         "tiering_plan": tiering,
         "active_backend": sigma_engine.active_backend
     }
@@ -246,18 +337,16 @@ def deploy_model_to_sigma_engine(
 
 
 def unload_sigma_engine_model() -> Dict[str, Any]:
-    """Unloads active model from SigmaEngine and frees GPU/RAM memory."""
-    prev = sigma_engine.loaded_model_name
-    sigma_engine.loaded_model_name = None
-    sigma_engine.loaded_model = None
+    """
+    Releases the active model from SigmaEngine and returns the memory.
 
-    try:
-        import torch
-        if torch.cuda.is_available():
-            torch.cuda.empty_cache()
-            torch.cuda.ipc_collect()
-    except Exception:
-        pass
+    Delegates to the engine rather than clearing metadata here: the weights are
+    held by model_instance and by accelerate's dispatch hooks, so dropping the
+    name alone frees nothing while convincing the engine that nothing is loaded.
+    """
+    prev = sigma_engine.loaded_model_name
+    result = sigma_engine.unload()
+    freed_gb = result.get("freed_vram_gb", 0.0)
 
     log.info(
         "[ModelInventory] Modello %s scaricato da SigmaEngine (%.2f GB liberati).",
@@ -354,3 +443,4 @@ def delete_local_model(model_path_or_id: str, custom_dir: Optional[str] = None) 
     except Exception as e:
         log.error(f"[ModelInventory] Errore cancellazione modello {target_path}: {e}")
         return {"success": False, "error": f"Errore durante l'eliminazione dei file: {str(e)}"}
+

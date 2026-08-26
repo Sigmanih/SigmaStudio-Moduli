@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { 
   Zap, Activity, ShieldCheck, Play, Pause, X, GripVertical, Maximize2, RotateCcw,
-  HardDrive, Cpu, Thermometer, Flame, Gauge, Sliders, BarChart2, AlertTriangle
+  HardDrive, Cpu, Thermometer, Flame, Gauge, Sliders, BarChart2, AlertTriangle, Database
 } from 'lucide-react';
 import RealtimeTelemetryChart from './RealtimeTelemetryChart';
 import { useApp } from '../../contexts/AppContext';
@@ -30,7 +30,7 @@ export default function HardwareFloatingPanel({ onClose, onOpenTab, addToast }) 
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [autoRefresh, setAutoRefresh] = useState(true);
-  const [refreshInterval, setRefreshInterval] = useState(2000);
+  const [refreshInterval, setRefreshInterval] = useState(3000);
   const [showCharts, setShowCharts] = useState(false); // Collapsible charts state
   const [showRestartAlert, setShowRestartAlert] = useState(false);
   const [restartingOllama, setRestartingOllama] = useState(false);
@@ -85,8 +85,8 @@ export default function HardwareFloatingPanel({ onClose, onOpenTab, addToast }) 
           setHistoryData(currentHist);
 
           // 2. Accumulate System CPU & RAM History
-          const cpuUtil = Number(json.hardware?.cpu?.util_pct) || 0;
-          const ramUsed = Number(json.hardware?.ram?.used_gb) || Number(json.hardware?.ram_used_gb) || 0;
+          const cpuUtil = Number(json.hardware?.cpu?.usage_pct ?? json.hardware?.cpu?.util_pct) || 0;
+          const ramUsed = Number(json.hardware?.ram?.used_gb ?? json.hardware?.ram?.ram_used_gb) || 0;
 
           const currentSysHist = { ...systemHistoryRef.current };
           const newCpu = [...(currentSysHist.cpu || []), cpuUtil];
@@ -156,9 +156,14 @@ export default function HardwareFloatingPanel({ onClose, onOpenTab, addToast }) 
     if (!autoRefresh) return;
     const interval = setInterval(() => {
       fetchHardwareStatus();
-      fetchGpuProcesses();
     }, refreshInterval);
-    return () => clearInterval(interval);
+    const procInterval = setInterval(() => {
+      fetchGpuProcesses();
+    }, refreshInterval * 2);
+    return () => {
+      clearInterval(interval);
+      clearInterval(procInterval);
+    };
   }, [fetchHardwareStatus, fetchGpuProcesses, autoRefresh, refreshInterval]);
 
 
@@ -515,7 +520,7 @@ export default function HardwareFloatingPanel({ onClose, onOpenTab, addToast }) 
               <div>
                 <div style={{ fontWeight: 800, fontSize: '13px', color: textPrimary }}>Sistema (CPU & RAM)</div>
                 <div style={{ fontSize: '10px', color: textDim, fontFamily: 'monospace' }}>
-                  {hw.cpu?.logical_count || hw.cpu_count || '?'} Threads • {hw.cpu?.freq_mhz ? `${(hw.cpu.freq_mhz / 1000).toFixed(1)} GHz` : 'N/A'}
+                  {hw.cpu?.cores_logical || hw.cpu?.logical_count || hw.cpu_count || '?'} Threads • {hw.cpu?.freq_mhz ? `${(hw.cpu.freq_mhz / 1000).toFixed(1)} GHz` : 'N/A'} {hw.cpu?.name ? `(${hw.cpu.name.split(' ')[0]})` : ''}
                 </div>
               </div>
             </div>
@@ -528,7 +533,7 @@ export default function HardwareFloatingPanel({ onClose, onOpenTab, addToast }) 
                 borderColor: isLight ? 'rgba(2, 132, 199, 0.3)' : 'rgba(0,242,254,0.3)',
                 fontWeight: 700
               }}>
-                CPU: {hw.cpu?.util_pct ?? 0}%
+                CPU: {hw.cpu?.usage_pct ?? hw.cpu?.util_pct ?? 0}%
               </span>
               <span className="hw-badge" style={{ 
                 fontSize: '10px', 
@@ -538,7 +543,7 @@ export default function HardwareFloatingPanel({ onClose, onOpenTab, addToast }) 
                 borderColor: isLight ? 'rgba(22, 163, 74, 0.3)' : 'rgba(16, 185, 129, 0.3)',
                 fontWeight: 700
               }}>
-                RAM: {hw.ram?.used_gb || 0}/{hw.ram?.total_gb || 0} GB
+                RAM: {hw.ram?.used_gb ?? hw.ram?.ram_used_gb ?? 0}/{hw.ram?.total_gb ?? hw.ram?.ram_total_gb ?? 0} GB
               </span>
             </div>
           </div>
@@ -554,10 +559,10 @@ export default function HardwareFloatingPanel({ onClose, onOpenTab, addToast }) 
                 <span style={{ fontWeight: 800, color: isLight ? '#0284c7' : '#00f2fe', display: 'flex', alignItems: 'center', gap: '4px' }}>
                   <Cpu size={13} /> ⚡ COMPUTE
                 </span>
-                <span style={{ fontWeight: 800, color: isLight ? '#0284c7' : '#00f2fe' }}>{hw.cpu?.util_pct ?? 0}%</span>
+                <span style={{ fontWeight: 800, color: isLight ? '#0284c7' : '#00f2fe' }}>{hw.cpu?.usage_pct ?? hw.cpu?.util_pct ?? 0}%</span>
               </div>
               <div className="metric-progress-track" style={{ height: '7px', background: isLight ? 'rgba(0,0,0,0.06)' : undefined }}>
-                <div className="metric-progress-bar bar-cyan" style={{ width: `${Math.min(100, hw.cpu?.util_pct ?? 0)}%` }} />
+                <div className="metric-progress-bar bar-cyan" style={{ width: `${Math.min(100, hw.cpu?.usage_pct ?? hw.cpu?.util_pct ?? 0)}%` }} />
               </div>
             </div>
 
@@ -571,10 +576,10 @@ export default function HardwareFloatingPanel({ onClose, onOpenTab, addToast }) 
                 <span style={{ fontWeight: 800, color: isLight ? '#16a34a' : '#10b981', display: 'flex', alignItems: 'center', gap: '4px' }}>
                   <HardDrive size={13} /> 🧠 MEMORIA
                 </span>
-                <span style={{ fontWeight: 800, color: isLight ? '#16a34a' : '#10b981' }}>{hw.ram?.util_pct || 0}%</span>
+                <span style={{ fontWeight: 800, color: isLight ? '#16a34a' : '#10b981' }}>{hw.ram?.usage_pct ?? hw.ram?.util_pct ?? 0}%</span>
               </div>
               <div className="metric-progress-track" style={{ height: '7px', background: isLight ? 'rgba(0,0,0,0.06)' : undefined }}>
-                <div className="metric-progress-bar" style={{ width: `${Math.min(100, hw.ram?.util_pct || 0)}%`, background: 'linear-gradient(90deg, #10b981, #059669)' }} />
+                <div className="metric-progress-bar" style={{ width: `${Math.min(100, hw.ram?.usage_pct ?? hw.ram?.util_pct ?? 0)}%`, background: 'linear-gradient(90deg, #10b981, #059669)' }} />
               </div>
             </div>
           </div>
@@ -736,6 +741,79 @@ export default function HardwareFloatingPanel({ onClose, onOpenTab, addToast }) 
               </div>
             );
           })
+        )}
+
+        {/* STORAGE & DISKS (HDD / SSD / NVMe) CARD */}
+        {hw.storage?.disks && hw.storage.disks.length > 0 && (
+          <div className="gpu-card" style={{ padding: '14px 16px', borderRadius: '14px', background: cardBg, border: cardBorder }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                <span className="gpu-index-pill" style={{ 
+                  background: isLight ? 'rgba(59, 130, 246, 0.12)' : 'rgba(59, 130, 246, 0.15)', 
+                  color: isLight ? '#2563eb' : '#3b82f6', 
+                  border: isLight ? '1px solid rgba(59, 130, 246, 0.35)' : '1px solid rgba(59, 130, 246, 0.3)', 
+                  height: '24px', 
+                  minWidth: '28px', 
+                  fontSize: '11px',
+                  fontWeight: 800
+                }}>DISK</span>
+                <div>
+                  <div style={{ fontWeight: 800, fontSize: '13px', color: textPrimary, display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    <span>Dischi & Storage ({hw.storage.disks.length})</span>
+                    {(hw.storage.read_mbps > 0 || hw.storage.write_mbps > 0) && (
+                      <span style={{ fontSize: '10px', color: '#10b981', fontFamily: 'monospace' }}>
+                        ⚡ R: {hw.storage.read_mbps} MB/s • W: {hw.storage.write_mbps} MB/s
+                      </span>
+                    )}
+                  </div>
+                  <div style={{ fontSize: '10px', color: textDim, fontFamily: 'monospace' }}>
+                    Totale: {hw.storage.used_gb} / {hw.storage.total_gb} GB ({hw.storage.usage_pct}%) • {hw.storage.free_gb} GB Liberi
+                  </div>
+                </div>
+              </div>
+              <span className="hw-badge" style={{ 
+                fontSize: '10px', 
+                padding: '3px 8px', 
+                background: isLight ? 'rgba(59, 130, 246, 0.1)' : undefined,
+                color: isLight ? '#2563eb' : '#3b82f6', 
+                borderColor: isLight ? 'rgba(59, 130, 246, 0.3)' : 'rgba(59, 130, 246, 0.3)',
+                fontWeight: 700
+              }}>
+                {hw.storage.usage_pct}% Usato
+              </span>
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: hw.storage.disks.length > 1 ? 'repeat(auto-fit, minmax(180px, 1fr))' : '1fr', gap: '10px' }}>
+              {hw.storage.disks.map((d, dIdx) => {
+                const isHigh = d.usage_pct > 90;
+                const isMed = d.usage_pct > 75;
+                const barColor = isHigh ? '#ef4444' : isMed ? '#f59e0b' : '#3b82f6';
+
+                return (
+                  <div key={dIdx} style={{ 
+                    background: isLight ? 'rgba(0,0,0,0.02)' : 'rgba(255, 255, 255, 0.02)', 
+                    border: isLight ? '1px solid rgba(0,0,0,0.08)' : '1px solid rgba(255, 255, 255, 0.06)', 
+                    borderRadius: '10px', 
+                    padding: '8px 10px' 
+                  }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px', fontSize: '11px' }}>
+                      <span style={{ fontWeight: 800, color: textPrimary, display: 'flex', alignItems: 'center', gap: '4px' }}>
+                        <Database size={12} color={barColor} /> {d.mountpoint || d.device} ({d.fstype || 'NTFS'})
+                      </span>
+                      <span style={{ fontWeight: 800, color: barColor, fontSize: '10px' }}>{d.usage_pct}%</span>
+                    </div>
+                    <div className="metric-progress-track" style={{ height: '6px', background: isLight ? 'rgba(0,0,0,0.06)' : undefined, marginBottom: '4px' }}>
+                      <div className="metric-progress-bar" style={{ width: `${d.usage_pct}%`, background: barColor }} />
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '9px', color: textDim, fontFamily: 'monospace' }}>
+                      <span>Usati: {d.used_gb} GB</span>
+                      <span>Liberi: {d.free_gb} GB</span>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
         )}
 
         {/* PROCESSES LIST IN FLOATING PANEL */}

@@ -107,8 +107,20 @@ class ParseResult:
 
 # ---------------------------------------------------------------- pre-pulizia
 
-_THINK_BLOCK = re.compile(r"<(think|thinking|reasoning)\b[^>]*>.*?</\1>", re.S | re.I)
-_THINK_OPEN = re.compile(r"</?(?:think|thinking|reasoning)\b[^>]*>", re.I)
+_THINK_BLOCK = re.compile(
+    r"(?:<(think|thinking|reasoning|thought)\b[^>]*>.*?</\1>)"
+    r"|(?:<\|channel\>thought.*?<channel\|>)"
+    r"|(?:<\|thought\>.*?</\|thought\|>)"
+    r"|(?:<thought\>.*?</thought\>)",
+    re.S | re.I
+)
+_THINK_OPEN = re.compile(
+    r"</?(?:think|thinking|reasoning|thought)\b[^>]*>"
+    r"|<\|channel\>thought"
+    r"|<channel\|>"
+    r"|</?\|?thought\|?>",
+    re.I
+)
 _CODE_FENCE = re.compile(r"```[a-zA-Z0-9_+-]*\n?|```", re.S)
 # "e.g." e "i.e." producevano una falsa lettera 'E'/'G' subito dopo una frase
 # come "the letter of the correct option is e.g. A, b, c".
@@ -118,14 +130,22 @@ _ABBREV = re.compile(r"\b(?:e\.\s*g|i\.\s*e|eg|ie|cfr|es)\.", re.I)
 def normalize_output(text: str) -> str:
     """Ripulisce l'output grezzo del modello prima di cercare la risposta.
 
-    Toglie i blocchi di ragionamento (che spesso valutano *tutte* le opzioni e
-    quindi renderebbero ambigua ogni risposta), le recinzioni di codice e le
-    abbreviazioni che imitano una lettera di opzione.
+    Se il testo contiene un blocco di pensiero <think>...</think> seguito da testo,
+    estrae il testo post-think. Se non c'è testo post-think o il tag think non è chiuso,
+    rimuove tutti i tag <think> e </think> e analizza il contenuto.
     """
     if not text:
         return ""
-    cleaned = _THINK_BLOCK.sub(" ", text)
-    cleaned = _THINK_OPEN.sub(" ", cleaned)
+    # Pulizia canali/tag thought specifici (Gemma 4, DeepSeek, Qwen)
+    cleaned = re.sub(r"<\|channel\>thought\s*<channel\|>", "", text, flags=re.I)
+    cleaned = re.sub(r"^thought\s*\n", "", cleaned, flags=re.I)
+
+    post_think = _THINK_BLOCK.sub(" ", cleaned).strip()
+    if post_think:
+        cleaned = _THINK_OPEN.sub(" ", post_think)
+    else:
+        cleaned = _THINK_OPEN.sub(" ", cleaned)
+
     cleaned = _CODE_FENCE.sub(" ", cleaned)
     cleaned = _ABBREV.sub(";", cleaned)
     cleaned = unicodedata.normalize("NFKC", cleaned)
@@ -153,8 +173,6 @@ _OPTION_LETTER = re.compile(r"^\s*[\(\[\*]*([A-Za-z])[\)\].:\-]")
 _DECLARATION = re.compile(
     r"\b(?:answer|risposta|option|opzione|choice|scelta|letter|lettera|selection)\b"
     r"\s*(?:of\s+the\s+correct\s+\w+\s*)?"
-    # Aggettivo posposto: in italiano la qualifica segue il nome
-    # ("risposta corretta: C"), non lo precede come in inglese.
     r"(?:\s+(?:correct|corretta|corretto|giusta|giusto|esatta|esatto|right|final|finale))?"
     r"(?:\s*(?:is|was|are|è|e'|=|:|->|—|–|-)\s*|\s+)"
     r"(?:the\s+|la\s+|il\s+)?(?:letter\s+|lettera\s+|option\s+|opzione\s+)?"
@@ -171,14 +189,24 @@ _DECLARATION_REVERSED = re.compile(
     re.I,
 )
 
+_NEGATIVE_FOLLOW = re.compile(
+    r"^\s*(?:is|was|è|e'|are)?\s*(?:not|incorrect|false|wrong|invalid|errat[ao]|sbagliat[ao]|non\s+corrett[ao])",
+    re.I
+)
+
 _BOLD_LETTER = re.compile(r"\*\*\s*\(?([A-Za-z])\)?\s*\*\*")
 _ANCHORED = re.compile(r"^[\s\(\[\*\"']*([A-Za-z])(?:[\)\].:\-]|\s*$)")
 _BARE_LETTER = re.compile(r"^[\s\(\[\*\"'“]*([A-Za-z])[\s\)\]\*\"'”.,:;]*$")
 
+_EXPLICIT_LINE = re.compile(
+    r"(?:^(?:final\s+)?(?:answer|risposta|choice|scelta|option|opzione)\s*[:=]\s*|\\+(?:boxed|fbox)\s*\{[\s\\text\{]*)\s*[\(\[\"'“*]*([A-Za-z])(?![A-Za-z0-9'’])",
+    re.I
+)
+_LAST_LINE_LETTER = re.compile(
+    r"^[\s\(\[\*\"'“]*([A-Za-z])[\s\)\]\*\"'”.,:;]*$"
+)
+
 # Menzione debole: solo una lettera *delimitata* come etichetta di opzione —
-# "(B)", "[B]", "\"B\"" o "B)". Una lettera nuda nella prosa non conta: modelli
-# piccoli scrivono algebra ("is (a+b+c)/len(z_7)", "where a, b, c are...") e
-# leggerla come scelta trasformava ogni formula in una risposta multipla.
 _MENTION = re.compile(
     r"[\(\[]\s*([A-Za-z])\s*[\)\]]"        # (B) oppure [B]
     r"|[\"'“]\s*([A-Za-z])\s*[\"'”]"       # "B"
@@ -232,15 +260,43 @@ def _continuation_letters(text: str, pos: int) -> list[str]:
 
 
 def _declared_letters(text: str) -> list[str]:
-    """Lettere annunciate esplicitamente, scartando quelle dentro espressioni."""
+    """Lettere annunciate esplicitamente, scartando quelle dentro espressioni o negazioni."""
     letters: list[str] = []
-    for pattern in (_DECLARATION, _DECLARATION_REVERSED, _BOLD_LETTER):
+    for pattern in (_DECLARATION, _DECLARATION_REVERSED):
         for match in pattern.finditer(text):
-            if _EXPRESSION_TAIL.match(text[match.end(1):match.end(1) + 3]):
+            tail = text[match.end(1):match.end(1) + 40]
+            if _EXPRESSION_TAIL.match(tail[:3]):
+                continue
+            if _NEGATIVE_FOLLOW.match(tail):
                 continue
             letters.append(match.group(1).upper())
             letters.extend(_continuation_letters(text, match.end(1)))
     return _dedupe(letters)
+
+
+def _extract_concluding_choice(text: str, valid: set[str]) -> str | None:
+    """Verifica le ultime righe per una dichiarazione di chiusura inequivocabile ('Answer: X' o '\\boxed{X}')."""
+    lines = [line.strip() for line in text.strip().splitlines() if line.strip()]
+    if not lines:
+        return None
+
+    # 1. Scansiona le ultime 5 righe non vuote a ritroso
+    for line in reversed(lines[-5:]):
+        m = _EXPLICIT_LINE.search(line)
+        if m:
+            val = m.group(1).upper()
+            if not valid or val in valid:
+                return val
+
+    # 2. Se l'ultima riga è solo la lettera isolata (es. 'D', '(D)', '**B**')
+    last_line = lines[-1]
+    m_last = _LAST_LINE_LETTER.match(last_line)
+    if m_last:
+        val = m_last.group(1).upper()
+        if not valid or val in valid:
+            return val
+
+    return None
 
 
 def _collect_mc_candidates(text: str, options: list[str] | None) -> dict[str, list[str]]:
@@ -258,14 +314,26 @@ def _collect_mc_candidates(text: str, options: list[str] | None) -> dict[str, li
         found[TIER_ANCHORED].append(anchored.group(1).upper())
 
     if options:
-        upper = text.upper()
+        cleaned_for_body = re.sub(
+            r"^(?:Answer|Choice|Option|Risposta|Result|Soluzione|The answer is|The correct choice is)\s*[:=]?\s*",
+            "", text, flags=re.I
+        ).strip()
+        cleaned_norm = re.sub(r"[^\w\d]", "", cleaned_for_body.lower())
+
+        letters = option_letters(options)
         for idx, opt in enumerate(options):
-            body = _option_body(opt).upper()
-            if len(body) < 4:
+            body = _option_body(opt).strip()
+            if not body:
                 continue
-            letters = option_letters(options)
+            body_norm = re.sub(r"[^\w\d]", "", body.lower())
+            if not body_norm:
+                continue
             letter = letters[idx] if idx < len(letters) else chr(65 + idx)
-            if upper.startswith(body) or upper == body:
+
+            if (cleaned_norm == body_norm or
+                cleaned_norm.startswith(body_norm) or
+                (len(cleaned_norm) >= 3 and body_norm.startswith(cleaned_norm)) or
+                (len(body_norm) >= 4 and (body_norm in cleaned_norm or cleaned_norm in body_norm))):
                 found[TIER_OPTION_TEXT].append(letter)
 
     found[TIER_MENTION] = _dedupe(
@@ -291,6 +359,18 @@ def parse_multiple_choice(raw_text: str, options: list[str] | None = None) -> Pa
         return ParseResult(STATUS_UNPARSABLE, reason="Risposta vuota")
 
     valid = set(option_letters(options))
+
+    # 0. Risposta di chiusura esplicita (es. 'Answer: D', '\boxed{D}' nelle ultime righe)
+    concluding = _extract_concluding_choice(text, valid)
+    if concluding:
+        return ParseResult(
+            STATUS_RESOLVED,
+            value=concluding,
+            tier=TIER_EXACT,
+            candidates=[concluding],
+            rejected=[],
+        )
+
     found = _collect_mc_candidates(text, options)
     rejected: list[str] = []
 
@@ -302,8 +382,6 @@ def parse_multiple_choice(raw_text: str, options: list[str] | None = None) -> Pa
         out_range = [x for x in letters if valid and x not in valid]
 
         if not in_range:
-            # Solo lettere inesistenti (la classica 'E' da "e.g." o la 'T' di
-            # "T(-3,2)"): non e' una scelta, va rivista a mano.
             rejected.extend(out_range)
             continue
 

@@ -699,7 +699,15 @@ def handle_training_benchmark_suite_info(self):
 
 def handle_training_benchmark_download(self):
     from core.modules.sigma_training_lab.training.benchmarks import download_suite
-    self.send_json_response(download_suite(self.read_json_body().get("suite", "all")))
+    body = self.read_json_body()
+    try:
+        # `limit` prende solo le prime N righe: accorcia la prima preparazione e
+        # in cambio la cache e' l'inizio della suite, non un suo campione. Zero,
+        # o assente, resta il comportamento di prima — la suite intera.
+        limit = int(body.get("limit") or 0)
+    except (TypeError, ValueError):
+        limit = 0
+    self.send_json_response(download_suite(body.get("suite", "all"), limit=limit))
 
 
 HANDLERS = {
