@@ -160,11 +160,12 @@ OFFICIAL_ORGANIZATIONS = {
 
     # Frontier Open-Weight Labs & Creators
     'qwen', 'meta-llama', 'deepseek-ai', 'mistralai', 'google', 'microsoft',
-    'anthropic', 'cohereforai', 'thudm', 'zhipuai', '01-ai', 'nvidia', 'facebook', 'baai',
+    'anthropic', 'cohereforai', 'thudm', 'zhipuai', 'zai-org', 'zai', 'zhipu', '01-ai', 'nvidia', 'facebook', 'baai',
     'stabilityai', 'black-forest-labs', 'allenai', 'apple', 'openai', 'tiiuae',
     'bytedance', 'internlm', 'shanghai-ai-lab', 'systran', 'bigcode', 'salesforce',
     'openchat', 'nousresearch', 'upstage', 'snowflake', 'kyutai', 'liquid-ai',
     'ai21labs', 'minimax', 'kwai', 'kwaivgi', 'deci', 'nexusflow', 'writer',
+    'huggingfacetb',
 
     # Premier GGUF & Quantization Providers
     'bartowski', 'mradermacher', 'thebloke', 'unsloth', 'turboderp',
@@ -172,15 +173,41 @@ OFFICIAL_ORGANIZATIONS = {
     'solidrust', 'second-state', 'lone-striker', 'oobabooga'
 }
 
+PROVIDER_AUTHOR_MAP = {
+    'sigmanih': ['sigmanih'],
+    'thudm': ['THUDM', 'ZhipuAI', 'zai-org', 'zai'],
+    'zai': ['zai-org', 'zai', 'THUDM', 'ZhipuAI'],
+    'glm': ['zai-org', 'THUDM', 'ZhipuAI'],
+    'qwen': ['Qwen'],
+    'deepseek': ['deepseek-ai'],
+    'llama': ['meta-llama'],
+    'mistral': ['mistralai'],
+    'gemma': ['google'],
+    'microsoft': ['microsoft'],
+    'bartowski': ['bartowski'],
+    'unsloth': ['unsloth'],
+    'thebloke': ['TheBloke'],
+    'mradermacher': ['mradermacher'],
+    'nous': ['NousResearch'],
+    'nvidia': ['nvidia'],
+    'cohere': ['CohereForAI'],
+    '01-ai': ['01-ai'],
+    'apple': ['apple'],
+    'stability': ['stabilityai'],
+    'allenai': ['allenai'],
+}
+
 OFFICIAL_AUTHOR_MAP = {
     # Sigma Ecosystem
     'sigmanih': 'sigmanih',
     'sigma': 'sigmanih',
 
-    # GLM & THUDM (Zhipu AI)
+    # GLM & THUDM & ZAI (Zhipu AI)
+    'zai-org': 'zai-org',
+    'zai': 'zai-org',
     'thudm': 'THUDM',
-    'glm': 'THUDM',
-    'zhipu': 'THUDM',
+    'glm': 'zai-org',
+    'zhipu': 'zai-org',
     'chatglm': 'THUDM',
     'cogvideo': 'THUDM',
     'cogview': 'THUDM',
@@ -227,20 +254,18 @@ OFFICIAL_AUTHOR_MAP = {
 }
 
 
-def is_official_provider(author: str, model_id: str) -> bool:
+def is_official_provider(author: str, model_id: str, custom_officials: Optional[List[str]] = None) -> bool:
     """Checks if the model author or repository organization is an official AI lab, verified creator or premier provider."""
     auth_low = (author or "").lower().strip()
     id_low = (model_id or "").lower().strip()
     org = id_low.split('/')[0] if '/' in id_low else auth_low
 
-    if org in OFFICIAL_ORGANIZATIONS:
-        return True
-    return any(o in org for o in OFFICIAL_ORGANIZATIONS) or any(k in id_low for k in [
-        'sigmanih', 'thudm', 'glm', 'zhipu', 'qwen', 'meta-llama', 'deepseek', 'mistral',
-        'google', 'microsoft', 'cohere', 'nvidia', 'baai', 'stability', 'black-forest',
-        'allenai', 'apple', 'tiiuae', 'bytedance', 'internlm', '01-ai', 'bartowski',
-        'mradermacher', 'unsloth', 'thebloke', 'nousresearch'
-    ])
+    if custom_officials:
+        custom_set = {str(o).lower().strip() for o in custom_officials if o}
+        if org in custom_set or auth_low in custom_set:
+            return True
+
+    return org in OFFICIAL_ORGANIZATIONS or auth_low in OFFICIAL_ORGANIZATIONS
 
 
 def _format_date_label(iso_date: Optional[str]) -> str:
@@ -648,6 +673,30 @@ def _matches_quant_filter(quant_filter: str, text_corpus: str, specs: Optional[D
 # Curated Popular Official & Featured Models with direct HF links
 POPULAR_MODELS = [
     {
+        "id": "zai-org/GLM-5.3-Flash",
+        "name": "GLM 5.3 Flash",
+        "author": "zai-org",
+        "category": "llm",
+        "params_b": 9.0,
+        "params_label": "Flash",
+        "active_params_label": "Flash",
+        "total_params_label": "Flash",
+        "precision": "FP16 / BF16",
+        "size_gb": 18.0,
+        "format": "Safetensors",
+        "downloads": 350000,
+        "likes": 4800,
+        "is_official": True,
+        "created_at": "2025-02-15T10:00:00Z",
+        "last_modified": "2025-02-20T12:00:00Z",
+        "release_date_label": "15 Feb 2025",
+        "description": "Modello ufficiale ad altissima velocità, reasoning avanzato e architettura multimodale di ZAI (Zhipu AI).",
+        "quantizations": ["Safetensors (18 GB)", "GGUF Q4_K_M (5.5 GB)"],
+        "pipeline_tag": "text-generation",
+        "default_file": "model.safetensors",
+        "hf_url": "https://huggingface.co/zai-org/GLM-5.3-Flash",
+    },
+    {
         "id": "THUDM/glm-4-9b-chat",
         "name": "GLM 4 9B Chat",
         "author": "THUDM",
@@ -875,14 +924,16 @@ def search_hf_models(
     quant_filter: str = "all",
     sort: str = "downloads",
     official_only: bool = False,
+    provider: str = "all",
     cursor: Optional[str] = None,
     page: int = 1,
     limit: int = 30,
-    hf_token: Optional[str] = None
+    hf_token: Optional[str] = None,
+    custom_officials: Optional[List[str]] = None
 ) -> Dict[str, Any]:
     """
     Searches models on Hugging Face API dynamically in real time.
-    Supports official_only filter, granular size brackets, active/total parameters, precision and quantization-aware filtering.
+    Supports provider-specific author scoping, official_only filter, granular size brackets, active/total parameters, precision and quantization-aware filtering.
     """
     results = []
 
@@ -891,11 +942,16 @@ def search_hf_models(
         "audio": "automatic-speech-recognition",
     }
 
+    target_provider_authors = [a.lower() for a in PROVIDER_AUTHOR_MAP.get(provider.lower(), [provider])] if (provider and provider != "all") else None
+
     # 1. Match from POPULAR_MODELS catalogue first (only on page 1 / initial load without cursor)
     if not cursor and page == 1:
         q_low = query.lower().strip()
         for m in POPULAR_MODELS:
-            if official_only and not m.get("is_official", False):
+            m_author = (m.get("author") or m["id"].split("/")[0]).lower()
+            if target_provider_authors and m_author not in target_provider_authors:
+                continue
+            if official_only and not is_official_provider(m.get("author", ""), m["id"], custom_officials=custom_officials):
                 continue
             if q_low:
                 if q_low not in m["id"].lower() and q_low not in m["name"].lower() and q_low not in m["description"].lower():
@@ -910,8 +966,6 @@ def search_hf_models(
                 continue
             if not _matches_quant_filter(quant_filter, f"{m['id']} {m['name']} {m['description']}", {"precision": m.get("precision", ""), "format": m.get("format", "")}):
                 continue
-            # Computed here rather than stored with the entry: the catalogue is
-            # shared, the machine reading it is not.
             results.append({
                 **m,
                 "recommended_gpu": _determine_target_gpu(
@@ -920,7 +974,7 @@ def search_hf_models(
                 ),
             })
 
-    # 2. Dynamic Multi-Pass Live Fetch directly from Hugging Face Hub API
+    # 2. Dynamic Live Fetch directly from Hugging Face Hub API
     next_cursor = None
     try:
         search_query = query.strip()
@@ -938,6 +992,7 @@ def search_hf_models(
             hf_sort = "lastModified"
 
         raw_items: List[Dict[str, Any]] = []
+        fetch_limit = min(limit * 3, 90)
 
         # A0. If direct repository id is queried (e.g. author/repo), fetch exact model metadata directly
         if "/" in search_query and not cursor:
@@ -951,75 +1006,111 @@ def search_hf_models(
             except Exception as _ex_direct:
                 log.debug("Direct repo fetch error for %s: %s", search_query, _ex_direct)
 
-        # A. If searching official models or query matches an official provider keyword, fetch from official author endpoint first!
-        detected_author = None
-        q_lower = search_query.lower()
-        for key_kw, author_name in OFFICIAL_AUTHOR_MAP.items():
-            if key_kw in q_lower:
-                detected_author = author_name
-                break
-
-        if not cursor and (official_only or detected_author):
-            target_authors = [detected_author] if detected_author else ["Qwen", "meta-llama", "deepseek-ai", "mistralai"]
-            for auth in target_authors:
-                if not auth:
-                    continue
-                auth_clean_q = re.sub(auth, '', search_query, flags=re.IGNORECASE).strip()
-                auth_clean_q = re.sub(r'(qwen|llama|deepseek|mistral)', '', auth_clean_q, flags=re.IGNORECASE).strip()
+        # A. If provider filter is active: fetch ONLY models authored by that specific provider account
+        if target_provider_authors:
+            canonical_authors = PROVIDER_AUTHOR_MAP.get(provider.lower(), [provider])
+            for auth in canonical_authors:
                 auth_params = {
                     "author": auth,
-                    "limit": 30,
+                    "limit": fetch_limit,
                     "full": "true"
                 }
-                if auth_clean_q:
-                    auth_params["search"] = auth_clean_q
+                if search_query:
+                    auth_params["search"] = search_query
                 if hf_sort:
                     auth_params["sort"] = hf_sort
                     auth_params["direction"] = -1
+                if category in cat_tag_map:
+                    auth_params["pipeline_tag"] = cat_tag_map[category]
 
-                auth_raw, _ = _fetch_from_hf_api(auth_params, hf_token=hf_token)
+                auth_raw, next_c = _fetch_from_hf_api(auth_params, hf_token=hf_token)
                 for item in auth_raw:
                     if not any(x.get("id") == item.get("id") for x in raw_items):
                         raw_items.append(item)
+                if next_c:
+                    next_cursor = next_c
 
-        # B. Standard global search query
-        effective_search = search_query
-        if not effective_search:
-            if quant_filter and quant_filter != "all":
-                effective_search = f"gguf {quant_filter}" if "q" in quant_filter or "imatrix" in quant_filter else quant_filter
+        # B. If official_only is enabled without a specific provider: query official lab authors
+        elif official_only:
+            if not search_query:
+                official_target_authors = custom_officials if (custom_officials and len(custom_officials) > 0) else [
+                    "sigmanih", "zai-org", "Qwen", "deepseek-ai", "meta-llama", "THUDM", "mistralai", "google", "microsoft", "bartowski", "unsloth"
+                ]
+                for auth in official_target_authors[:15]:
+                    auth_params = {
+                        "author": auth,
+                        "limit": 15,
+                        "full": "true"
+                    }
+                    if hf_sort:
+                        auth_params["sort"] = hf_sort
+                        auth_params["direction"] = -1
+                    if category in cat_tag_map:
+                        auth_params["pipeline_tag"] = cat_tag_map[category]
+
+                    auth_raw, _ = _fetch_from_hf_api(auth_params, hf_token=hf_token)
+                    for item in auth_raw:
+                        if not any(x.get("id") == item.get("id") for x in raw_items):
+                            raw_items.append(item)
             else:
-                effective_search = "qwen" if official_only else "gguf"
-        elif quant_filter and quant_filter != "all" and quant_filter.lower() not in effective_search.lower():
-            effective_search = f"{effective_search} {quant_filter}"
+                params = {
+                    "search": search_query,
+                    "sort": hf_sort,
+                    "direction": -1,
+                    "limit": fetch_limit,
+                    "full": "true"
+                }
+                if category in cat_tag_map:
+                    params["pipeline_tag"] = cat_tag_map[category]
+                if cursor:
+                    params["cursor"] = cursor
+                global_raw, next_cursor = _fetch_from_hf_api(params, hf_token=hf_token)
+                for item in global_raw:
+                    if not any(x.get("id") == item.get("id") for x in raw_items):
+                        raw_items.append(item)
 
-        fetch_limit = min(limit * 3, 90)
-        params = {
-            "search": effective_search,
-            "sort": hf_sort,
-            "direction": -1,
-            "limit": fetch_limit,
-            "full": "true"
-        }
-        if category in cat_tag_map:
-            params["pipeline_tag"] = cat_tag_map[category]
-        if cursor:
-            params["cursor"] = cursor
+        # C. Standard global search query
+        else:
+            effective_search = search_query
+            if not effective_search:
+                if quant_filter and quant_filter != "all":
+                    effective_search = f"gguf {quant_filter}" if "q" in quant_filter or "imatrix" in quant_filter else quant_filter
+                else:
+                    effective_search = "gguf"
+            elif quant_filter and quant_filter != "all" and quant_filter.lower() not in effective_search.lower():
+                effective_search = f"{effective_search} {quant_filter}"
 
-        global_raw, next_cursor = _fetch_from_hf_api(params, hf_token=hf_token)
-        for item in global_raw:
-            if not any(x.get("id") == item.get("id") for x in raw_items):
-                raw_items.append(item)
+            params = {
+                "search": effective_search,
+                "sort": hf_sort,
+                "direction": -1,
+                "limit": fetch_limit,
+                "full": "true"
+            }
+            if category in cat_tag_map:
+                params["pipeline_tag"] = cat_tag_map[category]
+            if cursor:
+                params["cursor"] = cursor
 
-        # C. Transform and filter raw items with precision & active/total specs
+            global_raw, next_cursor = _fetch_from_hf_api(params, hf_token=hf_token)
+            for item in global_raw:
+                if not any(x.get("id") == item.get("id") for x in raw_items):
+                    raw_items.append(item)
+
+        # D. Transform and filter raw items with precision & active/total specs
         for item in raw_items:
             mid = item.get("id") or item.get("modelId", "")
             if any(r["id"] == mid for r in results):
                 continue
 
             author = mid.split("/")[0] if "/" in mid else "HuggingFace"
-            is_official = is_official_provider(author, mid)
+            is_official = is_official_provider(author, mid, custom_officials=custom_officials)
 
-            # If official_only is enabled, skip community repackages
+            # Strict author filtering when provider is selected
+            if target_provider_authors and author.lower() not in target_provider_authors:
+                continue
+
+            # Strict official filtering when official_only is enabled
             if official_only and not is_official:
                 continue
 
@@ -1130,7 +1221,7 @@ def search_hf_models(
 def get_hf_model_details(model_id: str, hf_token: Optional[str] = None) -> Dict[str, Any]:
     """Fetches detailed metadata, file list, dates, and available quantizations for a model."""
     try:
-        url = f"{HF_API_BASE}/models/{model_id}"
+        url = f"{HF_API_BASE}/models/{model_id}?blobs=true"
         req = urllib.request.Request(url)
         req.add_header("User-Agent", "SigmaStudio-ModelHub/2.0")
         if hf_token:
@@ -1144,9 +1235,11 @@ def get_hf_model_details(model_id: str, hf_token: Optional[str] = None) -> Dict[
                 files = []
                 for s in siblings:
                     rfilename = s.get("rfilename", "")
+                    f_sz = s.get("size") or (s.get("lfs") or {}).get("size") or 0
                     if any(rfilename.endswith(ext) for ext in [".gguf", ".safetensors", ".bin", ".json", ".pt"]):
                         files.append({
                             "filename": rfilename,
+                            "size": f_sz,
                             "is_gguf": rfilename.endswith(".gguf"),
                             "is_safetensors": rfilename.endswith(".safetensors"),
                             "download_url": f"https://huggingface.co/{model_id}/resolve/main/{rfilename}"
@@ -1157,6 +1250,14 @@ def get_hf_model_details(model_id: str, hf_token: Optional[str] = None) -> Dict[
                 release_date_label = _format_date_label(created_at or last_modified)
 
                 specs = parse_model_specs(model_id, data.get("id", ""), data.get("tags", []), raw_item=data)
+                
+                # Check if exact usedStorage is available from HF
+                used_storage = data.get("usedStorage")
+                if used_storage and used_storage > 0:
+                    real_gb = round(used_storage / (1024**3), 2)
+                    specs["size_gb"] = real_gb
+                    specs["size_label"] = f"~{real_gb:.1f} GB" if real_gb < 1000 else f"~{real_gb/1000:.1f} TB"
+
                 author = data.get("author", model_id.split("/")[0] if "/" in model_id else "Community")
 
                 return {
