@@ -28,6 +28,7 @@
 # ==============================================================================
 from pathlib import Path
 
+from core import paths as _paths
 from core.model_paths import project_root
 
 #: Radice dell'installazione di Sigma Studio.
@@ -40,14 +41,14 @@ MODULE_DIR = Path(__file__).resolve().parent
 # Fuori dal modulo: un fine-tuning costa ore di GPU e non deve sparire se il
 # modulo viene disinstallato o reinstallato dal marketplace.
 
-TRAINING_DIR = PROJECT_ROOT / "training"
+TRAINING_DIR = _paths.training_dir()
 JOBS_DIR = TRAINING_DIR / "jobs"
 SCRIPTS_DIR = TRAINING_DIR / "scripts"
 DATASETS_DIR = TRAINING_DIR / "datasets"
 IMPORTS_DIR = TRAINING_DIR / "imports"
 JOBS_FILE = TRAINING_DIR / "training_jobs.json"
 
-TRAINING_LAB_DIR = PROJECT_ROOT / "training_lab"
+TRAINING_LAB_DIR = _paths.training_lab_dir()
 AUTOPILOT_DIR = TRAINING_LAB_DIR / "autopilot"
 AUTOPILOT_STATE_FILE = TRAINING_LAB_DIR / "autopilot_state.json"
 OFFICIAL_BENCHMARK_FILE = TRAINING_LAB_DIR / "official_benchmark_results.json"

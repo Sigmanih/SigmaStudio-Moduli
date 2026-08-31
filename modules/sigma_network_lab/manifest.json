@@ -24,8 +24,8 @@
     "install_to": "sigma_studio/src/modules/sigma_network_lab/"
   },
   "backend": {
-    "handlers_module": "core.modules.sigma_network_lab.backend.handlers",
-    "mcp_server_module": "core.modules.sigma_network_lab.backend.network_server",
+    "handlers_module": "core.modules.sigma_network_lab.handlers",
+    "mcp_server_module": "core.modules.sigma_network_lab.network_server",
     "routes_prefix": "/api/network",
     "install_to": "core/modules/sigma_network_lab/"
   },
