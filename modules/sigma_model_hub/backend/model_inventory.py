@@ -52,6 +52,96 @@ def _earliest_weight_time(folder: str, weight_files) -> float:
     return min(times) if times else os.path.getctime(folder)
 
 
+def _extract_author_and_name(raw_name: str) -> tuple[str, str, bool]:
+    """Extracts author/organization, clean model name, and official provider status."""
+    try:
+        from core.modules.sigma_model_hub.backend.hf_client import is_official_provider
+    except Exception:
+        def is_official_provider(a, m): return False
+
+    name_clean = raw_name.replace('\\', '/')
+    if name_clean.startswith("models--"):
+        parts = name_clean.split("--")
+        if len(parts) >= 3:
+            author = parts[1]
+            m_name = "--".join(parts[2:])
+            return author, m_name, is_official_provider(author, f"{author}/{m_name}")
+    if '/' in name_clean:
+        parts = name_clean.split('/')
+        author = parts[0]
+        m_name = "/".join(parts[1:])
+        return author, m_name, is_official_provider(author, name_clean)
+
+    low = name_clean.lower()
+    if low.startswith("sigma"):
+        return "sigmanih", name_clean, True
+    if low.startswith("qwen"):
+        return "Qwen", name_clean, True
+    if low.startswith("deepseek"):
+        return "deepseek-ai", name_clean, True
+    if low.startswith("llama") or low.startswith("meta"):
+        return "meta-llama", name_clean, True
+    if low.startswith("gemma") or low.startswith("google"):
+        return "google", name_clean, True
+    if low.startswith("glm") or low.startswith("thudm") or low.startswith("chatglm") or low.startswith("zai"):
+        return "zai-org", name_clean, True
+    if low.startswith("mistral"):
+        return "mistralai", name_clean, True
+    if low.startswith("phi"):
+        return "microsoft", name_clean, True
+
+    return "", name_clean, False
+
+
+def detect_family_and_category(name: str, architecture: str = "", author: str = "", is_multimodal: bool = False) -> tuple[str, str]:
+    """Detects model architecture family (e.g. Gemma, Qwen, Llama) and task category (e.g. reasoning, code, vision, llm)."""
+    text = f"{name} {architecture} {author}".lower()
+    
+    # 1. Family detection
+    family = "Altro"
+    if "gemma" in text:
+        family = "Gemma"
+    elif "qwen" in text:
+        family = "Qwen"
+    elif "llama" in text or "meta" in text:
+        family = "Llama"
+    elif "deepseek" in text:
+        family = "DeepSeek"
+    elif "mistral" in text or "mixtral" in text or "codestral" in text or "pixtral" in text:
+        family = "Mistral"
+    elif "phi" in text:
+        family = "Phi"
+    elif "glm" in text or "chatglm" in text or "zai" in text:
+        family = "GLM"
+    elif "stheno" in text:
+        family = "Stheno"
+    elif "solar" in text:
+        family = "Solar"
+    elif "yi" in text:
+        family = "Yi"
+    elif "command" in text or "cohere" in text:
+        family = "Command"
+    elif "granite" in text or "ibm" in text:
+        family = "Granite"
+    elif architecture:
+        family = architecture.capitalize()
+
+    # 2. Category detection
+    category = "llm"
+    if author.lower() == "sigmanih" or "sigmanih" in text:
+        category = "sigmanih"
+    elif "r1" in text or "reason" in text or "think" in text or "qwq" in text or "marco" in text:
+        category = "reasoning"
+    elif "coder" in text or "code" in text or "dev" in text or "starcoder" in text:
+        category = "code"
+    elif is_multimodal or "vision" in text or "vl" in text or "clip" in text or "mmproj" in text:
+        category = "vision"
+    elif "moe" in text or "expert" in text or "8x" in text or "16x" in text:
+        category = "moe"
+
+    return family, category
+
+
 def scan_local_models(custom_dir: Optional[str] = None) -> List[Dict[str, Any]]:
     """Scans local disk for downloaded model files (.gguf, .safetensors, .bin, multi-shard repos)."""
     base_dir = custom_dir if custom_dir and os.path.exists(custom_dir) else _models_dir()
@@ -70,17 +160,21 @@ def scan_local_models(custom_dir: Optional[str] = None) -> List[Dict[str, Any]]:
         # 1. Check if entry is a directory (e.g. Qwen--Qwen3.8-27B or Multi-Shard Model Repository)
         if os.path.isdir(full_entry_path):
             try:
-                dir_files = os.listdir(full_entry_path)
+                dir_files = []
+                for root, _dirs, f_list in os.walk(full_entry_path):
+                    for f in sorted(f_list):
+                        dir_files.append(os.path.relpath(os.path.join(root, f), full_entry_path).replace("\\", "/"))
+
                 shard_files = [f for f in dir_files if f.endswith((".safetensors", ".bin", ".gguf", ".pt"))]
                 part_files = [f for f in dir_files if f.endswith((".part", ".download", ".tmp"))]
-                has_tokenizer = any(f in dir_files for f in ("tokenizer.json", "tokenizer_config.json", "vocab.json", "tokenizer.model")) or any(f.endswith(".gguf") for f in shard_files)
+                has_tokenizer = any(os.path.basename(f) in ("tokenizer.json", "tokenizer_config.json", "vocab.json", "tokenizer.model") for f in dir_files) or any(f.endswith(".gguf") for f in shard_files)
                 
                 if not shard_files and not part_files:
                     continue
 
                 main_shards = [f for f in shard_files if not (
-                    f.lower().startswith("mmproj") or "mmproj" in f.lower() or
-                    "-clip-" in f.lower() or "_clip_" in f.lower() or f.lower().startswith("clip-")
+                    os.path.basename(f).lower().startswith("mmproj") or "mmproj" in os.path.basename(f).lower() or
+                    "-clip-" in os.path.basename(f).lower() or "_clip_" in os.path.basename(f).lower() or os.path.basename(f).lower().startswith("clip-")
                 )]
                 target_shards = main_shards if main_shards else shard_files
                 has_mmproj = any(f not in main_shards for f in shard_files)
@@ -93,12 +187,35 @@ def scan_local_models(custom_dir: Optional[str] = None) -> List[Dict[str, Any]]:
                 is_sharded = len(target_shards) > 1
                 primary_file = os.path.join(full_entry_path, "model.safetensors.index.json") if os.path.exists(os.path.join(full_entry_path, "model.safetensors.index.json")) else (os.path.join(full_entry_path, target_shards[0]) if target_shards else full_entry_path)
 
-                # Check if all declared shards exist
+                # Check declared shards vs present shards
+                total_shards_declared = len(target_shards) if target_shards else 1
+                for f in target_shards + part_files:
+                    m_match = re.search(r"-of-(\d+)\.(safetensors|gguf)", f)
+                    if m_match:
+                        try:
+                            total_shards_declared = max(total_shards_declared, int(m_match.group(1)))
+                        except Exception:
+                            pass
+
+                idx_path = os.path.join(full_entry_path, "model.safetensors.index.json")
+                if os.path.exists(idx_path):
+                    try:
+                        with open(idx_path, "r", encoding="utf-8") as f_idx:
+                            idx_d = json.load(f_idx)
+                        declared_set = set(idx_d.get("weight_map", {}).values())
+                        total_shards_declared = max(total_shards_declared, len(declared_set))
+                    except Exception:
+                        pass
+
                 is_complete = True
-                if part_files:
+                if part_files or len(part_files) > 0:
+                    is_complete = False
+                elif total_shards_declared > 1 and (len(target_shards) < total_shards_declared or (any(f.endswith(".safetensors") for f in target_shards) and not os.path.exists(idx_path))):
                     is_complete = False
                 elif not has_tokenizer and not any(f.endswith(".gguf") for f in target_shards):
                     is_complete = False
+
+                missing_shards_count = max(0, total_shards_declared - len(target_shards))
 
                 if any(f.endswith(".gguf") for f in target_shards):
                     fmt = f"GGUF ({len(target_shards)} Shard)" if is_sharded else "GGUF"
@@ -109,13 +226,14 @@ def scan_local_models(custom_dir: Optional[str] = None) -> List[Dict[str, Any]]:
                     if is_complete:
                         fmt = f"Safetensors ({len(target_shards)} Shards • Completo)" if is_sharded else "Safetensors"
                     else:
-                        fmt = f"Safetensors ({len(target_shards)} Shards • Incompleto)"
+                        fmt = f"Safetensors ({len(target_shards)}/{total_shards_declared} Shards • Incompleto)"
                     fmt_tag = "SAFETENSORS"
                 else:
                     fmt = "PyTorch Bin"
                     fmt_tag = "BIN"
 
-                quant_match = re.search(r'(Q[0-9]_[A-Z0-9_]+|FP16|FP32|BF16|FP8|INT8|INT4|AWQ|EXL2)', entry, re.IGNORECASE)
+                sample_tag_text = f"{entry} {' '.join(target_shards[:3])}"
+                quant_match = re.search(r'(Q[0-9]_[A-Z0-9_]+|FP16|FP32|BF16|FP8|INT8|INT4|AWQ|EXL2)', sample_tag_text, re.IGNORECASE)
                 quantization = quant_match.group(1).upper() if quant_match else ("FP16 / BF16" if "safetensors" in fmt.lower() else "Standard")
 
                 est_vram_gb = round(size_gb * 1.15 + 0.8, 1)
@@ -149,10 +267,41 @@ def scan_local_models(custom_dir: Optional[str] = None) -> List[Dict[str, Any]]:
                     except Exception:
                         pass
 
+                if not param_label:
+                    try:
+                        from core.engine.model_inspector import ModelInspector
+                        f_info = ModelInspector.inspect(full_entry_path)
+                        if f_info:
+                            arch_name = (f_info.architectures or [f_info.model_type or ""])[0]
+                            if f_info.param_count:
+                                p_b = round(f_info.param_count / 1e9, 2)
+                                param_label = f"{p_b:g}B" if p_b >= 1.0 else f"{int(p_b*1000)}M"
+                            elif f_info.total_bytes:
+                                p_b = round(f_info.total_bytes * 8 / 4.8 / 1e9, 1)
+                                param_label = f"~{p_b:g}B"
+                            if f_info.is_moe and f_info.num_experts:
+                                param_label = f"MoE {f_info.num_experts}x" + (f" ({param_label})" if param_label else "")
+                    except Exception:
+                        pass
+
+                author, clean_name, is_official = _extract_author_and_name(raw_name)
+                family, category = detect_family_and_category(
+                    name=clean_name or raw_name,
+                    architecture=arch_name or "",
+                    author=author or "",
+                    is_multimodal=has_mmproj
+                )
+
                 results.append({
                     "filename": raw_name,
                     "model_id": raw_name,
                     "display_name": raw_name,
+                    "clean_name": clean_name,
+                    "author": author,
+                    "publisher": author or "Altro",
+                    "family": family,
+                    "category": category,
+                    "is_official": is_official,
                     "path": full_entry_path,
                     "primary_file": primary_file,
                     "format": fmt,
@@ -165,6 +314,9 @@ def scan_local_models(custom_dir: Optional[str] = None) -> List[Dict[str, Any]]:
                     "is_multimodal": has_mmproj,
                     "has_part_files": len(part_files) > 0,
                     "total_shards": len(target_shards),
+                    "shards_present": len(target_shards),
+                    "total_shards_declared": total_shards_declared,
+                    "missing_shards_count": missing_shards_count,
                     "size_gb": size_gb,
                     "size_mb": size_mb,
                     "size_label": f"~{size_gb:.1f} GB" if size_gb < 1000 else f"~{size_gb/1000:.1f} TB",
@@ -200,10 +352,24 @@ def scan_local_models(custom_dir: Optional[str] = None) -> List[Dict[str, Any]]:
                     sigma_engine.loaded_model_name == full_entry_path
                 )
 
+                author, clean_name, is_official = _extract_author_and_name(entry)
+                family, category = detect_family_and_category(
+                    name=clean_name or entry,
+                    architecture="",
+                    author=author or "",
+                    is_multimodal=False
+                )
+
                 results.append({
                     "filename": entry,
                     "model_id": entry,
                     "display_name": entry,
+                    "clean_name": clean_name,
+                    "author": author,
+                    "publisher": author or "Altro",
+                    "family": family,
+                    "category": category,
+                    "is_official": is_official,
                     "path": full_entry_path,
                     "primary_file": full_entry_path,
                     "format": fmt,
@@ -258,6 +424,12 @@ def deploy_model_to_sigma_engine(
     model_name = os.path.basename(resolved_path).replace("--", "/")
     
     if os.path.isdir(resolved_path):
+        part_files = [f for f in os.listdir(resolved_path) if f.endswith((".part", ".download", ".tmp"))]
+        if part_files:
+            return {
+                "success": False,
+                "error": f"Impossibile attivare '{model_name}': il download su disco è incompleto ({len(part_files)} file .part ancora in sospeso). Completa o riprendi il download dal Model Hub."
+            }
         dir_files = [os.path.join(resolved_path, f) for f in os.listdir(resolved_path) if f.endswith((".safetensors", ".bin", ".gguf", ".pt"))]
         file_size_gb = round(sum(os.path.getsize(f) for f in dir_files) / (1024**3), 2) if dir_files else 10.0
     else:
@@ -282,10 +454,13 @@ def deploy_model_to_sigma_engine(
     # it, briefly holding two copies in VRAM and spilling the second to CPU.
     if sigma_engine.model_instance is None:
         sigma_engine.loaded_model_name = canonical_name
+        is_gguf = resolved_path.endswith(".gguf") or (
+            os.path.isdir(resolved_path) and any(f.endswith(".gguf") for f in os.listdir(resolved_path))
+        )
         sigma_engine.loaded_model = {
             "name": canonical_name,
             "path": resolved_path,
-            "format": "GGUF" if resolved_path.endswith(".gguf") else "Safetensors",
+            "format": "GGUF" if is_gguf else "Safetensors",
             "size_gb": file_size_gb,
             "quantization": (
                 quantization or tiering.get("quantization", "Auto (Tiered)")
@@ -360,6 +535,130 @@ def unload_sigma_engine_model() -> Dict[str, Any]:
             f"{freed_gb:.1f} GB di memoria liberati."
             if prev else "Nessun modello era caricato."
         ),
+    }
+
+
+def _percorso_modello(model_path_or_id: str, base_dir: str) -> Optional[str]:
+    """Il percorso su disco di un modello, dato il nome o il percorso stesso."""
+    raw = str(model_path_or_id or "").strip()
+    if not raw:
+        return None
+    if os.path.isabs(raw) and os.path.exists(raw):
+        return os.path.abspath(raw)
+    for candidato in (
+        os.path.join(base_dir, raw),
+        os.path.join(base_dir, raw.replace("/", "--")),
+        os.path.join(base_dir, os.path.basename(raw)),
+    ):
+        if os.path.exists(candidato):
+            return os.path.abspath(candidato)
+    return None
+
+
+def _dentro_la_cartella(base_dir: str, percorso: str) -> bool:
+    """Se un percorso sta davvero dentro la cartella dei modelli."""
+    try:
+        return os.path.abspath(os.path.commonpath([base_dir, percorso])) == base_dir
+    except Exception:
+        return False
+
+
+def rename_local_model(model_path_or_id: str, new_name: str,
+                       custom_dir: Optional[str] = None) -> Dict[str, Any]:
+    """
+    Rinomina un modello sul disco, con le stesse protezioni della cancellazione.
+
+    Il nuovo nome viene trattato come il nome di una cartella, non come un
+    percorso: una barra o un `..` dentro il nome sposterebbero il modello fuori
+    dalla cartella dei modelli, e una rinomina non deve poter fare quello che
+    una cancellazione ha il divieto di fare. La forma `autore/modello` resta
+    ammessa perche' e' come Hugging Face nomina le cose, e diventa
+    `autore--modello` sul disco — la stessa convenzione con cui il modello e'
+    arrivato.
+
+    Se il modello e' caricato nel motore viene prima scaricato: rinominare la
+    cartella sotto un runtime che la sta leggendo lascia in memoria pesi che
+    puntano a un percorso che non esiste piu'.
+    """
+    base_dir = os.path.abspath(custom_dir if custom_dir and os.path.exists(custom_dir)
+                               else _models_dir())
+
+    origine = _percorso_modello(model_path_or_id, base_dir)
+    if not origine or not os.path.exists(origine):
+        return {"success": False, "error": f"Modello '{model_path_or_id}' non trovato su disco"}
+    if not _dentro_la_cartella(base_dir, origine):
+        return {"success": False, "error": "Operazione non consentita al di fuori della cartella modelli"}
+    if origine == base_dir:
+        return {"success": False, "error": "Non è possibile rinominare la cartella radice dei modelli"}
+
+    grezzo = str(new_name or "").strip()
+    if not grezzo:
+        return {"success": False, "error": "Il nuovo nome è vuoto"}
+    # Il controllo va fatto sul nome come e' stato scritto, non su quello gia'
+    # ripulito: togliendo prima le barre iniziali, `/tmp/x` diventa `tmp/x` e
+    # non sembra piu' un percorso assoluto. Restava dentro la cartella, ma
+    # veniva accettato e trasformato in `tmp--x` senza che nessuno lo dicesse.
+    if os.path.isabs(grezzo) or ".." in grezzo or ":" in grezzo:
+        return {"success": False, "error": "Il nuovo nome non può essere un percorso"}
+
+    pulito = grezzo.strip("/\\")
+    if not pulito:
+        return {"success": False, "error": "Il nuovo nome è vuoto"}
+
+    # `autore/modello` -> `autore--modello`: e' la convenzione con cui i modelli
+    # scaricati da Hugging Face stanno gia' sul disco.
+    cartella = pulito.replace("/", "--").replace("\\", "--")
+    if any(c in cartella for c in '<>:"|?*'):
+        return {"success": False, "error": "Il nuovo nome contiene caratteri non ammessi"}
+
+    destinazione = os.path.abspath(os.path.join(base_dir, cartella))
+    if not _dentro_la_cartella(base_dir, destinazione):
+        return {"success": False, "error": "Il nuovo nome porterebbe fuori dalla cartella modelli"}
+    if destinazione == origine:
+        return {"success": True, "renamed": False, "path": origine,
+                "message": "Il nome era già questo"}
+    if os.path.exists(destinazione):
+        return {"success": False,
+                "error": f"Esiste già un modello chiamato '{cartella}'"}
+
+    # Un modello residente tiene aperti i suoi file: su Windows la rinomina
+    # fallirebbe, su Linux riuscirebbe lasciando il runtime a puntare al nulla.
+    try:
+        residente = sigma_engine.loaded_model_name or ""
+        percorso_residente = (sigma_engine.loaded_model or {}).get("path", "")
+        if residente and (os.path.basename(origine).lower() in residente.lower()
+                          or (percorso_residente
+                              and os.path.abspath(percorso_residente) == origine)):
+            log.info("[ModelInventory] Scarico '%s' prima di rinominarlo.", residente)
+            sigma_engine.unload()
+    except Exception as err:
+        log.warning("[ModelInventory] Scaricamento prima della rinomina non riuscito: %s", err)
+
+    try:
+        os.rename(origine, destinazione)
+    except OSError as err:
+        return {"success": False,
+                "error": f"Rinomina non riuscita: {err}. "
+                         f"Se il modello è in uso, scaricalo dal motore e riprova."}
+
+    # Il repository su Hugging Face segue il modello: senza, una rinomina gli
+    # farebbe perdere il collegamento, e la pubblicazione successiva ne creerebbe
+    # uno nuovo lasciando due copie senza indicazioni su quale sia quella buona.
+    try:
+        from core.modules.sigma_model_hub.backend import publications
+        publications.rename_local_reference(os.path.basename(origine), cartella)
+    except Exception as err:
+        log.debug("[ModelInventory] Legame di pubblicazione non aggiornato: %s", err)
+
+    log.info("[ModelInventory] Modello rinominato: %s -> %s",
+             os.path.basename(origine), cartella)
+    return {
+        "success": True,
+        "renamed": True,
+        "old_name": os.path.basename(origine),
+        "new_name": cartella,
+        "model_id": pulito if "/" in pulito else cartella.replace("--", "/"),
+        "path": destinazione,
     }
 
 
