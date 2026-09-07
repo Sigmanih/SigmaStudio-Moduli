@@ -110,6 +110,13 @@ export default function TrainingBenchmark({ addToast }) {
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(15);
 
+  // Ampliamento Benchmark
+  const [extendModalOpen, setExtendModalOpen] = useState(false);
+  const [extendSamples, setExtendSamples] = useState(25);
+  const [extendSuite, setExtendSuite] = useState('all');
+  const [extendMode, setExtendMode] = useState('sample');
+  const [extending, setExtending] = useState(false);
+
   const toast = useCallback((msg, kind) => { if (addToast) addToast(msg, kind); }, [addToast]);
 
   const post = useCallback((path, body) => fetch(path, {
@@ -312,6 +319,80 @@ export default function TrainingBenchmark({ addToast }) {
       toast(`❌ ${err.message}`, 'error');
     } finally {
       setLaunching(false);
+    }
+  };
+
+  const handleRerunJob = async (jobItem, e) => {
+    if (e) e.stopPropagation();
+    if (!jobItem?.id || !jobItem?.model) return;
+    toast(`🔄 Riesecuzione benchmark su ${jobItem.model} (stessi quesiti)...`, 'info');
+    try {
+      const res = await post('/api/training/benchmark/rerun_suite', {
+        id: jobItem.id,
+        suite: 'all',
+        concurrency: 'auto',
+      });
+      if (res.success) {
+        toast(`🚀 Valutazione riavviata su ${jobItem.model}! Aggiornamento risultati in corso...`, 'success');
+        setSelectedJobId(jobItem.id);
+        loadJobs();
+        loadDetail();
+      } else {
+        toast(`❌ ${res.error || 'Riesecuzione fallita'}`, 'error');
+      }
+    } catch (err) {
+      toast(`❌ Errore riesecuzione: ${err.message}`, 'error');
+    }
+  };
+
+  const handleRerunSuite = async (suiteKey, e) => {
+    if (e) e.stopPropagation();
+    if (!activeJob?.id || !activeJob?.model) { toast('⚠️ Benchmark o modello non selezionato', 'warning'); return; }
+    const sKey = (suiteKey || suiteFilter || 'all').toLowerCase().replace('-', '_');
+    const suiteName = SUITE_LABELS[sKey]?.name || sKey.toUpperCase();
+    toast(`🔄 Riesecuzione su ${activeJob.model} per la suite ${suiteName} (stessi quesiti)...`, 'info');
+    try {
+      const res = await post('/api/training/benchmark/rerun_suite', {
+        id: activeJob.id,
+        suite: sKey,
+        concurrency: 'auto'
+      });
+      if (res.success) {
+        toast(`🚀 Valutazione ${suiteName} riavviata con successo! Aggiornamento risultati in corso...`, 'success');
+        loadJobs();
+        loadDetail();
+      } else {
+        toast(`❌ ${res.error || 'Riesecuzione suite fallita'}`, 'error');
+      }
+    } catch (err) {
+      toast(`❌ Errore riesecuzione: ${err.message}`, 'error');
+    }
+  };
+
+  const handleExtendBenchmark = async () => {
+    if (!activeJob) return;
+    setExtending(true);
+    try {
+      const targetSuite = extendSuite === 'all' ? (activeJob.suite || 'all') : extendSuite;
+      const res = await post('/api/training/benchmark/extend', {
+        id: activeJob.id,
+        samples: extendMode === 'full' ? 0 : extendSamples,
+        suite: targetSuite,
+        mode: extendMode,
+        concurrency: 'auto',
+      });
+      if (!res.success) {
+        toast(`❌ ${res.error || 'Ampliamento non riuscito'}`, 'error');
+        return;
+      }
+      toast(`🚀 Benchmark in ampliamento (+${extendMode === 'full' ? 'Tutti i rimanenti' : `${extendSamples}`} quesiti)!`, 'success');
+      setExtendModalOpen(false);
+      loadJobs();
+      loadDetail();
+    } catch (err) {
+      toast(`❌ Errore ampliamento: ${err.message}`, 'error');
+    } finally {
+      setExtending(false);
     }
   };
 
@@ -739,16 +820,17 @@ export default function TrainingBenchmark({ addToast }) {
                     <button onClick={(e) => jobAction('/api/training/benchmark/pause', j.id, '⏸️ In pausa', e)}
                       style={{ ...btn(true, '#ffb86c'), fontSize: '0.58rem' }}>⏸️ Pausa</button>
                   )}
-                  {j.status === 'paused' && (
+                  {(j.status === 'paused' || ((j.status === 'failed' || j.status === 'interrupted') && (j.metrics?.tests_total || 0) < (j.items_planned || 1))) && (
                     <button onClick={(e) => jobAction('/api/training/benchmark/resume', j.id, '▶️ Ripresa', e)}
-                      style={{ ...btn(true, '#3fb950'), fontSize: '0.58rem' }}>▶️ Riprendi</button>
+                      style={{ ...btn(true, '#3fb950'), fontSize: '0.58rem' }}
+                      title="Riprendi l'esecuzione dei quesiti mancanti">▶️ Riprendi</button>
                   )}
                   {isActive && (
                     <button onClick={(e) => jobAction('/api/training/benchmark/cancel', j.id, '🛑 Annullato', e)}
                       style={{ ...btn(true, '#ff5555'), fontSize: '0.58rem' }}>🛑 Ferma</button>
                   )}
                   {!isActive && (
-                    <button onClick={(e) => { e.stopPropagation(); handleStart(j.model, j.suite); }}
+                    <button onClick={(e) => handleRerunJob(j, e)}
                       disabled={launching} style={{ ...btn(true), fontSize: '0.58rem', display: 'flex', alignItems: 'center', gap: '3px' }}>
                       <RotateCcw size={9} /> Riesegui
                     </button>
@@ -833,6 +915,44 @@ export default function TrainingBenchmark({ addToast }) {
                 </div>
 
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                  {((activeJob.status === 'paused' || activeJob.status === 'failed' || activeJob.status === 'interrupted') && (activeJob.metrics?.tests_total || 0) < (activeJob.items_planned || 1)) && (
+                    <button
+                      type="button"
+                      disabled={isRunning || extending}
+                      onClick={(e) => jobAction('/api/training/benchmark/resume', activeJob.id, '▶️ Ripresa Benchmark', e)}
+                      style={{
+                        ...btn(true, '#3fb950'),
+                        display: 'flex', alignItems: 'center', gap: '6px',
+                        background: 'linear-gradient(135deg, rgba(63,185,80,0.3) 0%, rgba(46,160,67,0.2) 100%)',
+                        border: '1px solid rgba(63,185,80,0.7)',
+                        color: '#fff', fontWeight: 800,
+                        boxShadow: '0 2px 12px rgba(63,185,80,0.25)',
+                        cursor: isRunning || extending ? 'not-allowed' : 'pointer',
+                        opacity: isRunning || extending ? 0.5 : 1,
+                      }}
+                      title={`Riprendi l'esecuzione dal quesito ${(activeJob.metrics?.tests_total || 0) + 1} fino a ${activeJob.items_planned || 'fine'} senza perdere i quesiti già valutati`}
+                    >
+                      <Play size={13} fill="currentColor" /> ▶️ Riprendi Benchmark ({fmt(activeJob.metrics?.tests_total || 0)}/{fmt(activeJob.items_planned || '?')})
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    disabled={isRunning || extending}
+                    onClick={() => { setExtendSuite('all'); setExtendModalOpen(true); }}
+                    style={{
+                      ...btn(true, '#00d2ff'),
+                      display: 'flex', alignItems: 'center', gap: '6px',
+                      background: 'linear-gradient(135deg, rgba(0,210,255,0.25) 0%, rgba(188,140,255,0.25) 100%)',
+                      border: '1px solid rgba(0,210,255,0.6)',
+                      color: '#fff', fontWeight: 700,
+                      boxShadow: '0 2px 10px rgba(0,210,255,0.2)',
+                      cursor: isRunning || extending ? 'not-allowed' : 'pointer',
+                      opacity: isRunning || extending ? 0.5 : 1,
+                    }}
+                    title="Aggiungi altri quesiti a questo benchmark senza ripetere quelli già fatti"
+                  >
+                    <Sparkles size={13} color="#00f2fe" /> ➕ Amplia Benchmark
+                  </button>
                   <button onClick={handleExportReport} style={{ ...btn(false), border: '1px solid rgba(255,255,255,0.1)', color: 'var(--text, #fff)', display: 'flex', alignItems: 'center', gap: '5px' }}>
                     <Download size={13} /> Report JSON
                   </button>
@@ -913,53 +1033,150 @@ export default function TrainingBenchmark({ addToast }) {
                 </div>
               )}
 
-              {jobSuites.length > 1 && (
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
-                  {Object.entries(detail.suite_breakdown).map(([name, stats]) => {
-                    const pct = stats.total ? Math.round((stats.passed / stats.total) * 100) : 0;
-                    return (
-                      <div key={name} style={{
-                        background: 'rgba(10,12,26,0.7)', border: '1px solid var(--border, rgba(255,255,255,0.08))',
-                        borderRadius: '6px', padding: '4px 10px', fontSize: '0.68rem', color: 'var(--text-dark, #8b949e)',
-                      }}>
-                        <b style={{ color: 'var(--text, #fff)' }}>{name}</b>: {stats.passed}/{stats.total} ({pct}%)
-                        {stats.review > 0 && <span style={{ color: '#ffb86c' }}> · {stats.review} rev.</span>}
-                      </div>
-                    );
-                  })}
+              {/* Ripartizione per Dataset / Suite Interattiva */}
+              {detail?.suite_breakdown && Object.keys(detail.suite_breakdown).length > 0 && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '7px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '8px' }}>
+                    <div style={{ fontSize: '0.68rem', fontWeight: 700, color: 'var(--text-dark, #8b949e)', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                      <Database size={13} style={{ color: ACCENT }} />
+                      <span>Dataset nel Benchmark (clicca su una suite per visualizzare solo i suoi test):</span>
+                    </div>
+                    {suiteFilter !== 'all' && (
+                      <button
+                        type="button"
+                        onClick={() => setSuiteFilter('all')}
+                        style={{
+                          background: 'rgba(0,210,255,0.12)', border: '1px solid rgba(0,210,255,0.35)',
+                          borderRadius: '6px', padding: '2px 8px', fontSize: '0.64rem', color: ACCENT,
+                          fontWeight: 700, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '4px',
+                        }}
+                      >
+                        ✕ Mostra tutti i dataset
+                      </button>
+                    )}
+                  </div>
+
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
+                    {Object.entries(detail.suite_breakdown).map(([name, stats]) => {
+                      const sKey = name.toLowerCase().replace('-', '_');
+                      const isSelected = suiteFilter.toLowerCase().replace('-', '_') === sKey;
+                      const pct = stats.total ? Math.round((stats.passed / stats.total) * 100) : 0;
+                      const meta = SUITE_LABELS[sKey] || { name: name.toUpperCase() };
+
+                      return (
+                        <div
+                          key={name}
+                          onClick={() => setSuiteFilter((prev) => (prev.toLowerCase().replace('-', '_') === sKey ? 'all' : sKey))}
+                          title={`Clicca per filtrare solo i test di ${name}`}
+                          style={{
+                            background: isSelected ? 'rgba(0,210,255,0.22)' : 'rgba(10,12,26,0.75)',
+                            border: `1px solid ${isSelected ? ACCENT : 'rgba(255,255,255,0.1)'}`,
+                            boxShadow: isSelected ? '0 0 14px rgba(0,210,255,0.35)' : 'none',
+                            borderRadius: '8px', padding: '6px 12px', fontSize: '0.72rem',
+                            color: isSelected ? '#fff' : 'var(--text-dark, #8b949e)',
+                            cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px',
+                            transition: 'all 0.2s ease',
+                          }}
+                        >
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
+                            <b style={{ color: isSelected ? '#00f2fe' : 'var(--text, #fff)' }}>{meta.name || name}</b>:
+                            <span style={{ color: pct >= 50 ? 'var(--success, #3fb950)' : '#ff5555', fontWeight: 700 }}>
+                              {stats.passed}/{stats.total} ({pct}%)
+                            </span>
+                            {stats.review > 0 && <span style={{ color: '#ffb86c' }}> · {stats.review} rev.</span>}
+                            {isSelected && (
+                              <span style={{ fontSize: '0.58rem', padding: '1px 5px', borderRadius: '4px', background: 'rgba(0,210,255,0.3)', color: '#fff', fontWeight: 700 }}>
+                                ATTIVO
+                              </span>
+                            )}
+                          </div>
+
+                          {/* Tasto Riavvio / Riprova Dataset */}
+                          <button
+                            type="button"
+                            title={`Riesegui solo i test del dataset ${name} su ${activeJob.model}`}
+                            onClick={(e) => handleRerunSuite(sKey, e)}
+                            style={{
+                              background: 'rgba(255,255,255,0.08)',
+                              border: '1px solid rgba(255,255,255,0.18)',
+                              borderRadius: '5px', padding: '3px 7px',
+                              color: '#fff', fontSize: '0.62rem', fontWeight: 700,
+                              cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '4px',
+                              transition: 'all 0.15s ease',
+                            }}
+                          >
+                            <RotateCcw size={10} /> Riesegui
+                          </button>
+                        </div>
+                      );
+                    })}
+                  </div>
                 </div>
               )}
 
               {/* Barra Ricerca e Filtri */}
               <div style={{
-                display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '10px',
+                display: 'flex', flexDirection: 'column', gap: '8px',
                 background: 'rgba(10,12,26,0.5)', border: '1px solid var(--border, rgba(255,255,255,0.08))',
-                borderRadius: '10px', padding: '8px 14px', flexWrap: 'wrap',
+                borderRadius: '10px', padding: '10px 14px',
               }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flex: 1, minWidth: '180px' }}>
-                  <Search size={14} style={{ color: 'var(--text-dark, #8b949e)' }} />
-                  <input type="text" value={searchInput} onChange={(e) => setSearchInput(e.target.value)}
-                    placeholder="Cerca quesito, categoria o risposta generata..."
-                    style={{ width: '100%', background: 'none', border: 'none', color: 'var(--text, #fff)', fontSize: '0.78rem', outline: 'none' }} />
-                  {searchInput && (
-                    <button onClick={() => setSearchInput('')} style={{ background: 'none', border: 'none', color: 'var(--text-dark, #8b949e)', cursor: 'pointer' }}>✕</button>
-                  )}
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '10px', flexWrap: 'wrap' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flex: 1, minWidth: '180px' }}>
+                    <Search size={14} style={{ color: 'var(--text-dark, #8b949e)' }} />
+                    <input type="text" value={searchInput} onChange={(e) => setSearchInput(e.target.value)}
+                      placeholder="Cerca quesito, categoria o risposta generata..."
+                      style={{ width: '100%', background: 'none', border: 'none', color: 'var(--text, #fff)', fontSize: '0.78rem', outline: 'none' }} />
+                    {searchInput && (
+                      <button onClick={() => setSearchInput('')} style={{ background: 'none', border: 'none', color: 'var(--text-dark, #8b949e)', cursor: 'pointer' }}>✕</button>
+                    )}
+                  </div>
+
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
+                    <button onClick={() => setVerdictFilter('all')} style={btn(verdictFilter === 'all')}>
+                      Tutti ({fmt(Object.values(counts).reduce((a, b) => a + b, 0))})
+                    </button>
+                    <button onClick={() => setVerdictFilter('pass')} style={btn(verdictFilter === 'pass', '#3fb950')}>
+                      ✓ {fmt(counts.pass)}
+                    </button>
+                    <button onClick={() => setVerdictFilter('fail')} style={btn(verdictFilter === 'fail', '#ff5555')}>
+                      ✕ {fmt(counts.fail)}
+                    </button>
+                    <button onClick={() => setVerdictFilter('review')} style={btn(verdictFilter === 'review', '#ffb86c')}>
+                      ⚠ Da rivedere ({fmt(reviewTotal)})
+                    </button>
+                  </div>
                 </div>
 
-                <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
-                  <button onClick={() => setVerdictFilter('all')} style={btn(verdictFilter === 'all')}>
-                    Tutti ({fmt(Object.values(counts).reduce((a, b) => a + b, 0))})
-                  </button>
-                  <button onClick={() => setVerdictFilter('pass')} style={btn(verdictFilter === 'pass', '#3fb950')}>
-                    ✓ {fmt(counts.pass)}
-                  </button>
-                  <button onClick={() => setVerdictFilter('fail')} style={btn(verdictFilter === 'fail', '#ff5555')}>
-                    ✕ {fmt(counts.fail)}
-                  </button>
-                  <button onClick={() => setVerdictFilter('review')} style={btn(verdictFilter === 'review', '#ffb86c')}>
-                    ⚠ Da rivedere ({fmt(reviewTotal)})
-                  </button>
-                </div>
+                {/* Filtro Rapido per Dataset */}
+                {jobSuites.length > 1 && (
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '5px', flexWrap: 'wrap', borderTop: '1px solid rgba(255,255,255,0.06)', paddingTop: '8px' }}>
+                    <span style={{ fontSize: '0.66rem', color: 'var(--text-dark, #8b949e)', fontWeight: 600, marginRight: '4px' }}>Filtra Dataset:</span>
+                    <button
+                      type="button"
+                      onClick={() => setSuiteFilter('all')}
+                      style={{ ...btn(suiteFilter === 'all'), fontSize: '0.66rem', padding: '3px 8px' }}
+                    >
+                      🌐 Tutte ({fmt(Object.values(counts).reduce((a, b) => a + b, 0))})
+                    </button>
+                    {Object.entries(detail.suite_breakdown).map(([name, stats]) => {
+                      const sKey = name.toLowerCase().replace('-', '_');
+                      const isSelected = suiteFilter.toLowerCase().replace('-', '_') === sKey;
+                      return (
+                        <button
+                          key={name}
+                          type="button"
+                          onClick={() => setSuiteFilter(isSelected ? 'all' : sKey)}
+                          style={{
+                            ...btn(isSelected),
+                            fontSize: '0.66rem', padding: '3px 8px',
+                          }}
+                        >
+                          {name} ({stats.total})
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
 
               {/* Lista Schede Quesiti */}
@@ -1023,6 +1240,21 @@ export default function TrainingBenchmark({ addToast }) {
           )}
         </div>
       </div>
+
+      {/* Modal Ampliamento Benchmark */}
+      <ExtendBenchmarkModal
+        open={extendModalOpen}
+        activeJob={activeJob}
+        extendSamples={extendSamples}
+        extendSuite={extendSuite}
+        extendMode={extendMode}
+        extending={extending}
+        onSamples={setExtendSamples}
+        onSuite={setExtendSuite}
+        onMode={setExtendMode}
+        onClose={() => setExtendModalOpen(false)}
+        onConfirm={handleExtendBenchmark}
+      />
     </div>
   );
 }
@@ -1450,6 +1682,153 @@ function Badge({ color, children }) {
     }}>
       {children}
     </span>
+  );
+}
+
+function ExtendBenchmarkModal({ open, activeJob, extendSamples, extendSuite, extendMode, extending, onSamples, onSuite, onMode, onClose, onConfirm }) {
+  if (!open || !activeJob) return null;
+
+  const currentTotal = activeJob.metrics?.tests_total || activeJob.reproducibility?.dataset_items_processed || 0;
+  const newEstimate = extendMode === 'full' ? 'Tutti i quesiti (~60.000)' : `${fmt(currentTotal + extendSamples)} quesiti`;
+
+  const suitesAvailable = [
+    { id: 'all', label: '🌐 Tutte le suite attive del benchmark' },
+    { id: 'mmlu', label: '🏆 MMLU (Conoscenza Generale)' },
+    { id: 'mmlu_pro', label: '🧠 MMLU-Pro (Ragionamento Avanzato)' },
+    { id: 'gsm8k', label: '🧮 GSM8K (Matematica & Logica)' },
+    { id: 'math', label: '📐 MATH (Matematica Olimpica)' },
+    { id: 'humaneval', label: '💻 HumanEval (Coding pass@1)' },
+    { id: 'mbpp', label: '🐍 MBPP (Python pass@1)' },
+    { id: 'arc', label: '🔬 ARC Science (Scienze)' },
+    { id: 'hellaswag', label: '💡 HellaSwag (Buon Senso)' },
+    { id: 'truthfulqa', label: '🛡️ TruthfulQA (Anti-Allucinazione)' },
+    { id: 'gpqa', label: '🎓 GPQA (Livello Accademico)' },
+    { id: 'bbh', label: '⚙️ BIG-Bench Hard (Logica Multi-Step)' },
+  ];
+
+  return (
+    <div style={{
+      position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
+      background: 'rgba(0, 0, 0, 0.75)', backdropFilter: 'blur(8px)',
+      display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999, padding: '20px',
+    }}>
+      <div style={{
+        background: 'rgba(15, 18, 35, 0.95)', border: '1px solid rgba(0, 210, 255, 0.4)',
+        borderRadius: '16px', padding: '24px', maxWidth: '560px', width: '100%',
+        boxShadow: '0 10px 40px rgba(0, 210, 255, 0.25)', display: 'flex', flexDirection: 'column', gap: '16px',
+      }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+            <Sparkles size={22} color="#00f2fe" />
+            <h3 style={{ margin: 0, fontSize: '1.1rem', fontWeight: 800, color: '#fff' }}>
+              Amplia & Continua Benchmark
+            </h3>
+          </div>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', color: '#8b949e', cursor: 'pointer', fontSize: '1.1rem' }}>✕</button>
+        </div>
+
+        <p style={{ margin: 0, fontSize: '0.76rem', color: '#8b949e', lineHeight: 1.4 }}>
+          Aggiungi nuovi quesiti senza rieseguire quelli già completati. Il sistema aggregherà le nuove risposte alle precedenti, aggiornando il punteggio in modo incrementale e trasparente.
+        </p>
+
+        {/* Riepilogo Stato Attuale */}
+        <div style={{
+          background: 'rgba(0, 210, 255, 0.08)', border: '1px solid rgba(0, 210, 255, 0.25)',
+          borderRadius: '10px', padding: '12px 14px', display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+        }}>
+          <div>
+            <div style={{ fontSize: '0.64rem', color: '#8b949e', textTransform: 'uppercase' }}>Modello & Stato Attuale</div>
+            <div style={{ fontSize: '0.86rem', fontWeight: 800, color: '#fff', marginTop: '2px' }}>{activeJob.model}</div>
+            <div style={{ fontSize: '0.68rem', color: '#00f2fe', marginTop: '2px' }}>{activeJob.suite_name || activeJob.suite}</div>
+          </div>
+          <div style={{ textAlign: 'right' }}>
+            <div style={{ fontSize: '0.64rem', color: '#8b949e', textTransform: 'uppercase' }}>Completati</div>
+            <div style={{ fontSize: '1.1rem', fontWeight: 800, color: '#3fb950' }}>{fmt(currentTotal)}</div>
+          </div>
+        </div>
+
+        {/* Scelta Modalità & Campioni */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+          <label style={{ fontSize: '0.72rem', fontWeight: 700, color: '#fff' }}>
+            Quanti nuovi quesiti aggiungere?
+          </label>
+          <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+            {[25, 50, 100, 250, 500].map((n) => (
+              <button
+                key={n}
+                type="button"
+                onClick={() => { onMode('sample'); onSamples(n); }}
+                style={{
+                  ...btn(extendMode === 'sample' && extendSamples === n),
+                  fontSize: '0.74rem', padding: '6px 12px',
+                }}
+              >
+                +{n} quesiti
+              </button>
+            ))}
+            <button
+              type="button"
+              onClick={() => onMode('full')}
+              style={{
+                ...btn(extendMode === 'full', '#3fb950'),
+                fontSize: '0.74rem', padding: '6px 12px',
+              }}
+            >
+              🏆 Completa 100% (Tutti)
+            </button>
+          </div>
+        </div>
+
+        {/* Scelta Suite da Ampliare */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+          <label style={{ fontSize: '0.72rem', fontWeight: 700, color: '#fff' }}>
+            Quale dataset / suite ampliare?
+          </label>
+          <select
+            value={extendSuite}
+            onChange={(e) => onSuite(e.target.value)}
+            style={{
+              background: 'rgba(10, 12, 26, 0.9)', border: '1px solid rgba(255, 255, 255, 0.15)',
+              borderRadius: '8px', padding: '8px 12px', color: '#fff', fontSize: '0.78rem', outline: 'none',
+            }}
+          >
+            {suitesAvailable.map((s) => (
+              <option key={s.id} value={s.id}>{s.label}</option>
+            ))}
+          </select>
+        </div>
+
+        {/* Anteprima Totale */}
+        <div style={{ fontSize: '0.72rem', color: '#8b949e', background: 'rgba(255, 255, 255, 0.03)', borderRadius: '8px', padding: '8px 12px' }}>
+          📈 Totale quesiti risultante: <b style={{ color: '#fff' }}>{fmt(currentTotal)}</b> ➔ <b style={{ color: '#00f2fe' }}>{newEstimate}</b>
+        </div>
+
+        {/* Azioni */}
+        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '6px' }}>
+          <button
+            type="button"
+            onClick={onClose}
+            style={{ ...btn(false), padding: '8px 16px', fontSize: '0.78rem' }}
+          >
+            Annulla
+          </button>
+          <button
+            type="button"
+            disabled={extending}
+            onClick={onConfirm}
+            style={{
+              height: '38px', padding: '0 20px', border: 'none', borderRadius: '8px',
+              background: 'linear-gradient(135deg, #00d2ff 0%, #0072ff 100%)', color: '#fff',
+              fontWeight: 700, fontSize: '0.8rem', cursor: extending ? 'not-allowed' : 'pointer',
+              display: 'flex', alignItems: 'center', gap: '6px',
+            }}
+          >
+            {extending ? <RefreshCw size={14} className="spin-icon" /> : <Play size={14} />}
+            Avvia Ampliamento
+          </button>
+        </div>
+      </div>
+    </div>
   );
 }
 

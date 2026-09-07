@@ -3,12 +3,14 @@ import { useApp } from '../../contexts/AppContext';
 import TechSpaceCanvas from '../common/TechSpaceCanvas';
 import ResearchLab from './ResearchLab';
 import PipelineDesigner from './PipelineDesigner';
-import { FlaskConical, GitCompare } from 'lucide-react';
+import RolesEditor from './RolesEditor';
+import { FlaskConical, GitCompare, Users } from 'lucide-react';
 
 // ==============================================================================
-// PIPELINES LAB TAB — Due modalità:
+// PIPELINES LAB TAB — Tre modalità:
 // 1. "Pipeline Predefinita" (ResearchLab) — Template pronti con feedback loop
 // 2. "Pipeline Designer" — Editor visuale DAG per configurazioni custom
+// 3. "Ruoli AI" (RolesEditor) — Configurazione prompt, tool e budget in config/roles.json
 // ==============================================================================
 
 const MODES = [
@@ -23,6 +25,12 @@ const MODES = [
     label: '🧩 Pipeline Designer', 
     icon: GitCompare, 
     desc: 'Editor visuale DAG per creare pipeline custom con routing condizionale' 
+  },
+  { 
+    id: 'roles', 
+    label: '👥 Ruoli AI', 
+    icon: Users, 
+    desc: 'Configurazione ruoli di squadra, prompt, tool abilitati e turn budget (roles.json)' 
   },
 ];
 
@@ -76,7 +84,7 @@ export default function ResearchLabTab({ onTasksUpdated, addToast }) {
               }}>Workflow Automation</span>
             </h1>
             <p style={{ margin: 0, fontSize: '0.82rem', color: theme === 'light' ? '#4b5563' : '#cbd5e0', lineHeight: 1.45 }}>
-              Orchestrazione avanzata di swarm multidisciplinari, routing condizionale e grafi aciclici diretti (DAG) per automazioni complesse.
+              Orchestrazione avanzata di swarm multidisciplinari, routing condizionale, ruoli e grafi aciclici diretti (DAG).
             </p>
           </div>
 
@@ -122,16 +130,36 @@ export default function ResearchLabTab({ onTasksUpdated, addToast }) {
             >
               <GitCompare size={14} /> Pipeline Designer
             </button>
+            <button
+              onClick={() => setMode('roles')}
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '6px',
+                padding: '10px 18px',
+                borderRadius: '12px',
+                background: mode === 'roles' 
+                  ? (theme === 'light' ? '#ea580c' : '#00d2ff') 
+                  : (theme === 'light' ? '#fffdf9' : '#181b28'),
+                color: mode === 'roles' ? (theme === 'light' ? '#fff' : '#0a0d14') : (theme === 'light' ? '#111' : '#fff'),
+                border: mode === 'roles' ? 'none' : (theme === 'light' ? '1px solid rgba(190, 160, 110, 0.4)' : '1px solid rgba(255, 255, 255, 0.15)'),
+                fontSize: '0.82rem',
+                fontWeight: 800,
+                cursor: 'pointer'
+              }}
+            >
+              <Users size={14} /> Ruoli AI
+            </button>
           </div>
         </div>
       </div>
 
-      {/* 2. MODE SWITCHER BUTTONS BAR — SENZA MARGINI SOPRA E SOTTO */}
+      {/* 2. MODE SWITCHER BUTTONS BAR */}
       <div 
         className="plab-mode-switcher"
         style={{ 
           display: 'grid', 
-          gridTemplateColumns: '1fr 1fr', 
+          gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', 
           gap: '8px', 
           margin: 0, 
           padding: '6px 24px',
@@ -162,16 +190,22 @@ export default function ResearchLabTab({ onTasksUpdated, addToast }) {
                 background: isActive 
                   ? (m.id === 'default' 
                       ? 'linear-gradient(135deg, rgba(0, 210, 255, 0.16), rgba(0, 114, 255, 0.1))' 
-                      : 'linear-gradient(135deg, rgba(188, 140, 255, 0.16), rgba(124, 91, 240, 0.1))')
+                      : (m.id === 'designer'
+                          ? 'linear-gradient(135deg, rgba(188, 140, 255, 0.16), rgba(124, 91, 240, 0.1))'
+                          : 'linear-gradient(135deg, rgba(234, 88, 12, 0.16), rgba(251, 146, 60, 0.1))'))
                   : 'transparent',
                 border: isActive 
-                  ? (m.id === 'default' ? '1px solid rgba(0, 210, 255, 0.35)' : '1px solid rgba(188, 140, 255, 0.35)')
+                  ? (m.id === 'default'
+                      ? '1px solid rgba(0, 210, 255, 0.35)'
+                      : (m.id === 'designer'
+                          ? '1px solid rgba(188, 140, 255, 0.35)'
+                          : '1px solid rgba(234, 88, 12, 0.35)'))
                   : '1px solid transparent',
                 color: isActive 
-                  ? (m.id === 'default' ? '#00d2ff' : '#bc8cff')
+                  ? (m.id === 'default' ? '#00d2ff' : (m.id === 'designer' ? '#bc8cff' : '#ea580c'))
                   : '#8b8fa3',
                 boxShadow: isActive 
-                  ? (m.id === 'default' ? '0 2px 12px rgba(0, 210, 255, 0.12)' : '0 2px 12px rgba(188, 140, 255, 0.12)')
+                  ? '0 2px 12px rgba(0, 0, 0, 0.15)'
                   : 'none'
               }}
             >
@@ -184,7 +218,7 @@ export default function ResearchLabTab({ onTasksUpdated, addToast }) {
                   alignItems: 'center',
                   justifyContent: 'center',
                   background: isActive 
-                    ? (m.id === 'default' ? 'rgba(0, 210, 255, 0.2)' : 'rgba(188, 140, 255, 0.2)')
+                    ? (m.id === 'default' ? 'rgba(0, 210, 255, 0.2)' : (m.id === 'designer' ? 'rgba(188, 140, 255, 0.2)' : 'rgba(234, 88, 12, 0.2)'))
                     : 'rgba(255, 255, 255, 0.04)',
                   color: isActive ? '#fff' : '#8b8fa3',
                   flexShrink: 0
@@ -215,6 +249,9 @@ export default function ResearchLabTab({ onTasksUpdated, addToast }) {
         )}
         {mode === 'designer' && (
           <PipelineDesigner onClose={handleClose} onTasksUpdated={onTasksUpdated} addToast={addToast} />
+        )}
+        {mode === 'roles' && (
+          <RolesEditor addToast={addToast} />
         )}
       </div>
       </div>

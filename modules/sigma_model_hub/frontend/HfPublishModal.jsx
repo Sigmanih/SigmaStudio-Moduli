@@ -2,8 +2,17 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   Upload, X, Globe, Lock, CheckCircle2, AlertTriangle, ExternalLink,
   Loader2, RefreshCw, Key, Shield, User, Sparkles, FileText, Eye, Edit3,
-  Trophy, Cpu, Heart, Star, Check
+  Trophy, Cpu, Heart, Star, Check, RotateCcw
 } from 'lucide-react';
+
+const buildDefaultSlug = (m) => {
+  if (!m) return 'my-model';
+  const raw = m.filename || m.display_name || m.model_id || 'my-model';
+  // Strip ONLY recognized model weight extensions, preserving decimal parameter numbers (e.g. 0.6B, 2.5, 3.2)
+  const withoutExt = String(raw).replace(/\.(gguf|safetensors|bin|pt|pth|onnx)$/i, '');
+  const normalized = withoutExt.replace(/\\/g, '/').replace(/--/g, '/');
+  return normalized.replace(/[^a-zA-Z0-9._-]/g, '-').replace(/^[.-]+|[.-]+$/g, '') || 'my-model';
+};
 
 export default function HfPublishModal({ model, onClose, isLight, addToast }) {
   const [activeModalTab, setActiveModalTab] = useState('config'); // 'config' | 'preview'
@@ -11,6 +20,8 @@ export default function HfPublishModal({ model, onClose, isLight, addToast }) {
   const [loadingUser, setLoadingUser] = useState(true);
   const [targetNamespace, setTargetNamespace] = useState('');
   const [repoSlug, setRepoSlug] = useState('');
+  const [repoStatus, setRepoStatus] = useState(null);
+  const [checkingRepo, setCheckingRepo] = useState(false);
   const [isPrivate, setIsPrivate] = useState(false);
   const [commitMsg, setCommitMsg] = useState('Upload model via Sigma Studio');
   const [customCardNotes, setCustomCardNotes] = useState('');
@@ -25,6 +36,7 @@ export default function HfPublishModal({ model, onClose, isLight, addToast }) {
   const [activeTask, setActiveTask] = useState(null);
   const [isPublishing, setIsPublishing] = useState(false);
   const [publishError, setPublishError] = useState(null);
+  const [updatingCardOnly, setUpdatingCardOnly] = useState(false);
 
   // Manual token input if whoami fails
   const [manualToken, setManualToken] = useState('');
@@ -40,15 +52,20 @@ export default function HfPublishModal({ model, onClose, isLight, addToast }) {
   const subBorder = isLight ? '1px solid rgba(190, 160, 110, 0.22)' : '1px solid rgba(255, 255, 255, 0.06)';
   const inputBg = isLight ? '#ffffff' : '#141824';
 
-  // Initialize repo slug from model filename
+  // Initialize repo slug from model filename / linked publication
   useEffect(() => {
     if (model) {
-      const rawName = (model.filename || model.display_name || model.model_id || 'my-model')
-        .replace(/\.[^/.]+$/, '') // remove extension like .gguf
-        .replace(/[^a-zA-Z0-9._-]/g, '-');
-      setRepoSlug(rawName);
+      const collegato = model?.publication?.repo_id;
+      if (collegato && collegato.includes('/')) {
+        const [autore, ...resto] = collegato.split('/');
+        setTargetNamespace(autore);
+        setRepoSlug(resto.join('/'));
+      } else {
+        setRepoSlug(buildDefaultSlug(model));
+      }
     }
   }, [model]);
+
 
   // Fetch current Hugging Face user profile
   const fetchWhoami = useCallback(async (tokenToTest = null) => {
@@ -155,10 +172,117 @@ export default function HfPublishModal({ model, onClose, isLight, addToast }) {
   }, [addToast]);
 
   useEffect(() => {
-    return () => {
-      if (pollTimerRef.current) clearInterval(pollTimerRef.current);
-    };
-  }, []);
+    if (!whoami?.authenticated || !targetNamespace || !repoSlug) {
+      setRepoStatus(null);
+      return undefined;
+    }
+    let annullato = false;
+    const timer = setTimeout(async () => {
+      setCheckingRepo(true);
+      try {
+        const res = await fetch('/api/models/hf/repo/status', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ repo_id: `${targetNamespace}/${repoSlug}` })
+        });
+        const json = await res.json();
+        if (!annullato) setRepoStatus(json.success ? json : null);
+      } catch {
+        if (!annullato) setRepoStatus(null);
+      } finally {
+        if (!annullato) setCheckingRepo(false);
+      }
+    }, 600);
+    return () => { annullato = true; clearTimeout(timer); };
+  }, [whoami, targetNamespace, repoSlug]);
+
+  const handleRenameRepo = async () => {
+    const attuale = `${targetNamespace}/${repoSlug}`;
+    const nuovo = window.prompt(
+      'Nuovo nome completo del repository su Hugging Face (autore/modello). '
+      + 'Hugging Face lascia un rimando dal vecchio nome al nuovo, quindi chi '
+      + 'lo aveva già trovato continua a raggiungerlo.',
+      attuale
+    );
+    if (!nuovo || nuovo.trim() === attuale) return;
+    try {
+      const res = await fetch('/api/models/hf/repo/rename', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ from_id: attuale, to_id: nuovo.trim() })
+      });
+      const json = await res.json();
+      if (json.success) {
+        const parti = nuovo.trim().split('/');
+        setTargetNamespace(parti[0]);
+        setRepoSlug(parti.slice(1).join('/'));
+        if (addToast) addToast(`Repository rinominato in ${json.repo_id}`, 'success');
+      } else if (addToast) {
+        addToast(`${json.error}`, 'error');
+      }
+    } catch (e) {
+      if (addToast) addToast(`Errore: ${e.message}`, 'error');
+    }
+  };
+
+  const handleQuickCardUpdate = async () => {
+    setUpdatingCardOnly(true);
+    try {
+      const localPath = model.path || model.filename;
+      const fullRepoId = `${targetNamespace || 'username'}/${repoSlug || 'my-model'}`.replace(/\/+/g, '/');
+      const res = await fetch('/api/models/hf/card/update', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          local_path: localPath,
+          repo_id: fullRepoId,
+          model_id: model.model_id || model.filename,
+          card: cardMarkdown || undefined,
+          custom_notes: customCardNotes.trim() || undefined,
+          include_benchmarks: includeBenchmarks,
+          include_hardware: includeHardware,
+          token: manualToken.trim() || undefined
+        })
+      });
+      const json = await res.json();
+      if (json.success) {
+        if (addToast) addToast(`✅ Scheda README.md aggiornata su ${json.repo_id} (${json.characters} caratteri)!`, 'success');
+      } else {
+        if (addToast) addToast(`❌ ${json.error || 'Aggiornamento scheda fallito.'}`, 'error');
+      }
+    } catch (e) {
+      if (addToast) addToast(`Errore: ${e.message}`, 'error');
+    } finally {
+      setUpdatingCardOnly(false);
+    }
+  };
+
+  const handleAttachRepoInModal = async () => {
+    const fullRepoId = `${targetNamespace || 'username'}/${repoSlug || 'my-model'}`.replace(/\/+/g, '/');
+    try {
+      const localPath = model.path || model.filename;
+      const res = await fetch('/api/models/hf/repo/attach', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          local_path: localPath,
+          local_ref: localPath,
+          model_id: model.model_id || model.filename,
+          repo_id: fullRepoId,
+          token: manualToken.trim() || undefined
+        })
+      });
+      const json = await res.json();
+      if (json.success) {
+        if (addToast) addToast(`Modello collegato con successo a ${json.repo_id}!`, 'success');
+        if (onClose) onClose();
+      } else {
+        if (addToast) addToast(`❌ ${json.error || 'Errore collegamento.'}`, 'error');
+      }
+    } catch (e) {
+      if (addToast) addToast(`Errore: ${e.message}`, 'error');
+    }
+  };
 
   const handleStartPublish = async () => {
     if (!whoami?.authenticated) {
@@ -224,6 +348,7 @@ export default function HfPublishModal({ model, onClose, isLight, addToast }) {
 
   const fullTargetRepo = `${targetNamespace || 'username'}/${repoSlug || 'repo-name'}`;
   const hasBm = model?.benchmark_summary?.has_benchmarks;
+  const isAlreadyPublished = Boolean(model?.publication?.repo_id || repoStatus?.exists);
 
   return (
     <div
@@ -254,10 +379,12 @@ export default function HfPublishModal({ model, onClose, isLight, addToast }) {
             <span style={{ fontSize: '1.5rem' }}>🤗</span>
             <div>
               <h3 style={{ margin: 0, fontSize: '1.05rem', fontWeight: 800, color: textPrimary, display: 'flex', alignItems: 'center', gap: '6px' }}>
-                Pubblica su Hugging Face Hub
+                {isAlreadyPublished ? 'Aggiorna Repository su Hugging Face' : 'Pubblica su Hugging Face Hub'}
               </h3>
               <div style={{ fontSize: '0.72rem', color: textMuted, marginTop: '2px' }}>
-                Condividi il tuo modello o checkpoint con scheda bilingue, benchmark e branding Sigma Studio
+                {isAlreadyPublished
+                  ? 'Sincronizza modifiche, aggiorna la scheda/benchmark o ricarica i pesi su Hugging Face'
+                  : 'Condividi il tuo modello o checkpoint con scheda bilingue, benchmark e branding Sigma Studio'}
               </div>
             </div>
           </div>
@@ -326,7 +453,22 @@ export default function HfPublishModal({ model, onClose, isLight, addToast }) {
                     {model.filename || model.display_name}
                   </div>
                 </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
+                  <span style={{
+                    fontSize: '0.70rem', fontWeight: 800, padding: '3px 8px', borderRadius: '6px',
+                    background: (model.format_tag === 'GGUF' || model.filename?.toLowerCase().endsWith('.gguf'))
+                      ? 'rgba(16, 185, 129, 0.15)'
+                      : 'rgba(0, 210, 255, 0.15)',
+                    color: (model.format_tag === 'GGUF' || model.filename?.toLowerCase().endsWith('.gguf'))
+                      ? '#10b981'
+                      : '#00d2ff',
+                    border: (model.format_tag === 'GGUF' || model.filename?.toLowerCase().endsWith('.gguf'))
+                      ? '1px solid rgba(16, 185, 129, 0.35)'
+                      : '1px solid rgba(0, 210, 255, 0.35)'
+                  }}>
+                    ⚡ {model.format_tag || (model.filename?.toLowerCase().endsWith('.gguf') ? 'GGUF' : 'SAFETENSORS')}
+                    {model.quantization ? ` • ${model.quantization}` : ''}
+                  </span>
                   {hasBm && (
                     <span style={{
                       fontSize: '0.70rem', fontWeight: 800, padding: '3px 8px', borderRadius: '6px',
@@ -399,6 +541,91 @@ export default function HfPublishModal({ model, onClose, isLight, addToast }) {
                         </select>
                       </div>
                     )}
+
+                    {/* Cosa succede davvero premendo il pulsante. "Pubblica" su
+                        un repository che esiste gia' non crea niente di nuovo:
+                        sovrascrive, e chi quel modello lo ha gia' scaricato se
+                        ne accorge dopo. */}
+                    {checkingRepo && (
+                      <div style={{ fontSize: '0.68rem', color: textMuted, marginTop: '6px' }}>
+                        Verifico se il repository esiste...
+                      </div>
+                    )}
+                    {!checkingRepo && (repoStatus?.exists || isAlreadyPublished) && (
+                      <div style={{
+                        marginTop: '8px', padding: '12px 14px', borderRadius: '10px',
+                        background: 'linear-gradient(135deg, rgba(255, 184, 108, 0.12) 0%, rgba(245, 158, 11, 0.06) 100%)',
+                        border: '1px solid rgba(255, 184, 108, 0.4)',
+                        display: 'flex', flexDirection: 'column',
+                        gap: '10px'
+                      }}>
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px', flexWrap: 'wrap' }}>
+                          <span style={{ fontSize: '0.74rem', color: '#ffb86c', fontWeight: 800, display: 'flex', alignItems: 'center', gap: '6px' }}>
+                            <CheckCircle2 size={13} color="#10b981" />
+                            Repository esistente: {targetNamespace}/{repoSlug}
+                            {repoStatus?.files ? ` (${repoStatus.files} file${repoStatus.private ? ', privato' : ''})` : ''}
+                          </span>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                            {!isAlreadyPublished && (
+                              <button
+                                type="button"
+                                onClick={handleAttachRepoInModal}
+                                title="Collega questo modello al repository esistente senza ricaricare i file"
+                                style={{
+                                  padding: '4px 10px', borderRadius: '6px',
+                                  border: '1px solid rgba(0,210,255,0.4)',
+                                  background: 'rgba(0,210,255,0.1)', color: '#00d2ff',
+                                  fontSize: '0.66rem', fontWeight: 800, cursor: 'pointer'
+                                }}
+                              >
+                                Collega a questo repo
+                              </button>
+                            )}
+                            <button
+                              onClick={handleRenameRepo}
+                              style={{
+                                padding: '4px 10px', borderRadius: '6px',
+                                border: '1px solid rgba(255,184,108,0.4)',
+                                background: 'transparent', color: '#ffb86c',
+                                fontSize: '0.66rem', fontWeight: 800, cursor: 'pointer'
+                              }}
+                            >
+                              Rinomina su HF
+                            </button>
+                          </div>
+                        </div>
+
+                        {/* Quick Model Card Update Action */}
+                        <div style={{
+                          padding: '10px 12px', borderRadius: '8px', background: subBg, border: subBorder,
+                          display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '8px'
+                        }}>
+                          <div style={{ fontSize: '0.68rem', color: textMuted }}>
+                            <strong style={{ color: textPrimary }}>Vuoi aggiornare solo il README & i Benchmark?</strong>
+                            <div style={{ marginTop: '2px' }}>Modifica istantanea su HF senza ricaricare gigabyte di pesi.</div>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={handleQuickCardUpdate}
+                            disabled={updatingCardOnly}
+                            style={{
+                              padding: '5px 12px', borderRadius: '6px',
+                              background: 'rgba(255, 184, 108, 0.15)', border: '1px solid rgba(255, 184, 108, 0.4)',
+                              color: '#ffb86c', fontSize: '0.70rem', fontWeight: 800, cursor: updatingCardOnly ? 'wait' : 'pointer',
+                              display: 'flex', alignItems: 'center', gap: '4px'
+                            }}
+                          >
+                            {updatingCardOnly ? <Loader2 size={11} className="mh-spin" /> : <RefreshCw size={11} />}
+                            {updatingCardOnly ? 'Aggiorno Scheda...' : '⚡ Aggiorna Scheda Ora'}
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                    {!checkingRepo && repoStatus && !repoStatus.exists && !isAlreadyPublished && (
+                      <div style={{ fontSize: '0.68rem', color: '#10b981', marginTop: '6px', fontWeight: 700 }}>
+                        Nuovo repository: verrà creato alla pubblicazione.
+                      </div>
+                    )}
                   </div>
                 ) : (
                   <div style={{
@@ -442,9 +669,23 @@ export default function HfPublishModal({ model, onClose, isLight, addToast }) {
               {/* 3. Repository Configuration */}
               <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                  <label style={{ fontSize: '0.70rem', fontWeight: 800, color: textMuted, textTransform: 'uppercase' }}>
-                    Nome Repository Target
-                  </label>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                    <label style={{ fontSize: '0.70rem', fontWeight: 800, color: textMuted, textTransform: 'uppercase' }}>
+                      Nome Repository Target
+                    </label>
+                    <button
+                      type="button"
+                      onClick={() => setRepoSlug(buildDefaultSlug(model))}
+                      title="Ricalcola il nome pulito a partire dal modello locale (preservando dimensioni e quantizzazione esatte come 0.6B)"
+                      style={{
+                        background: 'none', border: 'none', color: '#00d2ff',
+                        fontSize: '0.66rem', fontWeight: 700, cursor: 'pointer',
+                        display: 'inline-flex', alignItems: 'center', gap: '4px'
+                      }}
+                    >
+                      <RotateCcw size={10} /> Ripristina da nome locale
+                    </button>
+                  </div>
                   <div style={{
                     display: 'flex', alignItems: 'center', gap: '6px',
                     padding: '8px 12px', borderRadius: '10px', background: inputBg, border: subBorder
@@ -565,6 +806,47 @@ export default function HfPublishModal({ model, onClose, isLight, addToast }) {
                     <Star size={11} color="#ffb86c" />
                     Include automaticamente il logo Sigma Studio, Call to Action Star/Like e versione bilingue (EN + IT).
                   </div>
+
+                  {includeBenchmarks && hasBm && model.benchmark_summary && (
+                    <div style={{
+                      padding: '10px 12px', borderRadius: '10px',
+                      background: isLight ? 'rgba(255, 184, 108, 0.12)' : 'rgba(255, 184, 108, 0.06)',
+                      border: '1px solid rgba(255, 184, 108, 0.3)',
+                      display: 'flex', flexDirection: 'column', gap: '8px'
+                    }}>
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '6px' }}>
+                        <span style={{ fontSize: '0.74rem', fontWeight: 800, color: '#ffb86c', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                          <Trophy size={14} /> Benchmark Training Lab: <b>{model.benchmark_summary.score || model.benchmark_summary.overall_score || 0}% Pass</b>
+                        </span>
+                        <span style={{ fontSize: '0.68rem', fontWeight: 700, color: textPrimary }}>
+                          ✅ {model.benchmark_summary.tests_passed || 0}/{model.benchmark_summary.tests_total || 0} quesiti superati
+                        </span>
+                      </div>
+
+                      {model.benchmark_summary.suites && Object.keys(model.benchmark_summary.suites).length > 0 && (
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px', marginTop: '2px' }}>
+                          {Object.entries(model.benchmark_summary.suites).map(([sName, sStat]) => {
+                            const sTot = sStat.total || 0;
+                            const sPass = sStat.passed || 0;
+                            const sPct = sTot ? Math.round((sPass / sTot) * 100) : 0;
+                            const col = sPct >= 70 ? '#10b981' : (sPct >= 40 ? '#ffb86c' : '#ef4444');
+                            return (
+                              <span
+                                key={sName}
+                                style={{
+                                  fontSize: '0.62rem', padding: '2px 7px', borderRadius: '5px',
+                                  background: `${col}18`, color: col, border: `1px solid ${col}44`,
+                                  fontWeight: 700, whiteSpace: 'nowrap'
+                                }}
+                              >
+                                {sName.toUpperCase()} <b>{sPass}/{sTot}</b> ({sPct}%)
+                              </span>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </div>
 
                 {/* Commit Message */}
@@ -779,7 +1061,8 @@ export default function HfPublishModal({ model, onClose, isLight, addToast }) {
                   boxShadow: (!whoami?.authenticated || !repoSlug) ? 'none' : '0 0 14px rgba(255, 184, 108, 0.3)'
                 }}
               >
-                <Upload size={13} /> Pubblica su Hugging Face
+                <Upload size={13} />
+                {repoStatus?.exists ? 'Aggiorna su Hugging Face' : 'Pubblica su Hugging Face'}
               </button>
             </div>
           )}

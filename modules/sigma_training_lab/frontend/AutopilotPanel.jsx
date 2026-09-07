@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { Bot, Play, Square, Trash2, RotateCcw, Target, CheckCircle2, XCircle, AlertTriangle } from 'lucide-react';
+import { Bot, Play, Square, Trash2, RotateCcw, Target, CheckCircle2, XCircle, AlertTriangle, Download } from 'lucide-react';
+import { useModuleState } from '../../hooks/useModuleState';
 import InfoHint from './InfoHint';
 import ModelPicker from './ModelPicker';
 
@@ -122,7 +123,9 @@ function Campo({ etichetta, valore, onChange, hint, min, max, passo, suffisso })
   );
 }
 
-export default function AutopilotPanel({ addToast, onModelloScelto, onRoundScelto }) {
+export default function AutopilotPanel({ addToast, onModelloScelto, onRoundScelto, openTab }) {
+  const { modulesState, installModule } = useModuleState();
+  const [installingBenchmark, setInstallingBenchmark] = useState(false);
   const [data, setData] = useState(null);
   const [busy, setBusy] = useState(false);
   // I benchmark passano da Ollama, l'addestramento dai pesi: sono due
@@ -214,6 +217,21 @@ export default function AutopilotPanel({ addToast, onModelloScelto, onRoundScelt
     }
   };
 
+  const isBenchmarkInstalled = modulesState.sigma_benchmark_lab === true && data?.state?.benchmark_installed !== false;
+
+  const handleInstallBenchmark = async () => {
+    setInstallingBenchmark(true);
+    try {
+      await installModule('sigma_benchmark_lab');
+      addToast && addToast('Modulo Benchmark Lab installato con successo', 'success');
+      load();
+    } catch (e) {
+      addToast && addToast(`Errore durante l'installazione: ${e.message}`, 'error');
+    } finally {
+      setInstallingBenchmark(false);
+    }
+  };
+
   if (!data) return null;
   const state = data.state || {};
   const rounds = state.rounds || [];
@@ -227,6 +245,45 @@ export default function AutopilotPanel({ addToast, onModelloScelto, onRoundScelt
 
   return (
     <div>
+      {!isBenchmarkInstalled && (
+        <div style={{
+          marginBottom: '12px', padding: '12px 14px', borderRadius: '10px',
+          border: '1px solid rgba(255, 107, 107, 0.4)', background: 'rgba(255, 107, 107, 0.08)',
+          display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '10px', flexWrap: 'wrap',
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px', minWidth: '220px', flex: 1 }}>
+            <AlertTriangle size={18} style={{ color: 'var(--error)', flexShrink: 0 }} />
+            <div>
+              <div style={{ fontSize: '0.7rem', fontWeight: 700, color: 'var(--error)' }}>
+                Modulo Benchmark Lab richiesto
+              </div>
+              <div style={{ fontSize: '0.61rem', color: 'var(--text-dim)', marginTop: '2px', lineHeight: 1.4 }}>
+                L&apos;Autopilota profila il modello e valida i round con test comparativi: è necessario il modulo Benchmark Lab.
+              </div>
+            </div>
+          </div>
+          <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+            <button
+              className="training-btn primary"
+              disabled={installingBenchmark}
+              onClick={handleInstallBenchmark}
+              style={{ padding: '6px 12px', fontSize: '0.66rem' }}
+            >
+              <Download size={12} /> {installingBenchmark ? 'Installazione...' : 'Installa Ora'}
+            </button>
+            {openTab && (
+              <button
+                className="training-btn"
+                onClick={() => openTab({ name: 'Marketplace' }, 'marketplace')}
+                style={{ padding: '6px 10px', fontSize: '0.66rem' }}
+              >
+                Marketplace ↗
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+
       <div style={{
         display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '9px',
         fontSize: '0.68rem', fontWeight: 700, color: 'var(--text)', flexWrap: 'wrap',
@@ -255,8 +312,9 @@ export default function AutopilotPanel({ addToast, onModelloScelto, onRoundScelt
             </button>
           ) : (
             <button
-              className="training-btn primary" disabled={busy || !avviabile}
-              title={!avviabile ? 'Scegli prima un modello'
+              className="training-btn primary" disabled={busy || !avviabile || !isBenchmarkInstalled}
+              title={!isBenchmarkInstalled ? 'Installa prima il modulo Benchmark Lab'
+                : !avviabile ? 'Scegli prima un modello'
                 : picked && !picked.eval_model ? `${picked.label} non è in Ollama: il ciclo lo importa da solo prima di profilarlo`
                 : !picked ? `Riprende su ${salvato}, il modello dello stato salvato`
                 : state.rounds?.length ? 'Riprende dallo stato salvato'

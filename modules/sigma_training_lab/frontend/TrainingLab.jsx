@@ -4,6 +4,8 @@ import {
   Zap, Activity, CheckCircle2, ArrowRight, ShieldCheck
 } from 'lucide-react';
 import { useApp } from '../../contexts/AppContext';
+import { useModuleState } from '../../hooks/useModuleState';
+import ModuleNotInstalled from '../ModuleNotInstalled';
 import TechSpaceCanvas from '../common/TechSpaceCanvas';
 import TrainingDocs from './TrainingDocs';
 import DatasetBrowser from './DatasetBrowser';
@@ -139,8 +141,10 @@ function Toast({ toast, onClose }) {
   );
 }
 
-export default function TrainingLab({ addToast: _addToast, onTasksUpdated }) {
+export default function TrainingLab({ addToast: _addToast, onTasksUpdated, openTab }) {
   const { theme } = useApp();
+  const { modulesState } = useModuleState();
+  const isBenchmarkInstalled = modulesState.sigma_benchmark_lab === true;
   const [mode, setMode] = useState('docs');
   const [manualSubMode, setManualSubMode] = useState('dataset');
   const [selectedDatasetId, setSelectedDatasetId] = useState(null);
@@ -438,7 +442,7 @@ export default function TrainingLab({ addToast: _addToast, onTasksUpdated }) {
       <div style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
         {mode === 'docs' && <TrainingDocs />}
 
-        {mode === 'autopilot' && <AutopilotStudio addToast={showToast} />}
+        {mode === 'autopilot' && <AutopilotStudio addToast={showToast} openTab={openTab} />}
 
         {mode === 'studio' && (
           <TrainingStudio
@@ -447,6 +451,7 @@ export default function TrainingLab({ addToast: _addToast, onTasksUpdated }) {
             onDatasetSelect={setSelectedDatasetId}
             onJobCreated={handleJobCreated}
             addToast={showToast}
+            openTab={openTab}
           />
         )}
 
@@ -477,7 +482,41 @@ export default function TrainingLab({ addToast: _addToast, onTasksUpdated }) {
         )}
 
         {isManualActive && currentActiveTab === 'benchmark' && (
-          <TrainingBenchmark addToast={showToast} />
+          isBenchmarkInstalled ? (
+            <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
+              <div style={{
+                background: 'rgba(0, 210, 255, 0.05)',
+                borderBottom: '1px solid rgba(0, 210, 255, 0.15)',
+                padding: '8px 16px',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                fontSize: '0.7rem',
+                color: 'var(--text-dim)',
+                flexWrap: 'wrap',
+                gap: '8px',
+              }}>
+                <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  <Award size={14} style={{ color: 'var(--primary)' }} />
+                  La suite di valutazione è ora un <b>modulo a sé stante</b> (Benchmark Lab) con workspace e MCP dedicato.
+                </span>
+                {openTab && (
+                  <button
+                    className="training-btn primary"
+                    style={{ fontSize: '0.66rem', padding: '4px 10px' }}
+                    onClick={() => openTab({ name: 'Benchmark Lab' }, 'benchmark_lab')}
+                  >
+                    Apri Modulo Dedicato ↗
+                  </button>
+                )}
+              </div>
+              <div style={{ flex: 1, overflow: 'auto' }}>
+                <TrainingBenchmark addToast={showToast} />
+              </div>
+            </div>
+          ) : (
+            <ModuleNotInstalled tabType="benchmark_lab" openTab={openTab} />
+          )
         )}
 
         {isManualActive && currentActiveTab === 'monitor' && (

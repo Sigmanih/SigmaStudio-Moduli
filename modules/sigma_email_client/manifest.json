@@ -14,21 +14,15 @@
   "repository": "https://github.com/Sigmanih/SigmaStudio-Moduli",
   "branch": "main",
   "path": "modules/sigma_email_client",
-  "tags": ["Email", "IMAP", "SMTP", "Webmail", "Email MCP"],
+  "tags": [
+    "Email",
+    "IMAP",
+    "SMTP",
+    "Webmail",
+    "Email MCP"
+  ],
   "size": "~1 MB",
   "icon": "Mail",
   "color": "#ffb454",
-  "frontend": {
-    "entrypoint": "frontend/index.jsx",
-    "styles": ["frontend/styles/email-hub.css"],
-    "install_to": "sigma_studio/src/modules/sigma_email_client/"
-  },
-  "backend": {
-    "handlers_module": "core.modules.sigma_email_client.backend.handlers",
-    "mcp_server_module": "core.modules.sigma_email_client.backend.email_server",
-    "routes_prefix": "/api/email",
-    "install_to": "core/modules/sigma_email_client/"
-  },
-  "requirements": "requirements.txt",
-  "kernel_modules_required": []
+  "requirements": "requirements.txt"
 }

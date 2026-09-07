@@ -55,6 +55,10 @@ class ModelDownloadTask:
             self.is_repo_download = True
 
     def to_dict(self) -> Dict[str, Any]:
+        c_label = time.strftime('%Y-%m-%d %H:%M', time.localtime(self.created_at)) if self.created_at else None
+        comp_label = time.strftime('%Y-%m-%d %H:%M', time.localtime(self.completed_at)) if self.completed_at else (c_label if self.status == "completed" else None)
+        tot = max(self.total_bytes, self.downloaded_bytes) if self.total_bytes > 0 else self.downloaded_bytes
+        pct = 100.0 if self.status == "completed" else (min(99.9, (self.downloaded_bytes / tot * 100.0)) if tot > 0 else self.progress_pct)
         return {
             "task_id": self.task_id,
             "model_id": self.model_id,
@@ -62,15 +66,17 @@ class ModelDownloadTask:
             "download_url": self.download_url,
             "save_path": self.save_path,
             "status": self.status,
-            "total_bytes": self.total_bytes,
+            "total_bytes": tot,
             "downloaded_bytes": self.downloaded_bytes,
-            "total_mb": round(self.total_bytes / (1024**2), 1) if self.total_bytes > 0 else 0,
+            "total_mb": round(tot / (1024**2), 1) if tot > 0 else 0,
             "downloaded_mb": round(self.downloaded_bytes / (1024**2), 1),
             "speed_mbps": round(self.speed_mbps, 2),
-            "progress_pct": round(self.progress_pct, 1),
+            "progress_pct": round(pct, 1),
             "eta_seconds": int(self.eta_seconds),
             "created_at": self.created_at,
             "completed_at": self.completed_at,
+            "created_at_label": c_label,
+            "completed_at_label": comp_label,
             "error_message": self.error_message,
             "is_repo_download": self.is_repo_download,
             "total_files": len(self.files_queue) if self.files_queue else 1,
@@ -102,10 +108,13 @@ class ModelDownloadManager:
         self,
         model_id: str,
         filename: str,
-        download_url: str,
+        download_url: Optional[str] = None,
         hf_token: Optional[str] = None
     ) -> Dict[str, Any]:
         """Starts a background download task for a single file."""
+        if not download_url:
+            download_url = f"https://huggingface.co/{model_id}/resolve/main/{filename}"
+
         clean_mid = model_id.replace("/", "--")
         target_dir = os.path.join(self.models_dir, clean_mid)
         os.makedirs(target_dir, exist_ok=True)
@@ -211,9 +220,13 @@ class ModelDownloadManager:
         else:
             display_name = f"{model_id.split('/')[-1]} ({len(files_list)} file / shard)" if len(files_list) > 1 else files_list[0].get("filename", f"{model_id.split('/')[-1]}.safetensors")
 
-        from .hf_client import parse_model_specs
-        specs = parse_model_specs(model_id, model_id)
-        estimated_total_bytes = int(specs.get("size_gb", 0) * (1024**3))
+        exact_bytes = sum(int(f.get("size", 0)) for f in files_list if f.get("size"))
+        if exact_bytes > 0:
+            estimated_total_bytes = exact_bytes
+        else:
+            from .hf_client import parse_model_specs
+            specs = parse_model_specs(model_id, model_id)
+            estimated_total_bytes = int(specs.get("size_gb", 0) * (1024**3))
 
         task_id = str(uuid.uuid4())[:8]
         task = ModelDownloadTask(
@@ -355,6 +368,13 @@ class ModelDownloadManager:
                     continue
                 if task_id not in self.tasks and not any(t.model_id == m_id for t in self.tasks.values()):
                     size_bytes = int(m.get("size_gb", 0) * (1024**3))
+                    mod_time = time.time()
+                    try:
+                        m_path = m.get("path")
+                        if m_path and os.path.exists(m_path):
+                            mod_time = os.path.getmtime(m_path)
+                    except Exception:
+                        pass
                     self.tasks[task_id] = ModelDownloadTask(
                         task_id=task_id,
                         model_id=m_id,
@@ -365,6 +385,8 @@ class ModelDownloadManager:
                         total_bytes=size_bytes,
                         downloaded_bytes=size_bytes,
                         progress_pct=100.0,
+                        created_at=mod_time,
+                        completed_at=mod_time,
                         is_repo_download=m.get("is_repo_folder", False),
                         files_queue=[{}] * m.get("total_shards", 1)
                     )
@@ -480,10 +502,15 @@ class ModelDownloadManager:
 
             except urllib.error.HTTPError as ex:
                 if ex.code in (401, 403):
+                    if token:
+                        log.warning(f"[ModelDownloader] Token non valido/scaduto ({ex.code}) per {task.filename}. Tentativo download anonimo...")
+                        token = None
+                        task.hf_token = None
+                        time.sleep(1)
+                        continue
                     auth_err = (
                         f"Autenticazione richiesta (HTTP {ex.code}): Il modello '{task.model_id}' "
-                        f"richiede un Hugging Face Access Token valido e l'accettazione della licenza del modello su huggingface.co. "
-                        f"Inserisci il tuo Token (read) nella scheda 'Directory & HF Token' di Model Hub."
+                        f"è protetto/gated e richiede un Hugging Face Access Token valido e l'accettazione della licenza su huggingface.co."
                     )
                     task.status = "failed"
                     task.error_message = auth_err
@@ -525,30 +552,34 @@ class ModelDownloadManager:
         try:
             # 1. Pre-calculate total bytes & already downloaded bytes on disk
             already_done_bytes = 0
+            file_sizes = {}
             for file_info in task.files_queue:
                 fname = file_info.get("filename", "")
                 save_file = os.path.join(target_dir, fname)
                 part_file = f"{save_file}.part"
                 os.makedirs(os.path.dirname(save_file), exist_ok=True)
+                f_size = int(file_info.get("size", 0))
                 if os.path.exists(save_file):
-                    already_done_bytes += os.path.getsize(save_file)
+                    sz = os.path.getsize(save_file)
+                    already_done_bytes += sz
+                    file_sizes[fname] = max(sz, f_size)
                 elif os.path.exists(part_file):
-                    already_done_bytes += os.path.getsize(part_file)
+                    sz = os.path.getsize(part_file)
+                    already_done_bytes += sz
+                    file_sizes[fname] = max(sz, f_size)
+                elif f_size > 0:
+                    file_sizes[fname] = f_size
 
-            if task.total_bytes == 0:
-                from .hf_client import parse_model_specs
-                specs = parse_model_specs(task.model_id, task.model_id)
-                est_bytes = int(specs.get("size_gb", 0) * (1024**3))
-                if est_bytes > 0:
-                    task.total_bytes = max(already_done_bytes, est_bytes)
-                else:
-                    task.total_bytes = max(
-                        already_done_bytes,
-                        sum((12 * 1024**3 if f.get("filename", "").endswith(".safetensors") else 2 * 1024**2) for f in task.files_queue)
-                    )
+            sum_sizes = sum(file_sizes.values())
+            if sum_sizes > 0:
+                task.total_bytes = max(task.total_bytes, sum_sizes, already_done_bytes)
+            elif task.total_bytes < already_done_bytes:
+                task.total_bytes = max(already_done_bytes, int(len(task.files_queue) * 3.5 * (1024**3)))
 
             task.downloaded_bytes = already_done_bytes
-
+            eff_total = max(task.total_bytes, task.downloaded_bytes)
+            if eff_total > 0:
+                task.progress_pct = min(99.9, (task.downloaded_bytes / eff_total) * 100.0)
 
             # 2. Iterate through each shard/file
             for idx, file_info in enumerate(task.files_queue):
@@ -569,7 +600,8 @@ class ModelDownloadManager:
                 # Check if this shard is ALREADY completely downloaded on disk
                 if os.path.exists(save_file) and os.path.getsize(save_file) > 0:
                     log.info(f"[ModelDownloader] Repo {task.task_id}: Shard {idx+1}/{total_files} ({fname}) already on disk. Skipping.")
-                    task.progress_pct = min(99.9, ((idx + 1) / total_files) * 100.0)
+                    eff_tot = max(task.total_bytes, task.downloaded_bytes)
+                    task.progress_pct = min(99.9, (task.downloaded_bytes / eff_tot) * 100.0) if eff_tot > 0 else min(99.9, ((idx + 1) / total_files) * 100.0)
                     continue
 
                 # Shard download attempt loop with auto-recovery
@@ -600,6 +632,14 @@ class ModelDownloadManager:
                             req.add_header("Range", f"bytes={existing_bytes}-")
 
                         with safe_urlopen(req, timeout=30) as resp:
+                            content_len = resp.headers.get("Content-Length")
+                            if content_len:
+                                f_real_total = int(content_len) + existing_bytes
+                                file_sizes[fname] = f_real_total
+                                new_total = sum(file_sizes.values())
+                                if new_total > task.total_bytes:
+                                    task.total_bytes = new_total
+
                             mode = "ab" if existing_bytes > 0 else "wb"
                             os.makedirs(os.path.dirname(temp_file), exist_ok=True)
                             with open(temp_file, mode) as out_f:
@@ -618,13 +658,14 @@ class ModelDownloadManager:
                                         bytes_since_last_calc = 0
                                         last_time = now
 
-                                        if task.total_bytes > 0:
-                                            task.progress_pct = min(99.9, (task.downloaded_bytes / task.total_bytes) * 100.0)
+                                        eff_total_dyn = max(task.total_bytes, task.downloaded_bytes)
+                                        if eff_total_dyn > 0:
+                                            task.progress_pct = min(99.9, (task.downloaded_bytes / eff_total_dyn) * 100.0)
+                                            rem_bytes = max(0, eff_total_dyn - task.downloaded_bytes)
+                                            if task.speed_mbps > 0:
+                                                task.eta_seconds = rem_bytes / (task.speed_mbps * 1024**2)
                                         else:
                                             task.progress_pct = min(99.9, ((idx + 0.5) / total_files) * 100.0)
-
-                                        if task.speed_mbps > 0 and task.total_bytes > task.downloaded_bytes:
-                                            task.eta_seconds = (task.total_bytes - task.downloaded_bytes) / (task.speed_mbps * 1024**2)
 
                         if task._cancel_flag:
                             break
@@ -652,10 +693,15 @@ class ModelDownloadManager:
 
                     except urllib.error.HTTPError as ex:
                         if ex.code in (401, 403):
+                            if token:
+                                log.warning(f"[ModelDownloader] Repo task token non valido/scaduto ({ex.code}) su {fname}. Tentativo anonimo...")
+                                token = None
+                                task.hf_token = None
+                                time.sleep(1)
+                                continue
                             auth_err = (
                                 f"Autenticazione richiesta (HTTP {ex.code}): Il modello '{task.model_id}' "
-                                f"richiede un Hugging Face Access Token valido e l'accettazione della licenza del modello su huggingface.co. "
-                                f"Inserisci il tuo Token (read) nella scheda 'Directory & HF Token' di Model Hub."
+                                f"è protetto/gated e richiede un Hugging Face Access Token valido e l'accettazione della licenza su huggingface.co."
                             )
                             task.status = "failed"
                             task.error_message = auth_err

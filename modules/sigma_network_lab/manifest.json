@@ -14,21 +14,15 @@
   "repository": "https://github.com/Sigmanih/SigmaStudio-Moduli",
   "branch": "main",
   "path": "modules/sigma_network_lab",
-  "tags": ["Web Search", "HTTP Client", "DNS", "Ping", "Network MCP"],
+  "tags": [
+    "Web Search",
+    "HTTP Client",
+    "DNS",
+    "Ping",
+    "Network MCP"
+  ],
   "size": "~1 MB",
   "icon": "Globe",
   "color": "#3fb950",
-  "frontend": {
-    "entrypoint": "frontend/index.jsx",
-    "styles": ["frontend/styles/network-lab.css"],
-    "install_to": "sigma_studio/src/modules/sigma_network_lab/"
-  },
-  "backend": {
-    "handlers_module": "core.modules.sigma_network_lab.backend.handlers",
-    "mcp_server_module": "core.modules.sigma_network_lab.backend.network_server",
-    "routes_prefix": "/api/network",
-    "install_to": "core/modules/sigma_network_lab/"
-  },
-  "requirements": "requirements.txt",
-  "kernel_modules_required": []
+  "requirements": "requirements.txt"
 }

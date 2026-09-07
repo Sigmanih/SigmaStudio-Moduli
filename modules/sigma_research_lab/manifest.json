@@ -14,22 +14,17 @@
   "repository": "https://github.com/Sigmanih/SigmaStudio-Moduli",
   "branch": "main",
   "path": "modules/sigma_research_lab",
-  "tags": ["Swarm DAG", "Multi-Agent", "Workflow Automation", "Pipeline Designer", "Self-Healing"],
+  "tags": [
+    "Swarm DAG",
+    "Multi-Agent",
+    "Workflow Automation",
+    "Pipeline Designer",
+    "Self-Healing"
+  ],
   "size": "~1.5 MB",
   "icon": "FlaskConical",
   "color": "#7c5bf0",
-  "frontend": {
-    "entrypoint": "frontend/index.jsx",
-    "styles": ["frontend/styles/research-lab.css"],
-    "install_to": "sigma_studio/src/modules/sigma_research_lab/"
-  },
-  "backend": {
-    "handlers_module": "core.modules.sigma_research_lab.backend.handlers",
-    "routes_prefix": "/api/research",
-    "install_to": "core/modules/sigma_research_lab/"
-  },
   "requirements": "requirements.txt",
-  "kernel_modules_required": [],
   "changelog": [
     {
       "version": "v1.0.0",

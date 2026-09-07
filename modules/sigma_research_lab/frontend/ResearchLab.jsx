@@ -111,9 +111,9 @@ function AgentConfigPanel({ agentId, meta, config, onUpdate, onClose, testState,
             </select>
           </div>
           <div className="agent-config-field">
-            <span className="agent-config-label">Manifesto / Ruolo</span>
+            <span className="agent-config-label">Ruolo Specialista</span>
             <select className="agent-config-select" value={config.manifesto || agentsMeta?.[agentId]?.manifesto || ''} onChange={e => onUpdate(agentId, { manifesto: e.target.value })}>
-              <option value="">— Nessun manifesto —</option>
+              <option value="">— Nessun ruolo —</option>
               {manifesti.map((mf, i) => (
                 <option key={i} value={mf.path}>{mf.name || mf.filename}</option>
               ))}
@@ -733,7 +733,7 @@ export default function ResearchLab({ onClose, onTasksUpdated, addToast }) {
       provider: baseConfig.provider || 'deepseek',
       model: baseConfig.model || 'deepseek-v4-flash',
       temperature: baseConfig.temperature ?? 0.4,
-      manifesto: baseConfig.manifesto || `manifesti/${baseId}.md`
+      manifesto: baseConfig.manifesto || `Ruoli/${baseId}.md`
     };
     
     try {

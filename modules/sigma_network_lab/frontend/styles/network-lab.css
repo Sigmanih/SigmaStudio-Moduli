@@ -1,1 +1,332 @@
-.network-lab { color: white; }
+/* ==============================================================================
+   network-lab.css — Sigma Studio Network Explorer & Web Research Styles
+   ============================================================================== */
+
+.netlab-container {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  background: var(--bg-primary, #090d16);
+  color: var(--text-primary, #f0f6fc);
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  overflow: hidden;
+}
+
+/* Header */
+.netlab-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 20px;
+  background: rgba(18, 24, 38, 0.7);
+  backdrop-filter: blur(12px);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  flex-shrink: 0;
+}
+
+.netlab-title-group {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.netlab-icon-box {
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+  background: linear-gradient(135deg, rgba(63, 185, 80, 0.2), rgba(0, 242, 254, 0.2));
+  border: 1px solid rgba(63, 185, 80, 0.4);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #3fb950;
+  box-shadow: 0 0 16px rgba(63, 185, 80, 0.2);
+}
+
+.netlab-title {
+  font-size: 1.05rem;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  background: linear-gradient(90deg, #3fb950, #00f2fe);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  margin: 0;
+}
+
+.netlab-subtitle {
+  font-size: 0.70rem;
+  color: var(--text-muted, #8b949e);
+  margin: 0;
+}
+
+.netlab-status-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: 20px;
+  font-size: 0.68rem;
+  font-weight: 700;
+  background: rgba(63, 185, 80, 0.12);
+  border: 1px solid rgba(63, 185, 80, 0.3);
+  color: #3fb950;
+}
+
+.netlab-status-badge.offline {
+  background: rgba(248, 81, 73, 0.12);
+  border-color: rgba(248, 81, 73, 0.3);
+  color: #f85149;
+}
+
+.netlab-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: currentColor;
+  box-shadow: 0 0 6px currentColor;
+}
+
+/* Nav Tabs */
+.netlab-tabs {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 18px;
+  background: rgba(13, 17, 23, 0.95);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  overflow-x: auto;
+  flex-shrink: 0;
+}
+
+.netlab-tab-btn {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 6px 14px;
+  border-radius: 8px;
+  background: transparent;
+  border: 1px solid transparent;
+  color: var(--text-muted, #8b949e);
+  font-size: 0.75rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.18s ease;
+  white-space: nowrap;
+}
+
+.netlab-tab-btn:hover {
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--text-primary, #f0f6fc);
+}
+
+.netlab-tab-btn.active {
+  background: rgba(0, 242, 254, 0.12);
+  border-color: rgba(0, 242, 254, 0.35);
+  color: #00f2fe;
+  font-weight: 700;
+  box-shadow: 0 0 12px rgba(0, 242, 254, 0.15);
+}
+
+/* Main Content Area */
+.netlab-content {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 18px 22px;
+}
+
+/* Glass Card */
+.netlab-card {
+  background: rgba(18, 24, 38, 0.6);
+  backdrop-filter: blur(10px);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 12px;
+  padding: 16px;
+  margin-bottom: 16px;
+}
+
+.netlab-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 14px;
+}
+
+.netlab-card-title {
+  font-size: 0.85rem;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-primary, #f0f6fc);
+  margin: 0;
+}
+
+/* Inputs & Form Controls */
+.netlab-input-group {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.netlab-input {
+  flex: 1;
+  background: rgba(10, 14, 22, 0.8);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 8px;
+  padding: 8px 12px;
+  color: #f0f6fc;
+  font-size: 0.82rem;
+  font-family: inherit;
+  outline: none;
+  transition: border-color 0.18s;
+}
+
+.netlab-input:focus {
+  border-color: #00f2fe;
+  box-shadow: 0 0 0 2px rgba(0, 242, 254, 0.2);
+}
+
+.netlab-select {
+  background: rgba(10, 14, 22, 0.9);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 8px;
+  padding: 8px 12px;
+  color: #f0f6fc;
+  font-size: 0.80rem;
+  font-weight: 700;
+  outline: none;
+  cursor: pointer;
+}
+
+.netlab-btn-primary {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: linear-gradient(135deg, #3fb950, #2ea043);
+  color: #ffffff;
+  border: none;
+  border-radius: 8px;
+  padding: 8px 16px;
+  font-size: 0.80rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: opacity 0.18s, transform 0.1s;
+  box-shadow: 0 2px 8px rgba(63, 185, 80, 0.3);
+}
+
+.netlab-btn-primary:hover:not(:disabled) {
+  opacity: 0.92;
+  transform: translateY(-1px);
+}
+
+.netlab-btn-primary:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.netlab-btn-accent {
+  background: linear-gradient(135deg, #00f2fe, #4facfe);
+  color: #040d1a;
+}
+
+/* Method Badges */
+.netlab-method-badge {
+  padding: 3px 8px;
+  border-radius: 6px;
+  font-size: 0.70rem;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.netlab-method-GET { background: rgba(63, 185, 80, 0.2); color: #3fb950; border: 1px solid rgba(63, 185, 80, 0.4); }
+.netlab-method-POST { background: rgba(88, 166, 255, 0.2); color: #58a6ff; border: 1px solid rgba(88, 166, 255, 0.4); }
+.netlab-method-PUT { background: rgba(210, 153, 34, 0.2); color: #d29922; border: 1px solid rgba(210, 153, 34, 0.4); }
+.netlab-method-DELETE { background: rgba(248, 81, 73, 0.2); color: #f85149; border: 1px solid rgba(248, 81, 73, 0.4); }
+.netlab-method-PATCH { background: rgba(163, 113, 247, 0.2); color: #a371f7; border: 1px solid rgba(163, 113, 247, 0.4); }
+
+/* Results & Code Viewer */
+.netlab-code-box {
+  background: #06090e;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 8px;
+  padding: 12px;
+  font-family: 'Consolas', 'Monaco', monospace;
+  font-size: 0.75rem;
+  color: #58a6ff;
+  max-height: 380px;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+.netlab-result-card {
+  background: rgba(13, 17, 23, 0.8);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 8px;
+  padding: 12px 14px;
+  margin-bottom: 10px;
+  transition: border-color 0.15s;
+}
+
+.netlab-result-card:hover {
+  border-color: rgba(0, 242, 254, 0.3);
+}
+
+.netlab-result-title {
+  font-size: 0.88rem;
+  font-weight: 700;
+  color: #58a6ff;
+  text-decoration: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 4px;
+}
+
+.netlab-result-title:hover {
+  text-decoration: underline;
+}
+
+.netlab-result-url {
+  font-size: 0.65rem;
+  color: #3fb950;
+  margin-bottom: 6px;
+  word-break: break-all;
+}
+
+.netlab-result-snippet {
+  font-size: 0.75rem;
+  color: #8b949e;
+  line-height: 1.45;
+}
+
+/* Stats Row */
+.netlab-stats-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 10px;
+  margin-bottom: 16px;
+}
+
+.netlab-stat-box {
+  background: rgba(13, 17, 23, 0.7);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 8px;
+  padding: 10px 14px;
+}
+
+.netlab-stat-label {
+  font-size: 0.62rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  color: #8b949e;
+  margin-bottom: 4px;
+}
+
+.netlab-stat-value {
+  font-size: 1.15rem;
+  font-weight: 800;
+  color: #f0f6fc;
+}

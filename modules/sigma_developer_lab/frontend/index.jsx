@@ -1,3 +1,8 @@
-// sigma_developer_lab — Module Entrypoint
-import './styles/developer-lab.css';
-export { default } from './DeveloperLab';
+import React from 'react';
+import DeveloperStudio from './DeveloperStudio';
+
+export default function DeveloperLabModule(props) {
+  return <DeveloperStudio {...props} />;
+}
+
+export { DeveloperStudio };

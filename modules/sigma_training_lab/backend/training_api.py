@@ -666,6 +666,30 @@ def handle_training_benchmark_run(self):
     self.send_json_response({"success": True, "job": job})
 
 
+def handle_training_benchmark_extend(self):
+    from core.modules.sigma_training_lab.training.benchmarks import extend_benchmark_job
+    body = self.read_json_body()
+    res = extend_benchmark_job(
+        job_id=body.get("id") or body.get("job_id", ""),
+        added_samples=int(body.get("samples", 25)),
+        additional_suite=body.get("suite", ""),
+        mode=body.get("mode", "sample"),
+        concurrency=body.get("concurrency", "auto"),
+    )
+    self.send_json_response(res)
+
+
+def handle_training_benchmark_rerun_suite(self):
+    from core.modules.sigma_training_lab.training.benchmarks import rerun_suite_job
+    body = self.read_json_body()
+    res = rerun_suite_job(
+        job_id=body.get("id") or body.get("job_id", ""),
+        suite_id=body.get("suite", "all"),
+        concurrency=body.get("concurrency", "auto"),
+    )
+    self.send_json_response(res)
+
+
 def handle_training_benchmark_delete(self):
     from core.modules.sigma_training_lab.training.benchmarks import delete_benchmark_job
     ok = delete_benchmark_job(self.read_json_body().get("id", ""))

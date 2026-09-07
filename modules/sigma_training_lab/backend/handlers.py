@@ -20,12 +20,10 @@ def register_routes(app=None) -> None:
 
 
 def register_mcp(mcp_hub) -> None:
-    """Registra i server MCP di Training e Benchmark nell'hub MCP del kernel."""
+    """Registra il server MCP di Training nell'hub MCP del kernel."""
     try:
         from .training_server import TrainingMCPServer
-        from .benchmark_server import BenchmarkMCPServer
         mcp_hub.register_server(TrainingMCPServer)
-        mcp_hub.register_server(BenchmarkMCPServer)
-        log.info('[sigma_training_lab] Training & Benchmark MCP Server registrati.')
+        log.info('[sigma_training_lab] Training MCP Server registrato.')
     except Exception as e:
         log.warning(f'[sigma_training_lab] MCP Server non registrati: {e}')

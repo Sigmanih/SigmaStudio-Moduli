@@ -14,24 +14,25 @@
   "repository": "https://github.com/Sigmanih/SigmaStudio-Moduli",
   "branch": "main",
   "path": "modules/sigma_creative_lab",
-  "tags": ["FLUX", "SDXL", "ComfyUI", "Blender", "3D Gen", "PBR", "Video Gen", "SAM2"],
+  "tags": [
+    "FLUX",
+    "SDXL",
+    "ComfyUI",
+    "Blender",
+    "3D Gen",
+    "PBR",
+    "Video Gen",
+    "SAM2"
+  ],
   "size": "~2 MB (solo codice, modelli scaricati separatamente)",
   "icon": "Palette",
   "color": "#ff5064",
-  "frontend": {
-    "entrypoint": "frontend/index.jsx",
-    "styles": ["frontend/styles/creative-studio.css", "frontend/styles/node-editor.css"],
-    "install_to": "sigma_studio/src/modules/sigma_creative_lab/"
-  },
-  "backend": {
-    "handlers_module": "core.modules.sigma_creative_lab.backend.handlers",
-    "mcp_server_module": "core.modules.sigma_creative_lab.backend.mcp_server",
-    "routes_prefix": "/api/creative",
-    "install_to": "core/modules/sigma_creative_lab/"
-  },
   "requirements": "requirements.txt",
-  "kernel_modules_required": [],
-  "optional_apps": ["comfyui", "blender", "sd_webui"],
+  "optional_apps": [
+    "comfyui",
+    "blender",
+    "sd_webui"
+  ],
   "changelog": [
     {
       "version": "v1.0.0",

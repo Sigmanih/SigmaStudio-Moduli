@@ -150,6 +150,31 @@ export default function HardwareFloatingPanel({ onClose, onOpenTab, addToast }) 
     }
   };
 
+  // Il bottone "Svuota VRAM" del dialogo di conferma lo chiamava senza che
+  // esistesse: aprire quel dialogo faceva cadere il pannello con un
+  // ReferenceError, perche' in JSX il riferimento viene valutato al render.
+  const handleRestartOllama = async () => {
+    setRestartingOllama(true);
+    try {
+      const res = await fetch('/api/hardware/restart-ollama', { method: 'POST' });
+      const json = await res.json();
+      if (json.success) {
+        if (addToast) addToast(json.message || 'VRAM liberata.', 'success');
+      } else if (addToast) {
+        addToast(json.error || 'Impossibile liberare la VRAM.', 'error');
+      }
+      // La telemetria va riletta subito: il senso del gesto e' vedere la
+      // memoria scendere, e aspettare il tick successivo la fa sembrare inerte.
+      fetchHardwareStatus();
+      fetchGpuProcesses();
+    } catch (e) {
+      if (addToast) addToast(`Errore: ${e.message}`, 'error');
+    } finally {
+      setRestartingOllama(false);
+      setShowRestartAlert(false);
+    }
+  };
+
   useEffect(() => {
     fetchHardwareStatus();
     fetchGpuProcesses();

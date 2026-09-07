@@ -1,0 +1,40 @@
+{
+  "id": "sigma_benchmark_lab",
+  "name": "Benchmark Lab & Model Evaluation",
+  "version": "v1.0.0",
+  "category": "Valutazione & Benchmark",
+  "tabType": "benchmark_lab",
+  "sidebarLabel": "Benchmark",
+  "sidebarIcon": "Award",
+  "sidebarBadge": "EVAL",
+  "sidebarBadgeColor": "rgba(0,210,255,0.15)",
+  "sidebarCategory": "Studio, Ricerca & AI",
+  "description": "Suite di 11 benchmark ufficiali (MMLU, GSM8K, HumanEval, ARC, MATH, MMLU-Pro, TruthfulQA, BBH, GPQA, MBPP), inferenza oggettiva locale multi-scheda e audit riproducibile.",
+  "author": "Sigma Core Team",
+  "repository": "https://github.com/Sigmanih/SigmaStudio-Moduli",
+  "branch": "main",
+  "path": "modules/sigma_benchmark_lab",
+  "tags": [
+    "Benchmark",
+    "MMLU",
+    "GSM8K",
+    "HumanEval",
+    "ARC",
+    "MATH",
+    "MMLU-Pro",
+    "Evaluation"
+  ],
+  "size": "~2 MB",
+  "icon": "Award",
+  "color": "#00d2ff",
+  "requirements": "requirements.txt",
+  "requires": {
+    "hardware": {
+      "requires": {},
+      "recommended": {
+        "total_vram_gb": 4.0
+      },
+      "reason_if_unavailable": ""
+    }
+  }
+}

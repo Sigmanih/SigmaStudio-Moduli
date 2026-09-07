@@ -1,3 +1,4 @@
+from core.sse import sse_frame
 import json
 import asyncio
 from urllib.parse import parse_qs, urlparse
@@ -30,7 +31,6 @@ from core.modules.sigma_creative_lab.model_downloader import (
 log = get_logger("creative_router")
 
 # Istanziamo i singleton per il router creativo
-# Nota: andrebbe letto da config.json, qui semplifichiamo leggendolo direttamente se serve
 def get_config():
     try:
         with open("config.json", "r", encoding="utf-8") as f:
@@ -60,21 +60,20 @@ video_generator = VideoGenerator(model_router, asset_graph, image_generator)
 vision_agent = VisionAgent(asset_graph, _config.get("creative", {}))
 pipeline_engine = CreativePipelineEngine(asset_graph, model_router, blender_bridge)
 
-# Gli agenti creativi devono comparire nel registro agenti come tutti gli altri.
 register_creative_agents()
 
 
-def _sse(self, payload: dict):
+def _send_creative_send_creative_sse(self, payload: dict):
     """Invia un evento SSE se la richiesta è in streaming."""
     if hasattr(self, "sse_queue"):
-        self.sse_queue.put(f"data: {json.dumps(payload)}\n\n")
+        self.sse_queue.put(sse_frame(payload).decode("utf-8"))
 
 
 def _fail(self, err: Exception, context: str, status: int = 500):
     """Log + risposta JSON + evento SSE con lo stesso messaggio d'errore."""
     log.error(f"Errore {context}: {err}")
     self.send_json_response({"success": False, "error": str(err)}, status)
-    _sse(self, {"status": "error", "error": str(err)})
+    _send_creative_send_creative_sse(self, {"status": "error", "error": str(err)})
 
 
 def handle_creative_assets(self):
@@ -187,7 +186,7 @@ def handle_creative_generate(self):
     backend = data.get("backend") or params.pop("backend", None)
 
     try:
-        _sse(self, {"status": "starting", "progress": 5,
+        _send_creative_sse(self, {"status": "starting", "progress": 5,
                     "message": f"Inizializzazione {task_type}...", "backend": backend})
 
         async def _run_generation():
@@ -211,7 +210,7 @@ def handle_creative_generate(self):
         asset = asyncio.run(_run_generation())
 
         self.send_json_response({"success": True, "asset": asset.to_dict()})
-        _sse(self, {"status": "complete", "progress": 100, "asset": asset.to_dict()})
+        _send_creative_sse(self, {"status": "complete", "progress": 100, "asset": asset.to_dict()})
 
     except Exception as e:
         _fail(self, e, "generazione")
@@ -335,7 +334,7 @@ def handle_creative_edit(self):
 
     params = normalize_params(params)
     try:
-        _sse(self, {"status": "starting", "progress": 5, "message": f"Inizializzazione {task_type}..."})
+        _send_creative_sse(self, {"status": "starting", "progress": 5, "message": f"Inizializzazione {task_type}..."})
 
         async def _run():
             if task_type == "inpaint":
@@ -376,7 +375,7 @@ def handle_creative_edit(self):
         asset = asyncio.run(_run())
 
         self.send_json_response({"success": True, "asset": asset.to_dict()})
-        _sse(self, {"status": "complete", "progress": 100, "asset": asset.to_dict()})
+        _send_creative_sse(self, {"status": "complete", "progress": 100, "asset": asset.to_dict()})
 
     except Exception as e:
         _fail(self, e, "edit")
@@ -407,7 +406,7 @@ def handle_creative_3d(self):
 
     params = normalize_params(params)
     try:
-        _sse(self, {"status": "starting", "progress": 5, "message": f"Inizializzazione {task_type}..."})
+        _send_creative_sse(self, {"status": "starting", "progress": 5, "message": f"Inizializzazione {task_type}..."})
 
         async def _run():
             if task_type == "image_to_3d":
@@ -429,7 +428,7 @@ def handle_creative_3d(self):
         asset = asyncio.run(_run())
 
         self.send_json_response({"success": True, "asset": asset.to_dict()})
-        _sse(self, {"status": "complete", "progress": 100, "asset": asset.to_dict()})
+        _send_creative_sse(self, {"status": "complete", "progress": 100, "asset": asset.to_dict()})
     except Exception as e:
         _fail(self, e, "3D")
 
@@ -446,7 +445,7 @@ def handle_creative_mesh(self):
 
     params = normalize_params(params)
     try:
-        _sse(self, {"status": "starting", "progress": 5, "message": f"Elaborazione mesh: {task_type}..."})
+        _send_creative_sse(self, {"status": "starting", "progress": 5, "message": f"Elaborazione mesh: {task_type}..."})
 
         async def _run():
             if task_type == "cleanup":
@@ -472,7 +471,7 @@ def handle_creative_mesh(self):
         asset = asyncio.run(_run())
 
         self.send_json_response({"success": True, "asset": asset.to_dict()})
-        _sse(self, {"status": "complete", "progress": 100, "asset": asset.to_dict()})
+        _send_creative_sse(self, {"status": "complete", "progress": 100, "asset": asset.to_dict()})
     except Exception as e:
         _fail(self, e, "mesh")
 
@@ -502,7 +501,7 @@ def handle_creative_material(self):
 
     params = normalize_params(params)
     try:
-        _sse(self, {"status": "starting", "progress": 5, "message": f"Materiali: {task_type}..."})
+        _send_creative_sse(self, {"status": "starting", "progress": 5, "message": f"Materiali: {task_type}..."})
 
         async def _run():
             if task_type == "generate_pbr":
@@ -532,7 +531,7 @@ def handle_creative_material(self):
         asset = asyncio.run(_run())
 
         self.send_json_response({"success": True, "asset": asset.to_dict()})
-        _sse(self, {"status": "complete", "progress": 100, "asset": asset.to_dict()})
+        _send_creative_sse(self, {"status": "complete", "progress": 100, "asset": asset.to_dict()})
     except Exception as e:
         _fail(self, e, "material")
 
@@ -547,12 +546,12 @@ def handle_creative_render(self):
         return self.send_json_response({"success": False, "error": "asset_id mancante"}, 400)
 
     try:
-        _sse(self, {"status": "starting", "progress": 5, "message": "Render Blender in corso..."})
+        _send_creative_sse(self, {"status": "starting", "progress": 5, "message": "Render Blender in corso..."})
 
         asset = asyncio.run(scene_renderer.render(asset_id, normalize_params(params)))
 
         self.send_json_response({"success": True, "asset": asset.to_dict()})
-        _sse(self, {"status": "complete", "progress": 100, "asset": asset.to_dict()})
+        _send_creative_sse(self, {"status": "complete", "progress": 100, "asset": asset.to_dict()})
     except Exception as e:
         _fail(self, e, "render")
 
@@ -566,10 +565,10 @@ def handle_creative_pipeline_execute(self):
         return self.send_json_response({"success": False, "error": "pipeline_def mancante"}, 400)
 
     try:
-        _sse(self, {"status": "starting", "progress": 0, "message": "Esecuzione pipeline..."})
+        _send_creative_sse(self, {"status": "starting", "progress": 0, "message": "Esecuzione pipeline..."})
 
         def progress_cb(progress_info):
-            _sse(self, progress_info)
+            _send_creative_sse(self, progress_info)
 
         async def _run():
             return await pipeline_engine.execute_pipeline(pipeline_def, progress_callback=progress_cb)
@@ -578,7 +577,7 @@ def handle_creative_pipeline_execute(self):
 
         serialized_results = [r.to_dict() if hasattr(r, 'to_dict') else r for r in results]
         self.send_json_response({"success": True, "results": serialized_results})
-        _sse(self, {"status": "complete", "progress": 100, "results": serialized_results})
+        _send_creative_sse(self, {"status": "complete", "progress": 100, "results": serialized_results})
     except Exception as e:
         _fail(self, e, "pipeline")
 
@@ -937,7 +936,7 @@ def handle_creative_video(self):
     params = normalize_params(data.get("params", {}))
 
     try:
-        _sse(self, {"status": "starting", "progress": 3, "message": f"Video: {task_type}..."})
+        _send_creative_sse(self, {"status": "starting", "progress": 3, "message": f"Video: {task_type}..."})
 
         async def _run():
             if task_type == "text_to_video":
@@ -953,7 +952,7 @@ def handle_creative_video(self):
 
         asset = asyncio.run(_run())
         self.send_json_response({"success": True, "asset": asset.to_dict()})
-        _sse(self, {"status": "complete", "progress": 100, "asset": asset.to_dict()})
+        _send_creative_sse(self, {"status": "complete", "progress": 100, "asset": asset.to_dict()})
     except Exception as e:
         _fail(self, e, "video")
 

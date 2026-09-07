@@ -25,13 +25,23 @@ _ROOT_DIR = str(paths.project_root())
 _CONFIG_PATH = str(paths.model_hub_config_file())
 
 
+DEFAULT_OFFICIAL_PUBLISHERS = [
+    'sigmanih', 'google', 'qwen', 'meta-llama', 'deepseek-ai', 'mistralai',
+    'microsoft', 'thudm', 'zai-org', 'zai', '01-ai', 'nvidia', 'stabilityai',
+    'black-forest-labs', 'allenai', 'apple', 'openai', 'tiiuae', 'bytedance',
+    'internlm'
+]
+
+
 def _load_hub_config() -> dict:
     from .hf_client import get_effective_hf_token
     cfg = {
         "models_dir": DEFAULT_MODELS_DIR,
+        "extra_models_dirs": [],
         "hf_token": "",
         "auto_deploy_on_download": True,
-        "preferred_quantization": "Q4_K_M"
+        "preferred_quantization": "Q4_K_M",
+        "official_publishers": list(DEFAULT_OFFICIAL_PUBLISHERS)
     }
     if os.path.exists(_CONFIG_PATH):
         try:
@@ -42,6 +52,12 @@ def _load_hub_config() -> dict:
         except Exception:
             pass
 
+    if not isinstance(cfg.get("extra_models_dirs"), list):
+        cfg["extra_models_dirs"] = []
+
+    if not cfg.get("official_publishers"):
+        cfg["official_publishers"] = list(DEFAULT_OFFICIAL_PUBLISHERS)
+
     # If hf_token is empty in config, check env vars or cached token
     if not cfg.get("hf_token"):
         effective = get_effective_hf_token()
@@ -49,6 +65,7 @@ def _load_hub_config() -> dict:
             cfg["hf_token"] = effective
 
     return cfg
+
 
 
 def _save_hub_config(cfg: dict) -> dict:
@@ -69,8 +86,10 @@ def handle_models_hf_search(self):
         size_bracket = "all"
         param_bracket = "all"
         format_filter = "all"
+        quant_filter = "all"
         sort = "downloads"
         official_only = False
+        provider = "all"
         cursor = None
         page = 1
         limit = 30
@@ -87,12 +106,14 @@ def handle_models_hf_search(self):
             quant_filter = params.get('quant_filter', ['all'])[0]
             sort = params.get('sort', ['downloads'])[0]
             official_only = params.get('official_only', ['false'])[0].lower() in ['true', '1', 'yes']
+            provider = params.get('provider', ['all'])[0]
             cursor = params.get('cursor', [''])[0] or None
             page = int(params.get('page', ['1'])[0])
             limit = int(params.get('limit', ['30'])[0])
 
         cfg = _load_hub_config()
         token = cfg.get("hf_token") or None
+        officials = cfg.get("official_publishers") or None
         data = search_hf_models(
             query=query,
             category=category,
@@ -102,10 +123,12 @@ def handle_models_hf_search(self):
             quant_filter=quant_filter,
             sort=sort,
             official_only=official_only,
+            provider=provider,
             cursor=cursor,
             page=page,
             limit=limit,
-            hf_token=token
+            hf_token=token,
+            custom_officials=officials
         )
 
         self.send_json_response({
@@ -143,6 +166,45 @@ def handle_models_hf_details(self):
         self.send_json_response(data)
     except Exception as e:
         log.error("Error in handle_models_hf_details: %s", e)
+        self.send_json_response({"success": False, "error": str(e)}, 500)
+
+
+def handle_models_hf_download(self):
+    """POST /api/models/hf/download — Endpoint unificato per avvio/ripresa download singolo file o intero repository."""
+    try:
+        body = self.read_json_body() if hasattr(self, 'read_json_body') else {}
+        model_id = body.get("model_id") or body.get("repo_id")
+        filename = body.get("filename")
+        download_url = body.get("download_url")
+        files = body.get("files")
+        is_repo = body.get("is_repo") or (not filename)
+
+        if not model_id:
+            self.send_json_response({"success": False, "error": "model_id o repo_id obbligatorio"}, 400)
+            return
+
+        cfg = _load_hub_config()
+        token = cfg.get("hf_token") or None
+
+        if is_repo or not filename:
+            task = downloader_manager.start_repo_download(
+                model_id=model_id,
+                files_list=files,
+                hf_token=token
+            )
+        else:
+            if not download_url:
+                download_url = f"https://huggingface.co/{model_id}/resolve/main/{filename}"
+            task = downloader_manager.start_single_download(
+                model_id=model_id,
+                filename=filename,
+                download_url=download_url,
+                hf_token=token
+            )
+
+        self.send_json_response({"success": True, "task": task})
+    except Exception as e:
+        log.error("Error in handle_models_hf_download: %s", e)
         self.send_json_response({"success": False, "error": str(e)}, 500)
 
 
@@ -450,59 +512,81 @@ def handle_models_hf_card_preview(self):
 def handle_models_local_list(self):
     """GET /api/models/local/list — Restituisce elenco modelli scaricati in locale con metriche benchmark."""
     try:
-        cfg = _load_hub_config()
-        custom_dir = cfg.get("models_dir")
-        models = scan_local_models(custom_dir=custom_dir)
+        models = scan_local_models()
 
-        # Arricchisce i modelli con i dati dei benchmark eseguiti in Training Lab
-        bm_file = os.path.join("training_lab", "official_benchmark_results.json")
-        bm_map = {}
-        if os.path.exists(bm_file):
-            try:
-                with open(bm_file, "r", encoding="utf-8") as f_bm:
-                    bm_data = json.load(f_bm)
-                for j in bm_data:
-                    raw_m = j.get("model", "")
-                    clean_m = re.sub(r"^(?:sigma|ollama|lmstudio):", "", raw_m).replace("--", "/").strip().lower()
-                    if not clean_m:
-                        continue
-                    met = j.get("metrics", {})
-                    score = met.get("overall_score", 0)
-                    p_c = met.get("passed_count", 0)
-                    t_c = met.get("total_count", 0)
-                    tok_s = met.get("avg_tok_s", 0)
-                    suite = j.get("suite_name", j.get("suite", "Benchmark"))
-                    created = (j.get("created_at") or "")[:16].replace("T", " ")
-                    st = j.get("status", "")
+        # I referti dei benchmark li legge il Training Lab, che e' il modulo che
+        # li produce: qui si chiedono, non si interpretano. Il Model Hub deve
+        # funzionare anche senza quel modulo installato — i moduli sono
+        # sganciabili — quindi la sua assenza significa "nessun benchmark", non
+        # un errore.
+        from core.modules.sigma_model_hub.backend import publications as pubblicazioni
 
-                    item_info = {
-                        "has_benchmarks": True,
-                        "latest_score": score,
-                        "best_score": score,
-                        "passed_count": p_c,
-                        "total_count": t_c,
-                        "avg_tok_s": tok_s,
-                        "suite_name": suite,
-                        "last_run_at": created,
-                        "status": st,
-                        "job_id": j.get("id")
-                    }
-                    if clean_m not in bm_map or score > bm_map[clean_m].get("best_score", 0):
-                        item_info["best_score"] = max(score, bm_map.get(clean_m, {}).get("best_score", score))
-                        bm_map[clean_m] = item_info
-            except Exception as e_bm:
-                log.debug("Errore lettura benchmark per modelli locali: %s", e_bm)
+        referti = {}
+        try:
+            from core.modules.sigma_training_lab.training.model_scores import (
+                normalizza, scores_by_model,
+            )
+            # Con il dettaglio per suite: e' il parametro che serve davvero a
+            # scegliere un modello per un compito, e un punteggio complessivo
+            # da solo non dice quali materie regge e quali no.
+            referti = scores_by_model(include_suites=True)
+        except Exception as err:
+            log.debug("Referti di benchmark non disponibili: %s", err)
+            normalizza = None
 
         for m in models:
-            m_id = (m.get("model_id") or m.get("filename") or "").lower().replace("--", "/")
-            m_base = m_id.split("/")[-1]
-            summary = bm_map.get(m_id) or bm_map.get(m_base)
-            if not summary:
-                for k, v in bm_map.items():
-                    if k in m_id or m_id in k or (len(k) > 4 and (k in m_base or m_base in k)):
-                        summary = v
-                        break
+            summary = None
+            if normalizza is not None:
+                chiave = normalizza(m.get("model_id") or m.get("filename") or "")
+                summary = referti.get(chiave)
+                if summary is None and chiave:
+                    # Solo il nome finale, quando una delle due forme non porta
+                    # l'autore. Mai per sottostringa: e' cosi' che un
+                    # checkpoint ereditava il punteggio della propria
+                    # quantizzazione, che e' un altro artefatto.
+                    coda = chiave.split("/")[-1]
+                    summary = next((r for k, r in referti.items()
+                                    if k.split("/")[-1] == coda), None)
             m["benchmark_summary"] = summary or {"has_benchmarks": False}
+            # Dove questo modello e' gia' pubblicato, se lo e'. Serve a poterlo
+            # aggiornare senza riscrivere a mano l'identificativo del
+            # repository — che riscritto sbagliato non da' errore, crea un
+            # secondo repository.
+            try:
+                m["publication"] = pubblicazioni.get_publication(
+                    m.get("path") or m.get("model_id") or m.get("filename") or "")
+            except Exception:
+                m["publication"] = None
+
+            # Accurate publisher & attribution resolution
+            pub = m.get("publication")
+            repo_id = (pub.get("repo_id") if isinstance(pub, dict) else "") or ""
+            m["is_published"] = bool(repo_id)
+            m["published"] = bool(repo_id)
+            raw_author = m.get("author") or ""
+            raw_name = m.get("clean_name") or m.get("display_name") or m.get("filename") or ""
+
+            if repo_id.lower().startswith("sigmanih/") or raw_author.lower() == "sigmanih" or "sigmanih" in raw_name.lower():
+                m["author"] = "sigmanih"
+                m["publisher"] = "sigmanih"
+                m["is_official"] = True
+                m["is_sigmanih"] = True
+            elif repo_id and "/" in repo_id:
+                m["publisher"] = repo_id.split("/")[0]
+                m["author"] = repo_id.split("/")[0]
+            else:
+                m["publisher"] = raw_author or "Altro"
+
+            # Re-evaluate family and category with full publication context
+            from core.modules.sigma_model_hub.backend.model_inventory import detect_family_and_category
+            family, category = detect_family_and_category(
+                name=raw_name,
+                architecture=m.get("architecture") or "",
+                author=m.get("publisher") or m.get("author") or "",
+                is_multimodal=m.get("is_multimodal", False)
+            )
+            m["family"] = family
+            m["category"] = category
 
         self.send_json_response({"success": True, "models": models})
     except Exception as e:
@@ -526,6 +610,223 @@ def handle_models_local_delete(self):
         self.send_json_response(res, status_code)
     except Exception as e:
         log.error("Error in handle_models_local_delete: %s", e)
+        self.send_json_response({"success": False, "error": str(e)}, 500)
+
+
+def handle_models_speedtest(self):
+    """POST /api/models/speedtest — Prova di inferenza vera su questo hardware.
+
+    Due cose insieme, perche' separate si prestano a essere confuse: la misura
+    di velocita' e la risposta che il modello ha effettivamente prodotto. Un
+    numero senza la risposta si puo' leggere come si vuole; la risposta accanto
+    dice a cosa quel numero si riferisce.
+
+    La velocita' riportata e' quella di **una richiesta alla volta**, che e' cio'
+    che sente chi chatta — non il throughput aggregato di una valutazione a
+    lotti, che con piu' richieste in volo e' sempre piu' alto.
+    """
+    import time as _time
+    try:
+        body = self.read_json_body() if hasattr(self, 'read_json_body') else {}
+        model = body.get("model") or body.get("model_id")
+        prompt = (body.get("prompt") or
+                  "Spiega in tre frasi perché il cielo è azzurro.").strip()
+        budget = max(16, min(int(body.get("max_tokens") or 96), 512))
+
+        from core.engine.unified_runtime import sigma_engine
+        from core.engine import evaluation
+
+        # 1. La sonda del motore: prefill e decode separati, cronometrati da chi
+        #    li esegue. Sono le due fasi che si sentono come cose diverse — la
+        #    pausa prima della prima parola, e il ritmo delle successive.
+        sonda = sigma_engine.benchmark(prompt_tokens=128, decode_tokens=64,
+                                       model_name=model)
+        if not sonda.get("success"):
+            self.send_json_response(
+                {"success": False, "error": sonda.get("error", "Sonda non riuscita")},
+                400)
+            return
+
+        # 2. Una risposta vera, cronometrata dall'esterno come la vede l'utente.
+        inizio = _time.perf_counter()
+        risposta = evaluation.complete(
+            [{"role": "user", "content": prompt}],
+            model_name=model, max_tokens=budget, thinking=None,
+        )
+        trascorso = max(_time.perf_counter() - inizio, 1e-3)
+
+        hardware = {}
+        try:
+            profilo = sigma_engine.hardware_profile or {}
+            schede = profilo.get("accelerators") or []
+            if schede:
+                hardware = {"device": schede[0].get("name", ""),
+                            "vram_gb": schede[0].get("total_vram_gb", 0)}
+        except Exception as err:
+            log.debug("Profilo hardware non disponibile: %s", err)
+
+        self.send_json_response({
+            "success": True,
+            "model": model or sigma_engine.loaded_model_name,
+            "backend": sonda.get("backend", ""),
+            "hardware": hardware,
+            # Le due fasi, misurate dal motore.
+            "prefill_tok_s": sonda.get("prefill_tok_s", 0),
+            "decode_tok_s": sonda.get("decode_tok_s", 0),
+            "prefill_ms": sonda.get("prefill_ms", 0),
+            # La risposta vera e il suo tempo, cronometrati da fuori.
+            "prompt": prompt,
+            "answer": risposta.text,
+            "answer_tokens": risposta.tokens,
+            "answer_seconds": round(trascorso, 2),
+            "answer_tok_s": round(risposta.tokens / trascorso, 2) if risposta.tokens else 0,
+            "ttft_ms": round(risposta.ttft_ms, 1),
+            "error": risposta.error,
+        })
+    except Exception as e:
+        log.error("Error in handle_models_speedtest: %s", e)
+        self.send_json_response({"success": False, "error": str(e)}, 500)
+
+
+def handle_models_local_rename(self):
+    """POST /api/models/local/rename — Rinomina un modello sul disco."""
+    try:
+        body = self.read_json_body() if hasattr(self, 'read_json_body') else {}
+        sorgente = (body.get("model_path") or body.get("model_id")
+                    or body.get("path") or body.get("filename")
+                    or body.get("from_id") or body.get("old_name") or body.get("name"))
+        nuovo = (body.get("new_name") or body.get("to_id")
+                 or body.get("new_id") or body.get("new_model_id") or body.get("target_name"))
+        if not sorgente or not nuovo:
+            self.send_json_response(
+                {"success": False,
+                 "error": "Servono il modello da rinominare e il nuovo nome"}, 400)
+            return
+
+        from core.modules.sigma_model_hub.backend.model_inventory import rename_local_model
+        cfg = _load_hub_config()
+        esito = rename_local_model(sorgente, nuovo, custom_dir=cfg.get("models_dir"))
+        self.send_json_response(esito, 200 if esito.get("success") else 400)
+    except Exception as e:
+        log.error("Error in handle_models_local_rename: %s", e)
+        self.send_json_response({"success": False, "error": str(e)}, 500)
+
+
+def handle_models_hf_repo_discover(self):
+    """POST /api/models/hf/repo/discover — Cerca i repository gia' pubblicati."""
+    try:
+        models = scan_local_models()
+        from core.modules.sigma_model_hub.backend.uploader_engine import discover_publications
+        body = self.read_json_body() if hasattr(self, 'read_json_body') else {}
+        esito = discover_publications(models, body.get("token"))
+        self.send_json_response(esito, 200 if esito.get("success") else 400)
+    except Exception as e:
+        log.error("Error in handle_models_hf_repo_discover: %s", e)
+        self.send_json_response({"success": False, "error": str(e)}, 500)
+
+
+def handle_models_hf_repo_attach(self):
+    """POST /api/models/hf/repo/attach — Collega un modello a un repository esistente."""
+    try:
+        body = self.read_json_body() if hasattr(self, 'read_json_body') else {}
+        from core.modules.sigma_model_hub.backend.uploader_engine import attach_publication
+        esito = attach_publication(
+            body.get("local_path") or body.get("local_ref") or body.get("model_id"),
+            (body.get("repo_id") or "").strip(),
+            body.get("token"),
+        )
+        self.send_json_response(esito, 200 if esito.get("success") else 400)
+    except Exception as e:
+        log.error("Error in handle_models_hf_repo_attach: %s", e)
+        self.send_json_response({"success": False, "error": str(e)}, 500)
+
+
+def handle_models_hf_card_update(self):
+    """POST /api/models/hf/card/update — Riscrive solo la scheda su HF."""
+    try:
+        body = self.read_json_body() if hasattr(self, 'read_json_body') else {}
+        local_ref = (body.get("local_path") or body.get("model_id")
+                     or body.get("filename"))
+        if not local_ref:
+            self.send_json_response({"success": False,
+                                     "error": "Modello non indicato"}, 400)
+            return
+        from core.modules.sigma_model_hub.backend.uploader_engine import update_model_card
+        esito = update_model_card(
+            local_ref,
+            repo_id=body.get("repo_id"),
+            card=body.get("card"),
+            token=body.get("token"),
+            custom_notes=body.get("custom_notes") or None,
+            include_benchmarks=bool(body.get("include_benchmarks", True)),
+            include_hardware=bool(body.get("include_hardware", True)),
+        )
+        self.send_json_response(esito, 200 if esito.get("success") else 400)
+    except Exception as e:
+        log.error("Error in handle_models_hf_card_update: %s", e)
+        self.send_json_response({"success": False, "error": str(e)}, 500)
+
+
+def handle_models_publication_forget(self):
+    """POST /api/models/publication/forget — Dimentica il legame con HF."""
+    try:
+        body = self.read_json_body() if hasattr(self, 'read_json_body') else {}
+        from core.modules.sigma_model_hub.backend import publications
+        riferimento = (body.get("local_path") or body.get("model_id")
+                       or body.get("filename") or "")
+        # Solo il legame locale: su Hugging Face non tocca niente, e dirlo
+        # conta perche' "dimentica" accanto a un repository si puo' leggere
+        # come "cancella".
+        self.send_json_response({"success": True,
+                                 "forgotten": publications.forget_publication(riferimento),
+                                 "note": "Il repository su Hugging Face resta intatto."})
+    except Exception as e:
+        log.error("Error in handle_models_publication_forget: %s", e)
+        self.send_json_response({"success": False, "error": str(e)}, 500)
+
+
+def handle_models_hf_repo_status(self):
+    """POST /api/models/hf/repo/status — Se il repository esiste gia' su HF."""
+    try:
+        body = self.read_json_body() if hasattr(self, 'read_json_body') else {}
+        repo_id = (body.get("repo_id") or "").strip()
+        if not repo_id:
+            self.send_json_response({"success": False, "error": "repo_id mancante"}, 400)
+            return
+        from core.modules.sigma_model_hub.backend.uploader_engine import hf_repo_status
+        self.send_json_response(hf_repo_status(repo_id, body.get("token")))
+    except Exception as e:
+        log.error("Error in handle_models_hf_repo_status: %s", e)
+        self.send_json_response({"success": False, "error": str(e)}, 500)
+
+
+def handle_models_hf_repo_rename(self):
+    """POST /api/models/hf/repo/rename — Sposta un repository a un altro nome."""
+    try:
+        body = self.read_json_body() if hasattr(self, 'read_json_body') else {}
+        from core.modules.sigma_model_hub.backend.uploader_engine import rename_hf_repo
+        from_id = (body.get("from_id") or body.get("repo_id") or body.get("old_repo_id")
+                   or body.get("old_name") or body.get("model_id") or "").strip()
+        to_id = (body.get("to_id") or body.get("new_repo_id") or body.get("new_name")
+                 or body.get("name") or body.get("to") or "").strip()
+        token = body.get("token")
+
+        if from_id and "/" not in from_id:
+            try:
+                from core.modules.sigma_model_hub.backend import publications
+                pub = publications.get_publication(from_id)
+                if pub and pub.get("repo_id") and "/" in pub["repo_id"]:
+                    from_id = pub["repo_id"].strip()
+            except Exception:
+                pass
+
+        if to_id and "/" not in to_id and from_id and "/" in from_id:
+            to_id = f"{from_id.split('/')[0]}/{to_id}"
+
+        esito = rename_hf_repo(from_id, to_id, token)
+        self.send_json_response(esito, 200 if esito.get("success") else 400)
+    except Exception as e:
+        log.error("Error in handle_models_hf_repo_rename: %s", e)
         self.send_json_response({"success": False, "error": str(e)}, 500)
 
 
@@ -557,19 +858,20 @@ def handle_models_engine_unload(self):
         self.send_json_response({"success": False, "error": str(e)}, 500)
 
 
+
 def handle_models_config_get(self):
     """GET /api/models/config — Restituisce impostazioni del Model Hub e stato del token HF."""
     try:
         from .hf_client import resolve_hf_token
+        from core.model_paths import extra_models_dirs
 
         cfg = _load_hub_config()
+        # Restituisci i percorsi extra attivi risolti come stringhe
+        cfg["extra_models_dirs"] = [str(p) for p in extra_models_dirs(refresh=True)]
         resolved = resolve_hf_token()
         self.send_json_response({
             "success": True,
             "config": cfg,
-            # The tab is the only place the token is managed, so it also has to
-            # show where an already-active token is coming from: an env var or
-            # a huggingface-cli login is not editable from here.
             "hf_has_token": bool(resolved["token"]),
             "hf_token_source": resolved["source"],
             "hf_token_source_detail": resolved["detail"],
@@ -582,12 +884,13 @@ def handle_models_config_get(self):
 def handle_models_config_save(self):
     """POST /api/models/config — Salva impostazioni del Model Hub e aggiorna i token attivi."""
     try:
-        from core.model_paths import models_dir, set_models_dir
+        from core.model_paths import models_dir, set_models_dir, set_extra_models_dirs, extra_models_dirs
 
         body = self.read_json_body() if hasattr(self, 'read_json_body') else {}
         if not isinstance(body, dict):
             body = {}
 
+        # Save config to file
         saved_cfg = _save_hub_config(body)
 
         # Update models_dir
@@ -596,12 +899,19 @@ def handle_models_config_save(self):
             resolved_dir = set_models_dir(new_dir)
             downloader_manager.set_models_dir(resolved_dir)
 
+        # Update extra_models_dirs
+        if "extra_models_dirs" in body:
+            raw_extras = body.get("extra_models_dirs") or []
+            if isinstance(raw_extras, list):
+                set_extra_models_dirs(raw_extras)
+
         # A single write path for the token: environment, every config file that
         # is read back on resolution, and the downloads already in flight, so an
         # interrupted gated download retries with the new token straight away.
         hf_token = (body.get("hf_token") or "").strip() if "hf_token" in body else (saved_cfg.get("hf_token") or "").strip()
         persist_hf_token(hf_token)
         saved_cfg["hf_token"] = hf_token
+        saved_cfg["extra_models_dirs"] = [str(p) for p in extra_models_dirs(refresh=True)]
 
         resolved = resolve_hf_token()
         self.send_json_response({
@@ -611,11 +921,124 @@ def handle_models_config_save(self):
             "hf_has_token": bool(resolved["token"]),
             "hf_token_source": resolved["source"],
             "hf_token_source_detail": resolved["detail"],
-            "active_models_dir": models_dir(),
         })
     except Exception as e:
         log.error("Error in handle_models_config_save: %s", e)
         self.send_json_response({"success": False, "error": str(e)}, 500)
+
+
+
+def handle_models_local_import(self):
+    """POST /api/models/local/import — Importa un modello locale o aggiunge una directory ai percorsi scansionati."""
+    try:
+        import shutil
+        from core.model_paths import models_dir, extra_models_dirs, set_extra_models_dirs
+        from .model_inventory import scan_local_models
+
+        body = self.read_json_body() if hasattr(self, 'read_json_body') else {}
+        if not isinstance(body, dict):
+            body = {}
+
+        source_path = (body.get("path") or body.get("source_path") or "").strip()
+        mode = (body.get("mode") or "add_path").strip().lower()  # "add_path", "copy", "symlink"
+
+        if not source_path:
+            self.send_json_response({"success": False, "error": "Percorso sorgente obbligatorio"}, 400)
+            return
+
+        abs_source = os.path.abspath(source_path)
+        if not os.path.exists(abs_source):
+            self.send_json_response({"success": False, "error": f"Percorso non trovato su disco: {source_path}"}, 400)
+            return
+
+        target_main_dir = os.path.abspath(models_dir())
+
+        # 1. Mode "add_path" or directory linking:
+        if mode == "add_path":
+            dir_to_add = abs_source if os.path.isdir(abs_source) else os.path.dirname(abs_source)
+            if dir_to_add == target_main_dir:
+                self.send_json_response({
+                    "success": True,
+                    "message": "Il percorso coincide già con la cartella principale dei modelli.",
+                    "path": dir_to_add,
+                    "extra_models_dirs": extra_models_dirs()
+                })
+                return
+
+            cfg = _load_hub_config()
+            existing_extras = [os.path.abspath(p) for p in (cfg.get("extra_models_dirs") or []) if p]
+            if dir_to_add not in existing_extras:
+                existing_extras.append(dir_to_add)
+                cfg["extra_models_dirs"] = existing_extras
+                _save_hub_config(cfg)
+                set_extra_models_dirs(existing_extras)
+
+            scanned = scan_local_models(custom_dir=dir_to_add)
+            self.send_json_response({
+                "success": True,
+                "mode": "add_path",
+                "message": f"Percorso '{dir_to_add}' aggiunto con successo. {len(scanned)} modello/i rilevati.",
+                "path": dir_to_add,
+                "models_found": len(scanned),
+                "extra_models_dirs": extra_models_dirs(refresh=True)
+            })
+            return
+
+        # 2. Mode "copy" or "symlink": copy or link into main models_dir
+        base_name = os.path.basename(abs_source.rstrip("/\\"))
+        dest_path = os.path.join(target_main_dir, base_name)
+
+        if os.path.exists(dest_path):
+            self.send_json_response({
+                "success": False,
+                "error": f"Nella cartella principale esiste già un elemento con nome '{base_name}'"
+            }, 400)
+            return
+
+        if mode == "symlink":
+            try:
+                if os.path.isdir(abs_source):
+                    try:
+                        os.symlink(abs_source, dest_path, target_is_directory=True)
+                    except (OSError, NotImplementedError):
+                        import subprocess
+                        subprocess.check_call(f'mklink /J "{dest_path}" "{abs_source}"', shell=True)
+                else:
+                    os.symlink(abs_source, dest_path)
+            except Exception as link_err:
+                log.warning("Symlink creation failed (%s), falling back to add_path.", link_err)
+                return self.send_json_response({
+                    "success": False,
+                    "error": f"Impossibile creare il collegamento simbolico (permessi Windows insufficienti). Prova la modalità 'Collega percorso' o 'Copia': {link_err}"
+                }, 400)
+
+            self.send_json_response({
+                "success": True,
+                "mode": "symlink",
+                "message": f"Collegamento simbolico creato con successo per '{base_name}'.",
+                "dest_path": dest_path
+            })
+            return
+
+        if mode == "copy":
+            if os.path.isdir(abs_source):
+                shutil.copytree(abs_source, dest_path)
+            else:
+                shutil.copy2(abs_source, dest_path)
+
+            self.send_json_response({
+                "success": True,
+                "mode": "copy",
+                "message": f"Modello '{base_name}' copiato con successo nella cartella principale dei modelli.",
+                "dest_path": dest_path
+            })
+            return
+
+        self.send_json_response({"success": False, "error": f"Modalità non supportata: {mode}"}, 400)
+    except Exception as e:
+        log.error("Error in handle_models_local_import: %s", e)
+        self.send_json_response({"success": False, "error": str(e)}, 500)
+
 
 
 def handle_models_hf_test_connection(self):
@@ -786,10 +1209,16 @@ def handle_models_convert_info(self):
 
 
 def handle_models_convert_tooling(self):
-    """POST /api/models/convert/tooling — Scarica lo script di conversione."""
+    """POST /api/models/convert/tooling — Scarica lo script di conversione.
+
+    Con {"force": true} riscarica sopra la copia esistente. Serve perche' il
+    riferimento e' un ramo che si muove: senza, la prima copia scaricata resta
+    li' per sempre e le architetture uscite dopo risultano non convertibili.
+    """
     try:
         from core.engine.gguf_converter import GgufConverter
-        res = GgufConverter.fetch_converter()
+        body = self.read_json_body() if hasattr(self, "read_json_body") else {}
+        res = GgufConverter.fetch_converter(force=bool((body or {}).get("force")))
         self.send_json_response(res, 200 if res.get("success") else 502)
     except Exception as e:
         log.error("Error in handle_models_convert_tooling: %s", e)
@@ -804,11 +1233,12 @@ def handle_models_convert_start(self):
         res = GgufConverter.start(
             model_name=body.get("model"),
             quantization=body.get("quantization", "Q4_K_M"),
+            keep_intermediate=bool(body.get("keep_intermediate")),
         )
-        self.send_json_response(res, 200 if res.get("success") else 400)
+        self.send_json_response(res, 200)
     except Exception as e:
         log.error("Error in handle_models_convert_start: %s", e)
-        self.send_json_response({"success": False, "error": str(e)}, 500)
+        self.send_json_response({"success": False, "error": str(e)}, 200)
 
 
 def handle_models_convert_jobs(self):
@@ -847,14 +1277,29 @@ def handle_models_browse_dirs(self):
                 {"success": False, "error": f"Non e' una cartella: {base}"}, 400)
             return
 
+        include_files = query.get("include_files", ["0"])[0].lower() in ("1", "true", "yes")
+
         entries = []
         for name in sorted(os.listdir(base)):
-            full = os.path.join(base, name)
-            if not os.path.isdir(full) or name.startswith("."):
+            if name.startswith("."):
                 continue
-            entries.append({
-                "name": name, "path": full, "has_models": _holds_models(full),
-            })
+            full = os.path.join(base, name)
+            if os.path.isdir(full):
+                entries.append({
+                    "name": name,
+                    "path": full,
+                    "is_dir": True,
+                    "has_models": _holds_models(full),
+                })
+            elif include_files and os.path.isfile(full) and full.endswith((".gguf", ".safetensors", ".bin", ".pt")):
+                sz_mb = round(os.path.getsize(full) / (1024 * 1024), 1)
+                entries.append({
+                    "name": name,
+                    "path": full,
+                    "is_dir": False,
+                    "is_model_file": True,
+                    "size_mb": sz_mb,
+                })
 
         parent = os.path.dirname(base.rstrip(os.sep))
         self.send_json_response({
@@ -927,6 +1372,7 @@ def register_routes(app=None) -> None:
     }
 
     post_routes = {
+        '/api/models/hf/download': handle_models_hf_download,
         '/api/models/hf/download/start': handle_models_hf_download_start,
         '/api/models/hf/download/repo': handle_models_hf_download_repo,
         '/api/models/hf/download/pause': handle_models_hf_download_pause,
@@ -942,6 +1388,15 @@ def register_routes(app=None) -> None:
         '/api/models/hf/token/test': handle_models_hf_token_test,
         '/api/models/hf/test-connection': handle_models_hf_test_connection,
         '/api/models/local/delete': handle_models_local_delete,
+        '/api/models/local/rename': handle_models_local_rename,
+        '/api/models/local/import': handle_models_local_import,
+        '/api/models/speedtest': handle_models_speedtest,
+        '/api/models/hf/repo/status': handle_models_hf_repo_status,
+        '/api/models/hf/repo/discover': handle_models_hf_repo_discover,
+        '/api/models/hf/repo/attach': handle_models_hf_repo_attach,
+        '/api/models/hf/card/update': handle_models_hf_card_update,
+        '/api/models/publication/forget': handle_models_publication_forget,
+        '/api/models/hf/repo/rename': handle_models_hf_repo_rename,
         '/api/models/delete': handle_models_local_delete,
         '/api/models/engine/load': handle_models_engine_load,
         '/api/models/engine/unload': handle_models_engine_unload,
@@ -949,6 +1404,7 @@ def register_routes(app=None) -> None:
         '/api/models/convert/start': handle_models_convert_start,
         '/api/models/convert/tooling': handle_models_convert_tooling,
     }
+
 
     try:
         from core.fastapi_app import FastAPIHandlerAdapter

@@ -60,6 +60,20 @@ _worker: threading.Thread | None = None
 _stop_requested = threading.Event()
 
 
+def is_benchmark_available() -> bool:
+    """Verifica se il modulo di benchmark e' installato e disponibile."""
+    try:
+        import core.modules.sigma_benchmark_lab.benchmarks  # noqa: F401
+        return True
+    except ImportError:
+        try:
+            from core.modules.sigma_training_lab.training import benchmarks
+            return hasattr(benchmarks, "start_benchmark_run")
+        except Exception:
+            return False
+
+
+
 # ---------------------------------------------------------------- competenze
 
 #: Che cosa allenare quando una suite risulta debole. I dataset sono
@@ -1027,6 +1041,12 @@ def start(base_model: str, items: int = DEFAULT_ITEMS,
             # decidiamo adesso perche' e' la chiave con cui si riprende.
             from core.modules.sigma_training_lab.training.model_catalog import ollama_name_for
             base_model = ollama_name_for(train_model)
+        if not is_benchmark_available():
+            return {
+                "success": False,
+                "error": "L'Autopilota di Training necessita del modulo 'sigma_benchmark_lab' per profilare il modello e validare i candidati. Installalo dal Marketplace per avviare il ciclo.",
+                "missing_module": "sigma_benchmark_lab",
+            }
         if not base_model:
             return {"success": False, "error": "Nessun modello indicato."}
         if _free_gb() < REQUIRED_FREE_GB:
@@ -1103,6 +1123,7 @@ def status(model: str = "") -> dict:
             for r in state.get("rounds", [])
         ]
         state["current_job"] = {}
+    state["benchmark_installed"] = is_benchmark_available()
     return {
         "success": True,
         "state": state,

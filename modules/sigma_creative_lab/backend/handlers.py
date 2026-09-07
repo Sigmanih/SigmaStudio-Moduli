@@ -71,14 +71,17 @@ def register_routes(app=None) -> None:
     # Bind to FastAPIHandlerAdapter if present in runtime
     try:
         from core.fastapi_app import FastAPIHandlerAdapter
+        if not hasattr(FastAPIHandlerAdapter, '_GET_HANDLERS') or not isinstance(FastAPIHandlerAdapter._GET_HANDLERS, dict):
+            FastAPIHandlerAdapter._GET_HANDLERS = {}
+        if not hasattr(FastAPIHandlerAdapter, '_POST_HANDLERS') or not isinstance(FastAPIHandlerAdapter._POST_HANDLERS, dict):
+            FastAPIHandlerAdapter._POST_HANDLERS = {}
+
         for path, fn in get_routes.items():
             setattr(FastAPIHandlerAdapter, fn.__name__, fn)
-            if hasattr(FastAPIHandlerAdapter, '_GET_HANDLERS') and isinstance(FastAPIHandlerAdapter._GET_HANDLERS, dict):
-                FastAPIHandlerAdapter._GET_HANDLERS[path] = fn.__name__
+            FastAPIHandlerAdapter._GET_HANDLERS[path] = fn.__name__
         for path, fn in post_routes.items():
             setattr(FastAPIHandlerAdapter, fn.__name__, fn)
-            if hasattr(FastAPIHandlerAdapter, '_POST_HANDLERS') and isinstance(FastAPIHandlerAdapter._POST_HANDLERS, dict):
-                FastAPIHandlerAdapter._POST_HANDLERS[path] = fn.__name__
+            FastAPIHandlerAdapter._POST_HANDLERS[path] = fn.__name__
         log.info('[sigma_creative_lab] 36 route collegate a FastAPIHandlerAdapter.')
     except Exception as e:
         log.warning(f'[sigma_creative_lab] Avviso binding FastAPIHandlerAdapter: {e}')
@@ -87,8 +90,8 @@ def register_routes(app=None) -> None:
 def register_mcp(mcp_hub) -> None:
     """Registra il server MCP di Creative Lab nell'hub MCP del kernel."""
     try:
-        from .mcp_server import CreativeServer
-        mcp_hub.register_server('creative', CreativeServer)
+        from .mcp_server import CreativeMCPServer
+        mcp_hub.register_server(CreativeMCPServer)
         log.info('[sigma_creative_lab] MCP server registrato.')
     except Exception as e:
         log.warning(f'[sigma_creative_lab] MCP server non registrato: {e}')

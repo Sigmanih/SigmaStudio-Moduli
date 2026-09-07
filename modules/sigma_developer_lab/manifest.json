@@ -1,34 +1,30 @@
 {
   "id": "sigma_developer_lab",
-  "name": "Developer Lab & Docker Sandbox",
+  "name": "Developer Studio & Admin IDE",
   "version": "v1.0.0",
   "category": "Sviluppo & Sandbox",
-  "tabType": "developer_lab",
-  "sidebarLabel": "Developer Lab",
+  "tabType": "developer_studio",
+  "sidebarLabel": "Developer Studio",
   "sidebarIcon": "Terminal",
-  "sidebarBadge": "DOCKER",
-  "sidebarBadgeColor": "rgba(0,210,255,0.15)",
-  "sidebarCategory": "Studio Generativo & Agenti AI",
-  "description": "IDE avanzato per programmatori con gestione container Docker isolati, esecuzione codice live con terminale output, installazione pacchetti pip/npm in container e runner test pytest.",
+  "sidebarBadge": "ADMIN",
+  "sidebarBadgeColor": "rgba(0,242,254,0.25)",
+  "sidebarCategory": "Infrastruttura & Sistema",
+  "description": "IDE amministrativo per sviluppare Sigma Studio dall'interno: albero del workspace, editor, terminale, orchestrazione a cinque fasi e server MCP per Git, Lint e Pytest. Il runtime dell'agente arriva da core.harness.",
   "author": "Sigma Core Team",
   "repository": "https://github.com/Sigmanih/SigmaStudio-Moduli",
   "branch": "main",
   "path": "modules/sigma_developer_lab",
-  "tags": ["Docker", "Sandbox", "Pytest", "Python", "Node.js", "Terminal", "Developer MCP"],
+  "tags": [
+    "IDE",
+    "Terminal",
+    "Admin Agent",
+    "Monaco Editor",
+    "Git MCP",
+    "Lint MCP",
+    "Test MCP"
+  ],
   "size": "~2 MB",
   "icon": "Terminal",
-  "color": "#00d2ff",
-  "frontend": {
-    "entrypoint": "frontend/index.jsx",
-    "styles": ["frontend/styles/developer-lab.css"],
-    "install_to": "sigma_studio/src/modules/sigma_developer_lab/"
-  },
-  "backend": {
-    "handlers_module": "core.modules.sigma_developer_lab.backend.handlers",
-    "mcp_server_module": "core.modules.sigma_developer_lab.backend.developer_server",
-    "routes_prefix": "/api/developer",
-    "install_to": "core/modules/sigma_developer_lab/"
-  },
-  "requirements": "requirements.txt",
-  "kernel_modules_required": []
+  "color": "#00f2fe",
+  "requirements": "requirements.txt"
 }

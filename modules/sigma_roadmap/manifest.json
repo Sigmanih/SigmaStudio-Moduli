@@ -14,21 +14,20 @@
   "repository": "https://github.com/Sigmanih/SigmaStudio-Moduli",
   "branch": "main",
   "path": "modules/sigma_roadmap",
-  "tags": ["Roadmap", "Kanban", "Calendar", "Audit Trail", "Task Management", "Milestones", "Calendar MCP", "Google Calendar / CalDAV"],
+  "tags": [
+    "Roadmap",
+    "Kanban",
+    "Calendar",
+    "Audit Trail",
+    "Task Management",
+    "Milestones",
+    "Calendar MCP",
+    "Google Calendar / CalDAV"
+  ],
   "size": "~1 MB",
   "icon": "Calendar",
   "color": "#ffd700",
-  "frontend": {
-    "entrypoint": "frontend/index.jsx",
-    "install_to": "sigma_studio/src/modules/sigma_roadmap/"
-  },
-  "backend": {
-    "handlers_module": "core.modules.sigma_roadmap.backend.handlers",
-    "routes_prefix": "/api/tasks",
-    "install_to": "core/modules/sigma_roadmap/"
-  },
   "requirements": "requirements.txt",
-  "kernel_modules_required": [],
   "changelog": [
     {
       "version": "v1.0.0",
