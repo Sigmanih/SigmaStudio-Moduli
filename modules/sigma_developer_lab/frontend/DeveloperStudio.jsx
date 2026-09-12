@@ -3,6 +3,9 @@ import { useApp } from '../../contexts/AppContext';
 import WorkspaceExplorer from './WorkspaceExplorer';
 import CodeEditor from './CodeEditor';
 import TerminalPanel from './TerminalPanel';
+import ModulePublisher from './ModulePublisher';
+import FanoutPanel from './FanoutPanel';
+import ActivityBar from './ActivityBar';
 import AdminAgentChat from './AdminAgentChat';
 
 export default function DeveloperStudio() {
@@ -325,6 +328,14 @@ export default function DeveloperStudio() {
             theme={theme}
             isLight={isLight}
           />
+          {/* Il lavoro grande, spezzato e dato a piu' agenti */}
+          {/* Cosa sta girando adesso, chiunque lo abbia lanciato: una
+              curl, un'altra scheda, il ventaglio. Sta sopra al resto
+              perche' e' la prima domanda di chi apre la pagina. */}
+          <ActivityBar isLight={isLight} />
+          <FanoutPanel workspaceRoot={workspaceRoot} isLight={isLight} />
+          {/* Dove va a finire il lavoro fatto sui moduli */}
+          <ModulePublisher isLight={isLight} />
         </div>
       ) : (
         <div 

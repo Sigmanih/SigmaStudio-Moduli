@@ -53,6 +53,13 @@ const createNewTask = (title = 'Nuovo Task') => ({
   // default: serve un repo git, e per una modifica di due righe il costo
   // della copia non vale la rete di sicurezza.
   isolateWorktree: false,
+  // La revisione di tutto il lavoro in una volta, alla fine. E' la forma
+  // che regge quando il run tocca molti file; richiede l'isolamento.
+  reviewRun: false,
+  // Il tetto ai tool, scelto dall'utente: vuoto significa nessun limite
+  // oltre a quelli del ruolo. E' un tetto, non una scelta alternativa —
+  // in sola lettura nessun ruolo puo' scrivere, per quanti tool dichiari.
+  profile: '',
   isGoalCompleted: false,
   pipeline: [],
   messages: [
@@ -210,6 +217,8 @@ const sanitizeTasksForLocalStorage = (tasksList) => {
     autoLoop: t.autoLoop ?? true,
     reviewWrites: t.reviewWrites ?? false,
     isolateWorktree: t.isolateWorktree ?? false,
+    reviewRun: t.reviewRun ?? false,
+    profile: t.profile ?? '',
     isGoalCompleted: t.isGoalCompleted ?? false,
     pipeline: (t.pipeline || []).slice(0, 30),
     messages: (t.messages || []).slice(-30).map(m => ({
@@ -314,6 +323,8 @@ export default function AdminAgentChat({
   const autoLoop = activeTask.autoLoop ?? true;
   const reviewWrites = activeTask.reviewWrites ?? false;
   const isolateWorktree = activeTask.isolateWorktree ?? false;
+  const reviewRun = activeTask.reviewRun ?? false;
+  const profile = activeTask.profile ?? '';
   const isGoalCompleted = activeTask.isGoalCompleted ?? false;
   const pipeline = activeTask.pipeline || [];
 
@@ -349,7 +360,14 @@ export default function AdminAgentChat({
   // chiuso l'obiettivo. Un branch di cui nessuno sa il nome e' perso
   // quanto uno cancellato.
   const [preservedBranch, setPreservedBranch] = useState(null);
+  // Il lavoro consegnato su dev, con dove andarlo ad accettare.
+  const [deliveredWork, setDeliveredWork] = useState(null);
   const [truncationCount, setTruncationCount] = useState(0);
+  // Il diario: cosa è stato fatto, una riga per fatto, mentre succede. Il
+  // pannello tecnico mostra gli eventi grezzi; questo è il racconto.
+  const [diario, setDiario] = useState([]);
+  // Il consuntivo di fine run, costruito dal ledger e non dal modello.
+  const [runReport, setRunReport] = useState(null);
   // Lo stato di lavoro ritrovato sul server all'inizio del run: dirlo evita
   // che l'utente si chieda perche' l'agente non stia rileggendo nulla.
   const [resumedFrom, setResumedFrom] = useState(null);
@@ -640,6 +658,21 @@ export default function AdminAgentChat({
     setTasks(prev => prev.map(t => t.id === activeTask.id ? { ...t, isolateWorktree: val, updatedAt: new Date().toISOString() } : t));
   };
 
+  // La revisione del run non ha senso senza isolamento: senza worktree le
+  // modifiche sono già nell'albero vivo e «scarta» non avrebbe niente da
+  // scartare. Accendendola si accende anche quello, invece di lasciare una
+  // scelta che il server poi ignora.
+  const handleSelectProfile = (val) => {
+    setTasks(prev => prev.map(t => t.id === activeTask.id
+      ? { ...t, profile: val, updatedAt: new Date().toISOString() } : t));
+  };
+
+  const handleToggleReviewRun = (val) => {
+    setTasks(prev => prev.map(t => t.id === activeTask.id
+      ? { ...t, reviewRun: val, isolateWorktree: val ? true : t.isolateWorktree, updatedAt: new Date().toISOString() }
+      : t));
+  };
+
   // La decisione viaggia su una richiesta separata: lo stream SSE sta ancora
   // scaricando il run, ed e' proprio il thread che questa risposta sblocca.
   const handleReviewDecide = async (proposalId, decision) => {
@@ -877,7 +910,9 @@ export default function AdminAgentChat({
           // aveva gia' letto dopo un refresh della pagina.
           session_id: currentTaskId,
           review_writes: reviewWrites,
-          isolate_worktree: isolateWorktree
+          isolate_worktree: isolateWorktree,
+          review_run: reviewRun,
+          profile
         })
       });
 
@@ -962,6 +997,27 @@ export default function AdminAgentChat({
               continue;
             }
 
+            // Il lavoro e' arrivato su dev: da li' si accetta.
+            if (event.type === 'run_delivered') {
+              setDeliveredWork({
+                branch: event.branch,
+                base: event.base,
+                files: (event.files || []).length,
+                url: event.pull_request_url || event.compare_url || '',
+                opened: !!event.pull_request_url
+              });
+              setAgentStatus(`Lavoro consegnato su ${event.branch}`);
+              continue;
+            }
+
+            if (event.type === 'delivery_failed') {
+              setDeliveredWork(null);
+              setAgentStatus(
+                `Consegna non riuscita: ${event.error || 'motivo sconosciuto'}`
+              );
+              continue;
+            }
+
             // Il run e' finito senza chiudere l'obiettivo e lavorava in un
             // worktree: il lavoro non e' perduto, ma serve saperne il branch.
             if (event.type === 'worktree_preserved') {
@@ -970,6 +1026,30 @@ export default function AdminAgentChat({
                 checkpoints: event.checkpoints || 0,
                 applyFailed: !!event.apply_failed
               });
+              continue;
+            }
+
+            // Tutto il lavoro del run, da rivedere in una volta sola.
+            if (event.type === 'run_diff_proposed') {
+              setPendingReview({
+                id: event.id,
+                path: event.branch,
+                diff: `${event.stat || ''}
+${event.diff || ''}`,
+                tool: 'run',
+                isRun: true,
+                fileCount: event.file_count,
+                truncated: !!event.truncated
+              });
+              setAgentStatus(`In attesa della tua revisione su ${event.file_count} file`);
+              continue;
+            }
+
+            if (event.type === 'run_diff_decided') {
+              setPendingReview(null);
+              setAgentStatus(event.applied
+                ? "Lavoro trasferito all'albero principale"
+                : `Lavoro non applicato: resta sul branch ${event.branch}`);
               continue;
             }
 
@@ -1001,6 +1081,19 @@ export default function AdminAgentChat({
             // diagnosable without reading the transcript.
             if (event.type === 'completion_rejected') {
               setGateReason(event.reason || null);
+              continue;
+            }
+
+            // Una riga di diario: un fatto, non un evento tecnico.
+            if (event.type === 'diario') {
+              setDiario(prev => [...prev.slice(-199),
+                                 { text: event.text, at: event.at || Date.now() / 1000 }]);
+              continue;
+            }
+
+            // Il consuntivo: cosa è stato fatto, come funziona, come lo sappiamo.
+            if (event.type === 'run_report') {
+              setRunReport({ text: event.report, reached: !!event.goal_reached });
               continue;
             }
 
@@ -1352,6 +1445,48 @@ export default function AdminAgentChat({
             <label style={{
               fontSize: '0.64rem',
               fontWeight: 700,
+              color: reviewRun ? '#d29922' : '#8b949e',
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '4px'
+            }}
+            title="A fine run mostra il diff di tutto il lavoro e chiede una sola approvazione prima di trasferirlo. Accende anche l'isolamento, che è la sua precondizione"
+            >
+              <input
+                type="checkbox"
+                checked={reviewRun}
+                onChange={e => handleToggleReviewRun(e.target.checked)}
+                style={{ accentColor: '#d29922' }}
+              />
+              Revisione run
+            </label>
+
+            <select
+              value={profile}
+              onChange={e => handleSelectProfile(e.target.value)}
+              title="Un tetto ai tool, indipendente dal ruolo: in sola lettura nessun ruolo puo scrivere, per quanti tool dichiari"
+              style={{
+                fontSize: '0.62rem',
+                fontWeight: 700,
+                padding: '2px 4px',
+                borderRadius: '4px',
+                cursor: 'pointer',
+                color: profile ? '#f0883e' : '#8b949e',
+                background: isLight ? '#ffffff' : '#161b22',
+                border: profile
+                  ? '1px solid rgba(240, 136, 62, 0.45)'
+                  : (isLight ? '1px solid #d0d7de' : '1px solid rgba(255,255,255,0.12)')
+              }}
+            >
+              <option value="">Nessun limite</option>
+              <option value="read_only">Sola Lettura</option>
+              <option value="plan_only">Sola Pianificazione</option>
+            </select>
+
+            <label style={{
+              fontSize: '0.64rem',
+              fontWeight: 700,
               color: autoLoop ? '#00f2fe' : '#8b949e',
               cursor: 'pointer',
               display: 'flex',
@@ -1588,7 +1723,55 @@ export default function AdminAgentChat({
           truncationCount={truncationCount}
           resumedFrom={resumedFrom}
           runMetrics={runMetrics}
+          diario={diario}
+          runReport={runReport}
         />
+
+        {deliveredWork && (
+          <div style={{
+            margin: '6px 0',
+            padding: '7px 10px',
+            borderRadius: '8px',
+            border: '1px solid rgba(63, 185, 80, 0.45)',
+            background: isLight ? 'rgba(63, 185, 80, 0.08)' : 'rgba(63, 185, 80, 0.10)',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '8px',
+            flexWrap: 'wrap'
+          }}>
+            <span style={{ fontSize: '0.68rem', fontWeight: 800, color: '#3fb950' }}>
+              Consegnato
+            </span>
+            <span style={{ fontSize: '0.66rem', color: isLight ? '#24292e' : '#c9d1d9' }}>
+              {deliveredWork.files} file su <code style={{ color: '#3fb950' }}>{deliveredWork.branch}</code>,
+              da accettare verso <code style={{ color: '#3fb950' }}>{deliveredWork.base}</code>
+            </span>
+            {deliveredWork.url && (
+              <a
+                href={deliveredWork.url}
+                target="_blank"
+                rel="noreferrer"
+                style={{
+                  fontSize: '0.66rem',
+                  fontWeight: 700,
+                  color: '#00f2fe',
+                  textDecoration: 'none'
+                }}
+              >
+                {deliveredWork.opened ? 'Apri la richiesta' : 'Apri la richiesta su GitHub'} →
+              </a>
+            )}
+            <button
+              onClick={() => setDeliveredWork(null)}
+              style={{
+                marginLeft: 'auto', background: 'transparent', border: 'none',
+                color: '#8b949e', cursor: 'pointer', fontSize: '0.7rem'
+              }}
+            >
+              ✕
+            </button>
+          </div>
+        )}
 
         {preservedBranch && (
           <div style={{

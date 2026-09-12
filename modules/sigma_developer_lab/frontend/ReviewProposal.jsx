@@ -63,7 +63,7 @@ export default function ReviewProposal({ proposal, onDecide, deciding, isLight }
         borderBottom: '1px solid rgba(210, 153, 34, 0.35)'
       }}>
         <span style={{ fontSize: '0.72rem', fontWeight: 800, color: '#d29922' }}>
-          ⏸ Modifica da rivedere
+          {proposal.isRun ? '⏸ Lavoro del run da rivedere' : '⏸ Modifica da rivedere'}
         </span>
         <code style={{
           fontSize: '0.68rem',
@@ -74,7 +74,7 @@ export default function ReviewProposal({ proposal, onDecide, deciding, isLight }
           {proposal.path}
         </code>
         <span style={{ fontSize: '0.62rem', color: '#8b949e' }}>
-          {proposal.tool}
+          {proposal.isRun ? `${proposal.fileCount} file` : proposal.tool}
         </span>
         <span style={{ fontSize: '0.62rem', fontWeight: 700, marginLeft: 'auto' }}>
           <span style={{ color: '#3fb950' }}>+{aggiunte}</span>
@@ -105,6 +105,18 @@ export default function ReviewProposal({ proposal, onDecide, deciding, isLight }
           </div>
         ))}
       </pre>
+
+      {proposal.truncated && (
+        <div style={{
+          padding: '4px 10px',
+          fontSize: '0.6rem',
+          color: '#8b949e',
+          borderTop: '1px solid rgba(210, 153, 34, 0.2)'
+        }}>
+          Diff troncato. Il testo completo è sul branch{' '}
+          <code style={{ color: '#a371f7' }}>{proposal.path}</code>.
+        </div>
+      )}
 
       <div style={{
         padding: '7px 10px',
@@ -148,7 +160,9 @@ export default function ReviewProposal({ proposal, onDecide, deciding, isLight }
         {/* Il silenzio non è un sì: se nessuno decide, la modifica viene
             annullata da sola. Dirlo qui evita di scoprirlo dopo. */}
         <span style={{ fontSize: '0.6rem', color: '#8b949e' }}>
-          L'agente è in attesa. Senza risposta la modifica viene annullata.
+          {proposal.isRun
+            ? "Applica trasferisce il lavoro all'albero principale. Scarta lo lascia sul branch della sessione: non si perde."
+            : "L'agente è in attesa. Senza risposta la modifica viene annullata."}
         </span>
       </div>
     </div>

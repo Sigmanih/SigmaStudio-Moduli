@@ -259,6 +259,10 @@ async def handle_agent_chat(request: Request):
     # vivo. Richiede una sessione perche' il worktree e' intestato a quella, ed
     # e' anche cio' che permette di ritrovarne il branch dopo.
     isolate_worktree = bool(body.get("isolate_worktree")) and bool(session_id)
+    # La revisione del lavoro intero, una volta sola alla fine. E' la forma
+    # che serve quando il run tocca molti file: duecento approvazioni una per
+    # una nessuno le da'.
+    review_run = bool(body.get("review_run")) and bool(session_id)
 
     # The agent loop is fully synchronous and blocking (model inference, filesystem
     # search, shell commands). It MUST run on a worker thread: executing it inline on
@@ -285,6 +289,7 @@ async def handle_agent_chat(request: Request):
                     profile=profile,
                     review_writes=review_writes,
                     isolate_worktree=isolate_worktree,
+                    review_run=review_run,
                 ):
                     if cancel_event.is_set():
                         break
@@ -340,23 +345,132 @@ async def handle_agent_chat(request: Request):
 
 
 async def handle_workspace_roots(request: Request):
-    """GET /api/developer/workspace/roots — Lists suggested workspace roots and drives."""
+    """GET /api/developer/workspace/roots — le cartelle su cui si puo' lavorare.
+
+    In cima stanno Sigma Studio e i progetti sotto l'indirizzo di sviluppo:
+    sono le scelte giuste, e vanno trovate per prime. Le lettere di unita'
+    restano perche' servono a navigare verso un progetto che sta altrove, ma
+    portano `unsafe` con il motivo: un agente su `C:/` puo' scrivere ovunque,
+    e chi sceglie deve vederlo scritto prima di sceglierlo, non dopo.
+    """
+    from core.progetti import elenca_progetti, radice_pericolosa, radice_progetti
+
     roots = []
     default_root = get_default_workspace_root()
-    roots.append({"label": f"Project Root ({Path(default_root).name})", "path": default_root.replace("\\", "/")})
-    
-    # Windows drive roots (C:/, D:/, etc.) or home
-    home = str(Path.home())
-    roots.append({"label": f"User Home ({Path(home).name})", "path": home.replace("\\", "/")})
+    roots.append({"label": f"Sigma Studio ({Path(default_root).name})",
+                  "path": default_root.replace("\\", "/"), "kind": "studio"})
 
+    try:
+        radice = radice_progetti()
+        roots.append({"label": f"Progetti ({radice.name})",
+                      "path": str(radice).replace("\\", "/"), "kind": "projects_root"})
+        for progetto in elenca_progetti():
+            roots.append({
+                "label": f"  {progetto['name']}" + (" ·git" if progetto["is_git"] else ""),
+                "path": progetto["path"], "kind": "project",
+            })
+    except Exception as exc:  # l'elenco non deve poter rompere la pagina
+        log.warning("[Developer] progetti non elencati: %s", exc)
+
+    altre = [str(Path.home())]
     if os.name == "nt":
         import string
-        for letter in string.ascii_uppercase:
-            drive = f"{letter}:\\"
-            if os.path.exists(drive):
-                roots.append({"label": f"Drive {letter}:", "path": f"{letter}:/"})
+        altre += [f"{letter}:/" for letter in string.ascii_uppercase
+                  if os.path.exists(f"{letter}:\\")]
+    for percorso in altre:
+        motivo = radice_pericolosa(percorso)
+        voce = {"label": Path(percorso).name or percorso,
+                "path": percorso.replace("\\", "/"), "kind": "other"}
+        if motivo:
+            voce["unsafe"] = motivo
+        roots.append(voce)
 
-    return JSONResponse(status_code=200, content={"success": True, "roots": roots, "current": default_root.replace("\\", "/")})
+    return JSONResponse(status_code=200, content={
+        "success": True, "roots": roots,
+        "current": default_root.replace("\\", "/")})
+
+
+async def handle_sandbox(request: Request):
+    """GET /api/developer/sandbox — dove girano i comandi, e se puo' funzionare.
+
+    `active` e' vero solo se la sandbox e' chiesta **e** possibile: dire
+    «accesa» quando Docker non c'e' sarebbe la bugia peggiore, perche' chi
+    legge crederebbe di essere protetto.
+    """
+    from core.harness.esecutori import stato_sandbox
+
+    try:
+        return JSONResponse(status_code=200, content={"success": True,
+                                                      **stato_sandbox()})
+    except Exception as exc:
+        return JSONResponse(status_code=500,
+                            content={"success": False, "error": str(exc)})
+
+
+async def handle_sandbox_save(request: Request):
+    """POST /api/developer/sandbox — cambia la modalita' di esecuzione."""
+    from core.harness.esecutori import salva_config, stato_sandbox
+
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    try:
+        salva_config(body)
+        return JSONResponse(status_code=200, content={"success": True,
+                                                      **stato_sandbox()})
+    except (ValueError, OSError) as exc:
+        return JSONResponse(status_code=400,
+                            content={"success": False, "error": str(exc)})
+
+
+async def handle_projects(request: Request):
+    """GET /api/developer/projects — l'indirizzo di sviluppo e cosa contiene."""
+    from core.progetti import elenca_progetti, radice_progetti
+
+    try:
+        return JSONResponse(status_code=200, content={
+            "success": True,
+            "root": str(radice_progetti()).replace("\\", "/"),
+            "projects": elenca_progetti(),
+        })
+    except Exception as exc:
+        return JSONResponse(status_code=500, content={
+            "success": False, "error": str(exc), "projects": []})
+
+
+async def handle_projects_root(request: Request):
+    """POST /api/developer/projects/root — sposta l'indirizzo di sviluppo."""
+    from core.progetti import imposta_radice
+
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    try:
+        return JSONResponse(status_code=200, content={
+            "success": True, **imposta_radice(str(body.get("root") or ""))})
+    except (ValueError, OSError) as exc:
+        return JSONResponse(status_code=400, content={
+            "success": False, "error": str(exc)})
+
+
+async def handle_project_create(request: Request):
+    """POST /api/developer/projects — crea la cartella di un progetto nuovo."""
+    from core.progetti import crea_progetto
+
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    try:
+        cartella = crea_progetto(str(body.get("name") or ""))
+        return JSONResponse(status_code=200, content={
+            "success": True, "name": cartella.name,
+            "path": str(cartella).replace("\\", "/")})
+    except (ValueError, OSError) as exc:
+        return JSONResponse(status_code=400, content={
+            "success": False, "error": str(exc)})
 
 
 def _get_tasks_filepath() -> Path:
@@ -406,6 +520,14 @@ async def handle_orchestrator_run(request: Request):
     workspace_root = body.get("workspace_root") or get_default_workspace_root()
     session_id = str(body.get("session_id") or "").strip() or None
 
+    # Le tre reti di sicurezza, come per il singolo agente. Tutte e tre
+    # chiedono un session_id: senza, non c'e' un worktree da intestare ne' un
+    # gate di revisione da interrogare, e accenderle darebbe solo l'impressione
+    # di essere protetti.
+    isolate_worktree = bool(body.get("isolate_worktree")) and bool(session_id)
+    review_run = bool(body.get("review_run")) and bool(session_id)
+    review_writes = bool(body.get("review_writes")) and bool(session_id)
+
     if not goal:
         return JSONResponse(status_code=400, content={"success": False, "error": "Parametro 'goal' richiesto."})
 
@@ -431,6 +553,12 @@ async def handle_orchestrator_run(request: Request):
                     goal=goal,
                     mode=mode,
                     model_name=model,
+                    # Le tre reti di sicurezza valgono per la squadra quanto
+                    # per il singolo agente. Servono un session_id: senza, non
+                    # c'e' un worktree da intestare ne' un gate da interrogare.
+                    isolate_worktree=isolate_worktree,
+                    review_run=review_run,
+                    review_writes=review_writes,
                 ):
                     if cancel_event.is_set():
                         orchestrator.cancel()
@@ -738,6 +866,47 @@ async def handle_review_pending(request: Request):
     })
 
 
+async def handle_run_checkpoints(request: Request):
+    """GET /api/developer/run/checkpoints — I punti a cui si puo' tornare.
+
+    Ha senso solo per un run isolato in worktree: senza, non ci sono
+    checkpoint, e non c'e' niente a cui tornare.
+    """
+    from core.harness.worktree import session_checkpoints
+
+    session_id = str(request.query_params.get("session_id") or "").strip()
+    if not session_id:
+        return JSONResponse(status_code=400, content={
+            "success": False, "error": "Parametro 'session_id' richiesto."})
+    return JSONResponse(status_code=200, content={
+        "success": True, "session_id": session_id,
+        "checkpoints": session_checkpoints(session_id),
+    })
+
+
+async def handle_run_rollback(request: Request):
+    """POST /api/developer/run/rollback — Riporta il lavoro indietro di N turni.
+
+    Manuale per scelta: uno stallo del modello non dice che il codice scritto
+    fino a quel punto sia sbagliato, e annullarlo d'ufficio butterebbe via
+    lavoro buono. Chi torna indietro deve essere qualcuno che ha guardato.
+    """
+    from core.harness.worktree import rollback_session
+
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+
+    session_id = str(body.get("session_id") or "").strip()
+    if not session_id:
+        return JSONResponse(status_code=400, content={
+            "success": False, "error": "Parametro 'session_id' richiesto."})
+
+    esito = rollback_session(session_id, int(body.get("turns_back") or 1))
+    return JSONResponse(status_code=200 if esito.get("success") else 400, content=esito)
+
+
 ROUTES = (
     ("/api/developer/tasks", handle_get_tasks, ["GET"]),
     ("/api/developer/tasks", handle_save_tasks, ["POST"]),
@@ -754,6 +923,11 @@ ROUTES = (
     ("/api/developer/terminal/exec", handle_terminal_exec, ["POST"]),
     ("/api/developer/agent/chat", handle_agent_chat, ["POST"]),
     ("/api/developer/workspace/roots", handle_workspace_roots, ["GET"]),
+    ("/api/developer/projects", handle_projects, ["GET"]),
+    ("/api/developer/projects", handle_project_create, ["POST"]),
+    ("/api/developer/projects/root", handle_projects_root, ["POST"]),
+    ("/api/developer/sandbox", handle_sandbox, ["GET"]),
+    ("/api/developer/sandbox", handle_sandbox_save, ["POST"]),
     ("/api/developer/orchestrator/run", handle_orchestrator_run, ["POST"]),
     ("/api/developer/orchestrator/status", handle_orchestrator_status, ["GET"]),
     ("/api/developer/orchestrator/approve", handle_orchestrator_approve, ["POST"]),
@@ -766,6 +940,8 @@ ROUTES = (
     ("/api/developer/project/rules", handle_project_rules, ["GET"]),
     ("/api/developer/review/decide", handle_review_decide, ["POST"]),
     ("/api/developer/review/pending", handle_review_pending, ["GET"]),
+    ("/api/developer/run/checkpoints", handle_run_checkpoints, ["GET"]),
+    ("/api/developer/run/rollback", handle_run_rollback, ["POST"]),
 )
 
 

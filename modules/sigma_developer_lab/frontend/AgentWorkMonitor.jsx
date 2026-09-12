@@ -30,24 +30,27 @@ export default function AgentWorkMonitor({
   truncationCount = 0,
   resumedFrom = null,
   runMetrics = null,
+  diario = [],
+  runReport = null,
 }) {
   const [open, setOpen] = useState(true);
   const [expandedDiffFile, setExpandedDiffFile] = useState(null);
   const [expandedCommandIdx, setExpandedCommandIdx] = useState(null);
 
-  if (!ledger) return null;
+  if (!ledger && !runReport && !diario.length) return null;
 
-  const files = Array.isArray(ledger.files) ? ledger.files : [];
-  const commands = Array.isArray(ledger.commands) ? ledger.commands : [];
-  const diffs = ledger.diffs || {};
+  const stato = ledger || {};
+  const files = Array.isArray(stato.files) ? stato.files : [];
+  const commands = Array.isArray(stato.commands) ? stato.commands : [];
+  const diffs = stato.diffs || {};
   const changed = files.filter((f) => f.edits > 0 || f.writes > 0);
   const readOnly = files.filter((f) => f.reads > 0 && !f.edits && !f.writes);
   const failedCommands = commands.filter((c) => !c.ok);
   const lastCommand = commands.length ? commands[commands.length - 1] : null;
-  const isExploration = Boolean(ledger.is_exploration);
+  const isExploration = Boolean(stato.is_exploration);
   // I criteri di accettazione: l'unica cosa che dica se il lavoro e finito
   // davvero, invece che soltanto interrotto in un punto verde.
-  const criteria = Array.isArray(ledger.requirements) ? ledger.requirements : [];
+  const criteria = Array.isArray(stato.requirements) ? stato.requirements : [];
   const criteriaMet = criteria.filter((c) => c.met).length;
 
   const border = isLight ? '#d0d7de' : '#30363d';
@@ -93,6 +96,59 @@ export default function AgentWorkMonitor({
         overflow: 'hidden',
       }}
     >
+      {/* Il consuntivo: cosa è stato fatto, come funziona, come lo sappiamo.
+          Costruito dai fatti registrati nel ledger, non da ciò che il modello
+          dice di aver fatto. Sta in cima perché è la risposta alla domanda
+          che uno si fa per prima. */}
+      {runReport && (
+        <div style={{
+          padding: '10px 12px',
+          borderBottom: `1px solid ${border}`,
+          background: runReport.reached
+            ? 'rgba(63, 185, 80, 0.08)'
+            : 'rgba(210, 153, 34, 0.08)',
+        }}>
+          <div style={{
+            fontSize: '0.62rem', fontWeight: 800, letterSpacing: '0.04em',
+            color: runReport.reached ? '#3fb950' : '#d29922', marginBottom: 6,
+          }}>
+            {runReport.reached ? 'LAVORO CHIUSO' : 'LAVORO NON CHIUSO'}
+          </div>
+          <pre style={{
+            margin: 0, whiteSpace: 'pre-wrap', wordBreak: 'break-word',
+            fontSize: '0.66rem', lineHeight: 1.55, color: text,
+            fontFamily: 'inherit', maxHeight: 320, overflowY: 'auto',
+          }}>{runReport.text}</pre>
+        </div>
+      )}
+
+      {/* Il diario: lo stesso racconto un pezzo per volta, mentre succede.
+          Chi guarda non può aspettare il consuntivo, e non deve leggere
+          `tool_result` grezzi per capire a che punto siamo. */}
+      {diario.length > 0 && (
+        <details style={{ borderBottom: `1px solid ${border}` }}>
+          <summary style={{
+            padding: '7px 10px', cursor: 'pointer', fontSize: '0.64rem',
+            fontWeight: 700, color: text, background: subtle,
+          }}>
+            Diario · {diario.length} passi
+          </summary>
+          <div style={{ maxHeight: 220, overflowY: 'auto', padding: '6px 10px' }}>
+            {diario.slice().reverse().map((riga, i) => (
+              <div key={diario.length - i} style={{
+                fontSize: '0.64rem', lineHeight: 1.5, color: text,
+                padding: '2px 0', opacity: i === 0 ? 1 : 0.82,
+              }}>
+                <span style={{ opacity: 0.5, marginRight: 6 }}>
+                  {diario.length - i}.
+                </span>
+                {riga.text}
+              </div>
+            ))}
+          </div>
+        </details>
+      )}
+
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
@@ -131,7 +187,7 @@ export default function AgentWorkMonitor({
         </span>
 
         <span style={{ fontSize: '0.60rem', color: muted }}>
-          {fmtDuration(ledger.elapsed_s)}
+          {fmtDuration(stato.elapsed_s)}
         </span>
 
         <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap', marginLeft: 'auto' }}>
@@ -180,10 +236,10 @@ export default function AgentWorkMonitor({
           {/* I criteri di accettazione, dichiarati prima di cominciare */}
           {criteria.length > 0 && (
             <Section title={`Criteri di accettazione (${criteriaMet}/${criteria.length})`} isLight={isLight}>
-              {ledger.intake && (
+              {stato.intake && (
                 <Row isLight={isLight}>
                   <span style={{ fontSize: '0.62rem', color: muted, lineHeight: 1.45 }}>
-                    {ledger.intake}
+                    {stato.intake}
                   </span>
                 </Row>
               )}
@@ -410,9 +466,9 @@ export default function AgentWorkMonitor({
             </Section>
           )}
 
-          {Array.isArray(ledger.failures) && ledger.failures.length > 0 && (
+          {Array.isArray(stato.failures) && stato.failures.length > 0 && (
             <Section title="Errori recenti intercettati" isLight={isLight}>
-              {ledger.failures.slice(-4).map((f, i) => (
+              {stato.failures.slice(-4).map((f, i) => (
                 <Row key={i} isLight={isLight}>
                   <AlertTriangle size={12} color="#d29922" style={{ flexShrink: 0, marginTop: 2 }} />
                   <span style={{ fontSize: '0.60rem', color: muted, lineHeight: 1.45 }}>{f}</span>
