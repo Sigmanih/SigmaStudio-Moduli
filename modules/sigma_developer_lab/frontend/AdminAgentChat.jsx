@@ -2435,6 +2435,7 @@ ${event.diff || ''}`,
                           {t.tool === 'glob' && <Search size={13} />}
                           {t.tool === 'delete' && <Trash2 size={13} />}
                           {t.tool === 'list_dir' && <Layers size={13} />}
+                          {(t.tool === 'search_code' || t.tool === 'grep') && <Search size={13} />}
                           {(t.tool === 'pipeline' || t.tool === 'tasks' || t.tool === 'set_tasks') && <ListTodo size={13} />}
                           {(t.tool === 'complete_goal' || t.tool === 'finish_task') && <Award size={13} />}
                           <span>
@@ -2445,6 +2446,7 @@ ${event.diff || ''}`,
                              t.tool === 'delete' ? 'ELIMINAZIONE FILE / CARTELLA' :
                              t.tool === 'read_file' ? 'LETTURA FILE' :
                              t.tool === 'list_dir' ? 'ESPLORAZIONE DIRECTORY' :
+                             (t.tool === 'search_code' || t.tool === 'grep') ? 'RICERCA NEL CODICE' :
                              (t.tool === 'pipeline' || t.tool === 'tasks' || t.tool === 'set_tasks') ? 'AGGIORNAMENTO PIPELINE TASK' :
                              (t.tool === 'complete_goal' || t.tool === 'finish_task') ? 'OBIETTIVO COMPLETATO' :
                              `AZIONE: ${t.tool.toUpperCase()}`}
@@ -2491,6 +2493,14 @@ ${event.diff || ''}`,
                           {t.params?.path && (
                             <div style={{ fontFamily: 'monospace', color: isLight ? '#57606a' : '#8b949e', fontSize: '0.66rem' }}>
                               📂 Percorso: <strong>{t.params.path}</strong>
+                            </div>
+                          )}
+
+                          {/* Una ricerca senza il termine cercato e' una
+                              scheda che dice "ho cercato" e non dice cosa. */}
+                          {(t.params?.query || t.params?.pattern) && (
+                            <div style={{ fontFamily: 'monospace', color: isLight ? '#57606a' : '#8b949e', fontSize: '0.66rem' }}>
+                              🔎 Cerca: <strong>{t.params.query || t.params.pattern}</strong>
                             </div>
                           )}
 
