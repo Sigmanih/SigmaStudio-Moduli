@@ -258,6 +258,7 @@ export default function DeveloperStudio() {
   });
   const [leftCollapsed, setLeftCollapsed] = useState(false);
   const [rightCollapsed, setRightCollapsed] = useState(false);
+  const [headerPortalNode, setHeaderPortalNode] = useState(null);
 
   const [isResizingLeft, setIsResizingLeft] = useState(false);
   const [isResizingRight, setIsResizingRight] = useState(false);
@@ -378,113 +379,145 @@ export default function DeveloperStudio() {
         />
       )}
 
-      {/* 2. Center Panel: Code Editor + Bottom Terminal */}
+      {/* 2 & 3. Main Center + Right Workspace Area with Unified Modern Top Header */}
       <div style={{
         flex: 1,
         display: 'flex',
         flexDirection: 'column',
         height: '100%',
         overflow: 'hidden',
-        minWidth: '320px'
+        minWidth: 0,
+        position: 'relative'
       }}>
-        <CodeEditor
-          openFiles={openFiles}
-          activeFilePath={activeFilePath}
-          onSelectTab={setActiveFilePath}
-          onCloseTab={handleCloseTab}
-          onContentChange={handleContentChange}
-          onSaveFile={handleSaveFile}
-          onRunFileInTerminal={handleRunFileInTerminal}
-          activeDiff={activeDiff}
-          onAcceptDiff={() => {
-            setActiveDiff(null);
-            fetchTree();
-          }}
-          onRejectDiff={() => setActiveDiff(null)}
-          theme={theme}
-          isLight={isLight}
-        />
-
-        <TerminalPanel
-          workspaceRoot={workspaceRoot}
-          isExpanded={terminalExpanded}
-          onToggleExpand={() => setTerminalExpanded(!terminalExpanded)}
-          terminalLogs={terminalLogs}
-          onExecuteCommand={handleExecuteTerminalCommand}
-          onClearLogs={() => setTerminalLogs([])}
-          isRunningCommand={isRunningCommand}
-          theme={theme}
-          isLight={isLight}
-        />
-      </div>
-
-      {/* Right Resizer Splitter */}
-      {!rightCollapsed && (
-        <div
-          onMouseDown={() => setIsResizingRight(true)}
-          style={{
-            width: '5px',
-            cursor: 'col-resize',
-            background: isResizingRight ? '#00f2fe' : 'transparent',
-            zIndex: 10,
-            position: 'relative',
-            transition: 'background 0.15s ease'
-          }}
-          onMouseEnter={e => { if (!isResizingRight) e.currentTarget.style.background = 'rgba(0, 242, 254, 0.4)'; }}
-          onMouseLeave={e => { if (!isResizingRight) e.currentTarget.style.background = 'transparent'; }}
-        />
-      )}
-
-      {/* 3. Right Panel: Admin AI Developer Agent (Resizable & Collapsible) */}
-      {!rightCollapsed ? (
-        <div style={{
-          width: `${rightWidth}px`,
-          minWidth: `${rightWidth}px`,
-          height: '100%',
-          display: 'flex',
-          flexDirection: 'column',
-          position: 'relative'
-        }}>
-          <AdminAgentChat
-            workspaceRoot={workspaceRoot}
-            activeFilePath={activeFilePath}
-            activeFileContent={openFiles.find(f => f.path === activeFilePath)?.content}
-            onApplyDiff={(diff, path, content) => {
-              setActiveDiff(diff);
-              if (path) {
-                handleOpenFile(path);
-              }
-            }}
-            onOpenFile={handleOpenFile}
-            onExecuteTerminalCommand={handleExecuteTerminalCommand}
-            onRefreshTree={fetchTree}
-            theme={theme}
-            isLight={isLight}
-          />
-        </div>
-      ) : (
+        {/* Unified Top Header Bar Container spanning both center and right columns */}
         <div 
-          onClick={() => setRightCollapsed(false)}
-          title="Espandi Admin AI Chat"
+          ref={node => { if (node && node !== headerPortalNode) setHeaderPortalNode(node); }}
+          id="dev-studio-top-header"
           style={{
-            width: '28px',
-            height: '100%',
-            background: isLight ? '#f6f8fa' : '#0d1117',
-            borderLeft: isLight ? '1px solid #d0d7de' : '1px solid rgba(255,255,255,0.08)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            cursor: 'pointer',
-            writingMode: 'vertical-rl',
-            fontSize: '0.66rem',
-            fontWeight: 700,
-            color: '#00f2fe',
-            letterSpacing: '1px'
+            width: '100%',
+            flexShrink: 0,
+            zIndex: 30
           }}
-        >
-          ⚡ ADMIN AI AGENT
+        />
+
+        {/* Lower Split Area: Code Editor (Center) + Admin Chat (Right) */}
+        <div style={{
+          flex: 1,
+          display: 'flex',
+          width: '100%',
+          overflow: 'hidden',
+          minHeight: 0
+        }}>
+          {/* 2. Center Panel: Code Editor + Bottom Terminal */}
+          <div style={{
+            flex: 1,
+            display: 'flex',
+            flexDirection: 'column',
+            height: '100%',
+            overflow: 'hidden',
+            minWidth: '320px'
+          }}>
+            <CodeEditor
+              openFiles={openFiles}
+              activeFilePath={activeFilePath}
+              onSelectTab={setActiveFilePath}
+              onCloseTab={handleCloseTab}
+              onContentChange={handleContentChange}
+              onSaveFile={handleSaveFile}
+              onRunFileInTerminal={handleRunFileInTerminal}
+              activeDiff={activeDiff}
+              onAcceptDiff={() => {
+                setActiveDiff(null);
+                fetchTree();
+              }}
+              onRejectDiff={() => setActiveDiff(null)}
+              theme={theme}
+              isLight={isLight}
+            />
+
+            <TerminalPanel
+              workspaceRoot={workspaceRoot}
+              isExpanded={terminalExpanded}
+              onToggleExpand={() => setTerminalExpanded(!terminalExpanded)}
+              terminalLogs={terminalLogs}
+              onExecuteCommand={handleExecuteTerminalCommand}
+              onClearLogs={() => setTerminalLogs([])}
+              isRunningCommand={isRunningCommand}
+              theme={theme}
+              isLight={isLight}
+            />
+          </div>
+
+          {/* Right Resizer Splitter */}
+          {!rightCollapsed && (
+            <div
+              onMouseDown={() => setIsResizingRight(true)}
+              style={{
+                width: '5px',
+                cursor: 'col-resize',
+                background: isResizingRight ? '#00f2fe' : 'transparent',
+                zIndex: 10,
+                position: 'relative',
+                transition: 'background 0.15s ease'
+              }}
+              onMouseEnter={e => { if (!isResizingRight) e.currentTarget.style.background = 'rgba(0, 242, 254, 0.4)'; }}
+              onMouseLeave={e => { if (!isResizingRight) e.currentTarget.style.background = 'transparent'; }}
+            />
+          )}
+
+          {/* 3. Right Panel: Admin AI Developer Agent (Resizable & Collapsible) */}
+          {!rightCollapsed ? (
+            <div style={{
+              width: `${rightWidth}px`,
+              minWidth: `${rightWidth}px`,
+              height: '100%',
+              display: 'flex',
+              flexDirection: 'column',
+              position: 'relative'
+            }}>
+              <AdminAgentChat
+                workspaceRoot={workspaceRoot}
+                activeFilePath={activeFilePath}
+                activeFileContent={openFiles.find(f => f.path === activeFilePath)?.content}
+                onApplyDiff={(diff, path, content) => {
+                  setActiveDiff(diff);
+                  if (path) {
+                    handleOpenFile(path);
+                  }
+                }}
+                onOpenFile={handleOpenFile}
+                onExecuteTerminalCommand={handleExecuteTerminalCommand}
+                onRefreshTree={fetchTree}
+                theme={theme}
+                isLight={isLight}
+                headerPortalNode={headerPortalNode}
+              />
+            </div>
+          ) : (
+            <div 
+              onClick={() => setRightCollapsed(false)}
+              title="Espandi Admin AI Chat"
+              style={{
+                width: '28px',
+                height: '100%',
+                background: isLight ? '#f6f8fa' : '#0d1117',
+                borderLeft: isLight ? '1px solid #d0d7de' : '1px solid rgba(255,255,255,0.08)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                cursor: 'pointer',
+                writingMode: 'vertical-rl',
+                fontSize: '0.66rem',
+                fontWeight: 700,
+                color: '#00f2fe',
+                letterSpacing: '1px'
+              }}
+            >
+              ⚡ ADMIN AI AGENT
+            </div>
+          )}
         </div>
-      )}
+      </div>
     </div>
   );
 }

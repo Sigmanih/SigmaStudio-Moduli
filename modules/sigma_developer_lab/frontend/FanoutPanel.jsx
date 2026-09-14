@@ -14,7 +14,7 @@
 // indistinguibile da uno bloccato.
 
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { Layers, Play, Square, RefreshCw, ChevronDown, ChevronRight } from 'lucide-react';
+import { Layers, Play, Square, RefreshCw, ChevronDown, ChevronRight, Plus } from 'lucide-react';
 
 const COLORE = {
   todo: '#8b949e',
@@ -30,8 +30,9 @@ const COLORE = {
 // Il modello non si sceglie qui: lo risolve il ciclo dal ruolo configurato,
 // che è l'unico posto in cui quella scelta vive. Un secondo selettore qui
 // sarebbe una seconda verità, e le due divergerebbero.
-export default function FanoutPanel({ workspaceRoot, isLight }) {
-  const [aperto, setAperto] = useState(false);
+// inline=true: dentro le mini-tab della chat, senza header toggle collapsible
+export default function FanoutPanel({ workspaceRoot, isLight, inline = false }) {
+  const [aperto, setAperto] = useState(inline);
   const [code, setCode] = useState([]);
   const [codaAttiva, setCodaAttiva] = useState('');
   const [progresso, setProgresso] = useState(null);
@@ -41,6 +42,7 @@ export default function FanoutPanel({ workspaceRoot, isLight }) {
   const [obiettivo, setObiettivo] = useState('');
   const [eventi, setEventi] = useState([]);
   const [errore, setErrore] = useState('');
+  const [mostraForm, setMostraForm] = useState(false);
   const abortRef = useRef(null);
 
   const caricaCode = useCallback(async () => {
@@ -58,11 +60,10 @@ export default function FanoutPanel({ workspaceRoot, isLight }) {
   }, [codaAttiva]);
 
   useEffect(() => {
-    if (aperto) caricaCode();
-  }, [aperto, caricaCode]);
+    // In inline carica sempre; in standalone solo quando aperto
+    if (inline || aperto) caricaCode();
+  }, [inline, aperto, caricaCode]);
 
-  // Fermare il lavoro quando il pannello sparisce: un ventaglio che continua a
-  // girare dopo che nessuno lo guarda è un ventaglio che nessuno può fermare.
   useEffect(() => () => {
     if (abortRef.current) {
       try { abortRef.current.abort(); } catch (e) { /* già chiuso */ }
@@ -91,6 +92,7 @@ export default function FanoutPanel({ workspaceRoot, isLight }) {
       setCodaAttiva(id);
       setProgresso(dati);
       setVoci('');
+      setMostraForm(false);
       caricaCode();
     } catch (e) {
       setErrore(e.message);
@@ -170,7 +172,328 @@ export default function FanoutPanel({ workspaceRoot, isLight }) {
   const totale = progresso?.total || 0;
   const fatte = progresso?.done || 0;
   const percentuale = totale > 0 ? Math.round((fatte / totale) * 100) : 0;
+  const testo = isLight ? '#24292e' : '#c9d1d9';
 
+  // ── Il contenuto operativo, usato sia in inline che standalone ────────
+  const renderContenuto = () => (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+      {/* Selettore coda esistente */}
+      {code.length > 0 && (
+        <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+          <select
+            value={codaAttiva}
+            onChange={e => {
+              setCodaAttiva(e.target.value);
+              setProgresso(code.find(c => c.queue_id === e.target.value) || null);
+            }}
+            disabled={inCorso}
+            style={{
+              flex: 1, padding: '4px 6px',
+              fontSize: '0.64rem', borderRadius: '5px',
+              background: isLight ? '#ffffff' : '#161b22',
+              color: testo, border: bordo
+            }}
+          >
+            {code.map(c => (
+              <option key={c.queue_id} value={c.queue_id}>
+                {c.queue_id} — {c.done}/{c.total}
+              </option>
+            ))}
+          </select>
+          <button
+            onClick={caricaCode}
+            disabled={inCorso}
+            title="Ricarica lo stato delle code"
+            style={{
+              padding: '4px 6px', borderRadius: '5px', border: bordo,
+              background: 'transparent', color: '#8b949e',
+              cursor: inCorso ? 'default' : 'pointer', flexShrink: 0
+            }}
+          >
+            <RefreshCw size={11} />
+          </button>
+        </div>
+      )}
+
+      {/* Barra di progresso visuale */}
+      {totale > 0 && (
+        <div>
+          <div style={{
+            height: 5, borderRadius: 3, overflow: 'hidden',
+            background: isLight ? '#e1e4e8' : '#21262d', display: 'flex'
+          }}>
+            <div style={{ width: `${percentuale}%`, background: COLORE.done, transition: 'width 0.3s' }} />
+            <div style={{
+              width: `${totale ? Math.round(((progresso?.doing || 0) / totale) * 100) : 0}%`,
+              background: COLORE.doing
+            }} />
+            <div style={{
+              width: `${totale ? Math.round(((progresso?.failed || 0) / totale) * 100) : 0}%`,
+              background: COLORE.failed
+            }} />
+          </div>
+          <div style={{
+            display: 'flex', gap: 6, marginTop: 4,
+            fontSize: '0.58rem', fontWeight: 700, flexWrap: 'wrap'
+          }}>
+            <span style={{ color: COLORE.done }}>✓ {progresso?.done || 0} fatte</span>
+            <span style={{ color: COLORE.doing }}>⚡ {progresso?.doing || 0} in corso</span>
+            <span style={{ color: COLORE.todo }}>
+              ⏳ {progresso?.todo || 0} da fare
+              {typeof progresso?.ready === 'number' && progresso.ready < (progresso?.todo || 0)
+                && ` (${progresso.ready} pronte)`}
+            </span>
+            {(progresso?.blocked || 0) > 0 && (
+              <span style={{ color: COLORE.blocked }} title="Dipendono da voci non riuscite">
+                ⊘ {progresso.blocked} bloccate
+              </span>
+            )}
+            {(progresso?.failed || 0) > 0 && (
+              <span style={{ color: COLORE.failed }}>✕ {progresso.failed} ferme</span>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Pulsanti azione */}
+      <div style={{ display: 'flex', gap: '5px', alignItems: 'center' }}>
+        {!inCorso ? (
+          <>
+            <button
+              onClick={avvia}
+              disabled={!codaAttiva || totale === 0}
+              style={{
+                flex: 1, padding: '5px', borderRadius: '5px',
+                border: '1px solid rgba(0, 242, 254, 0.5)',
+                background: totale > 0 ? 'rgba(0, 242, 254, 0.15)' : 'transparent',
+                color: totale > 0 ? '#00f2fe' : '#6e7681',
+                fontWeight: 800, fontSize: '0.64rem',
+                cursor: totale > 0 ? 'pointer' : 'default',
+                display: 'flex', alignItems: 'center',
+                justifyContent: 'center', gap: '4px'
+              }}
+            >
+              <Play size={11} /> Avvia
+            </button>
+            <select
+              value={lavoratori}
+              onChange={e => setLavoratori(Number(e.target.value))}
+              title="Quanti agenti in parallelo"
+              style={{
+                padding: '5px', fontSize: '0.63rem', borderRadius: '5px',
+                background: isLight ? '#ffffff' : '#161b22',
+                color: testo, border: bordo
+              }}
+            >
+              {[1, 2, 3, 4, 6, 8].map(n => (
+                <option key={n} value={n}>{n}×</option>
+              ))}
+            </select>
+          </>
+        ) : (
+          <button
+            onClick={ferma}
+            style={{
+              flex: 1, padding: '5px', borderRadius: '5px',
+              border: '1px solid rgba(248, 81, 73, 0.5)',
+              background: 'rgba(248, 81, 73, 0.15)', color: '#f85149',
+              fontWeight: 800, fontSize: '0.64rem', cursor: 'pointer',
+              display: 'flex', alignItems: 'center',
+              justifyContent: 'center', gap: '4px'
+            }}
+          >
+            <Square size={11} /> Ferma
+          </button>
+        )}
+        {!inCorso && (
+          <button
+            onClick={() => setMostraForm(!mostraForm)}
+            title="Nuova coda di lavoro"
+            style={{
+              padding: '5px 7px', borderRadius: '5px', border: bordo,
+              background: mostraForm ? 'rgba(0, 242, 254, 0.10)' : 'transparent',
+              color: mostraForm ? '#00f2fe' : '#8b949e',
+              cursor: 'pointer', flexShrink: 0
+            }}
+          >
+            <Plus size={11} />
+          </button>
+        )}
+      </div>
+
+      {/* Form creazione coda — collassato dietro il + */}
+      {mostraForm && !inCorso && (
+        <div style={{
+          padding: '6px 8px', borderRadius: '6px',
+          background: isLight ? 'rgba(0,0,0,0.02)' : 'rgba(255,255,255,0.03)',
+          border: bordo, display: 'flex', flexDirection: 'column', gap: '4px'
+        }}>
+          <input
+            value={obiettivo}
+            onChange={e => setObiettivo(e.target.value)}
+            placeholder="Obiettivo (a cosa serve)"
+            style={{
+              width: '100%', padding: '3px 6px',
+              fontSize: '0.62rem', borderRadius: '4px',
+              background: isLight ? '#ffffff' : '#161b22',
+              color: testo, border: bordo, outline: 'none'
+            }}
+          />
+          <textarea
+            value={voci}
+            onChange={e => setVoci(e.target.value)}
+            placeholder={'Una voce per riga, es:\ntraduci sigma_network/index.jsx\ntraduci sigma_roadmap/index.jsx'}
+            rows={3}
+            style={{
+              width: '100%', padding: '3px 6px',
+              fontSize: '0.60rem', fontFamily: 'monospace',
+              borderRadius: '4px', resize: 'vertical',
+              background: isLight ? '#ffffff' : '#161b22',
+              color: testo, border: bordo, outline: 'none'
+            }}
+          />
+          <div style={{ display: 'flex', gap: '5px', justifyContent: 'flex-end' }}>
+            <button
+              onClick={() => setMostraForm(false)}
+              style={{ background: 'none', border: 'none', color: '#8b949e',
+                cursor: 'pointer', fontSize: '0.58rem' }}>
+              Annulla
+            </button>
+            <button
+              onClick={creaCoda}
+              style={{
+                padding: '3px 8px', borderRadius: '4px',
+                background: '#00f2fe', border: 'none', color: '#000',
+                fontSize: '0.60rem', fontWeight: 700, cursor: 'pointer'
+              }}>
+              Crea coda
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Log eventi in tempo reale */}
+      {eventi.length > 0 && (
+        <div style={{
+          maxHeight: '120px', overflowY: 'auto',
+          fontSize: '0.58rem', fontFamily: 'monospace', lineHeight: 1.5,
+          padding: '4px 6px', borderRadius: '5px',
+          background: isLight ? 'rgba(0,0,0,0.02)' : 'rgba(255,255,255,0.02)',
+          border: bordo
+        }}>
+          {[...eventi].reverse().map((e, i) => (
+            <div key={i} style={{
+              display: 'flex', gap: 4,
+              color: e.type === 'item_started'
+                ? COLORE.doing
+                : (e.ok ? COLORE.done : COLORE.failed)
+            }}>
+              <span>{e.type === 'item_started' ? '▸' : (e.ok ? '✓' : '✕')}</span>
+              <span style={{
+                flex: 1, overflow: 'hidden',
+                textOverflow: 'ellipsis', whiteSpace: 'nowrap'
+              }}>
+                {e.title}
+              </span>
+              <span style={{ color: '#6e7681', flexShrink: 0 }}>{e.worker}</span>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {errore && (
+        <div style={{ fontSize: '0.60rem', color: '#f85149', padding: '2px 0' }}>
+          {errore}
+        </div>
+      )}
+
+      {(progresso?.failed || 0) > 0 && !inCorso && (
+        <div style={{ fontSize: '0.58rem', color: '#8b949e', lineHeight: 1.4 }}>
+          Le voci ferme hanno esaurito i tentativi. Guarda i branch delle
+          sessioni, o rimettile in coda cambiando ciò che le faceva fallire.
+        </div>
+      )}
+    </div>
+  );
+
+  // ── Vista inline per le mini-tab ──────────────────────────────────────
+  if (inline) {
+    return (
+      <div style={{ padding: '8px 10px' }}>
+        {totale === 0 && code.length === 0 ? (
+          <div style={{
+            padding: '14px 10px', textAlign: 'center',
+            fontSize: '0.66rem', color: '#8b949e'
+          }}>
+            <Layers size={18} color="#8b949e" style={{ marginBottom: 6, opacity: 0.5 }} />
+            <div style={{ marginBottom: 6 }}>Nessuna coda di lavoro attiva</div>
+            <button
+              onClick={() => setMostraForm(true)}
+              style={{
+                padding: '4px 10px', borderRadius: '5px',
+                border: '1px solid rgba(0, 242, 254, 0.4)',
+                background: 'rgba(0, 242, 254, 0.10)',
+                color: '#00f2fe', fontSize: '0.62rem',
+                fontWeight: 700, cursor: 'pointer'
+              }}>
+              <Plus size={10} style={{ verticalAlign: '-1px' }} /> Crea una coda
+            </button>
+
+            {mostraForm && (
+              <div style={{
+                marginTop: 8, padding: '6px 8px', borderRadius: '6px',
+                background: isLight ? 'rgba(0,0,0,0.02)' : 'rgba(255,255,255,0.03)',
+                border: bordo, display: 'flex', flexDirection: 'column', gap: '4px',
+                textAlign: 'left'
+              }}>
+                <input
+                  value={obiettivo}
+                  onChange={e => setObiettivo(e.target.value)}
+                  placeholder="Obiettivo (a cosa serve)"
+                  style={{
+                    width: '100%', padding: '3px 6px',
+                    fontSize: '0.62rem', borderRadius: '4px',
+                    background: isLight ? '#ffffff' : '#161b22',
+                    color: testo, border: bordo, outline: 'none'
+                  }}
+                />
+                <textarea
+                  value={voci}
+                  onChange={e => setVoci(e.target.value)}
+                  placeholder={'Una voce per riga, es:\ntraduci sigma_network/index.jsx'}
+                  rows={3}
+                  style={{
+                    width: '100%', padding: '3px 6px',
+                    fontSize: '0.60rem', fontFamily: 'monospace',
+                    borderRadius: '4px', resize: 'vertical',
+                    background: isLight ? '#ffffff' : '#161b22',
+                    color: testo, border: bordo, outline: 'none'
+                  }}
+                />
+                <div style={{ display: 'flex', gap: '5px', justifyContent: 'flex-end' }}>
+                  <button onClick={() => setMostraForm(false)}
+                    style={{ background: 'none', border: 'none', color: '#8b949e',
+                      cursor: 'pointer', fontSize: '0.58rem' }}>
+                    Annulla
+                  </button>
+                  <button onClick={creaCoda}
+                    style={{ padding: '3px 8px', borderRadius: '4px',
+                      background: '#00f2fe', border: 'none', color: '#000',
+                      fontSize: '0.60rem', fontWeight: 700, cursor: 'pointer' }}>
+                    Crea coda
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        ) : (
+          renderContenuto()
+        )}
+      </div>
+    );
+  }
+
+  // ── Vista standalone per la sidebar sinistra ──────────────────────────
   return (
     <div style={{
       borderTop: bordo,
@@ -188,7 +511,7 @@ export default function FanoutPanel({ workspaceRoot, isLight }) {
           cursor: 'pointer',
           fontWeight: 700,
           letterSpacing: '0.4px',
-          color: isLight ? '#24292e' : '#c9d1d9'
+          color: testo
         }}
       >
         {aperto ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
@@ -208,221 +531,7 @@ export default function FanoutPanel({ workspaceRoot, isLight }) {
 
       {aperto && (
         <div style={{ padding: '0 10px 9px' }}>
-          <div style={{
-            fontSize: '0.62rem', color: '#8b949e',
-            lineHeight: 1.5, marginBottom: '7px'
-          }}>
-            Una voce per riga. Ogni voce diventa un run dell&apos;agente, isolato
-            nel proprio worktree: più agenti lavorano insieme senza scriversi
-            addosso.
-          </div>
-
-          {code.length > 0 && (
-            <select
-              value={codaAttiva}
-              onChange={e => {
-                setCodaAttiva(e.target.value);
-                setProgresso(code.find(c => c.queue_id === e.target.value) || null);
-              }}
-              disabled={inCorso}
-              style={{
-                width: '100%', marginBottom: '6px', padding: '4px',
-                fontSize: '0.64rem', borderRadius: '4px',
-                background: isLight ? '#ffffff' : '#161b22',
-                color: isLight ? '#24292e' : '#c9d1d9',
-                border: bordo
-              }}
-            >
-              {code.map(c => (
-                <option key={c.queue_id} value={c.queue_id}>
-                  {c.queue_id} — {c.done}/{c.total}
-                </option>
-              ))}
-            </select>
-          )}
-
-          {!inCorso && (
-            <>
-              <input
-                value={obiettivo}
-                onChange={e => setObiettivo(e.target.value)}
-                placeholder="Obiettivo generale (a cosa serve tutto questo)"
-                style={{
-                  width: '100%', marginBottom: '5px', padding: '4px 6px',
-                  fontSize: '0.64rem', borderRadius: '4px',
-                  background: isLight ? '#ffffff' : '#161b22',
-                  color: isLight ? '#24292e' : '#c9d1d9', border: bordo
-                }}
-              />
-              <textarea
-                value={voci}
-                onChange={e => setVoci(e.target.value)}
-                placeholder={'Una voce per riga, per esempio:\ntraduci sigma_network/index.jsx\ntraduci sigma_roadmap/index.jsx'}
-                rows={4}
-                style={{
-                  width: '100%', marginBottom: '5px', padding: '4px 6px',
-                  fontSize: '0.63rem', fontFamily: 'monospace',
-                  borderRadius: '4px', resize: 'vertical',
-                  background: isLight ? '#ffffff' : '#161b22',
-                  color: isLight ? '#24292e' : '#c9d1d9', border: bordo
-                }}
-              />
-              <button
-                onClick={creaCoda}
-                style={{
-                  width: '100%', marginBottom: '7px', padding: '4px',
-                  borderRadius: '4px', border: bordo, background: 'transparent',
-                  color: '#8b949e', fontSize: '0.63rem', cursor: 'pointer'
-                }}
-              >
-                Aggiungi alla coda
-              </button>
-            </>
-          )}
-
-          {totale > 0 && (
-            <div style={{ marginBottom: '7px' }}>
-              <div style={{
-                height: '5px', borderRadius: '3px', overflow: 'hidden',
-                background: isLight ? '#e1e4e8' : '#21262d', display: 'flex'
-              }}>
-                <div style={{ width: `${percentuale}%`, background: COLORE.done }} />
-                <div style={{
-                  width: `${totale ? Math.round((progresso.doing / totale) * 100) : 0}%`,
-                  background: COLORE.doing
-                }} />
-                <div style={{
-                  width: `${totale ? Math.round((progresso.failed / totale) * 100) : 0}%`,
-                  background: COLORE.failed
-                }} />
-              </div>
-              <div style={{
-                display: 'flex', gap: '8px', marginTop: '4px',
-                fontSize: '0.6rem', fontWeight: 700
-              }}>
-                <span style={{ color: COLORE.done }}>{progresso.done} fatte</span>
-                <span style={{ color: COLORE.doing }}>{progresso.doing} in corso</span>
-                <span style={{ color: COLORE.todo }}>
-                  {progresso.todo} da fare
-                  {/* Quante possono partire adesso. Senza questo numero,
-                      «10 da fare, 0 in corso» non distingue una coda ferma da
-                      una che sta aspettando una dipendenza. */}
-                  {typeof progresso.ready === 'number' && progresso.ready < progresso.todo
-                    && ` (${progresso.ready} pronte)`}
-                </span>
-                {progresso.blocked > 0 && (
-                  <span style={{ color: COLORE.blocked }} title="Dipendono da voci non riuscite">
-                    {progresso.blocked} bloccate
-                  </span>
-                )}
-                {progresso.failed > 0 && (
-                  <span style={{ color: COLORE.failed }}>{progresso.failed} ferme</span>
-                )}
-              </div>
-            </div>
-          )}
-
-          <div style={{ display: 'flex', gap: '6px', alignItems: 'center', marginBottom: '6px' }}>
-            {!inCorso ? (
-              <>
-                <button
-                  onClick={avvia}
-                  disabled={!codaAttiva || totale === 0}
-                  style={{
-                    flex: 1, padding: '5px', borderRadius: '5px',
-                    border: '1px solid rgba(0, 242, 254, 0.5)',
-                    background: totale > 0 ? 'rgba(0, 242, 254, 0.15)' : 'transparent',
-                    color: totale > 0 ? '#00f2fe' : '#6e7681',
-                    fontWeight: 800, fontSize: '0.64rem',
-                    cursor: totale > 0 ? 'pointer' : 'default',
-                    display: 'flex', alignItems: 'center',
-                    justifyContent: 'center', gap: '4px'
-                  }}
-                >
-                  <Play size={11} /> Avvia
-                </button>
-                <select
-                  value={lavoratori}
-                  onChange={e => setLavoratori(Number(e.target.value))}
-                  title="Quanti agenti in parallelo. Oltre un certo punto non è parallelismo, è contesa: la banda verso i pesi del modello è condivisa"
-                  style={{
-                    padding: '5px', fontSize: '0.63rem', borderRadius: '4px',
-                    background: isLight ? '#ffffff' : '#161b22',
-                    color: isLight ? '#24292e' : '#c9d1d9', border: bordo
-                  }}
-                >
-                  {[1, 2, 3, 4, 6, 8].map(n => (
-                    <option key={n} value={n}>{n}×</option>
-                  ))}
-                </select>
-              </>
-            ) : (
-              <button
-                onClick={ferma}
-                style={{
-                  flex: 1, padding: '5px', borderRadius: '5px',
-                  border: '1px solid rgba(248, 81, 73, 0.5)',
-                  background: 'rgba(248, 81, 73, 0.15)', color: '#f85149',
-                  fontWeight: 800, fontSize: '0.64rem', cursor: 'pointer',
-                  display: 'flex', alignItems: 'center',
-                  justifyContent: 'center', gap: '4px'
-                }}
-              >
-                <Square size={11} /> Ferma
-              </button>
-            )}
-            <button
-              onClick={caricaCode}
-              disabled={inCorso}
-              title="Ricarica lo stato delle code"
-              style={{
-                padding: '5px 7px', borderRadius: '4px', border: bordo,
-                background: 'transparent', color: '#8b949e',
-                cursor: inCorso ? 'default' : 'pointer'
-              }}
-            >
-              <RefreshCw size={11} />
-            </button>
-          </div>
-
-          {eventi.length > 0 && (
-            <div style={{
-              maxHeight: '150px', overflowY: 'auto',
-              fontSize: '0.61rem', fontFamily: 'monospace', lineHeight: 1.6
-            }}>
-              {[...eventi].reverse().map((e, i) => (
-                <div key={i} style={{
-                  display: 'flex', gap: '5px',
-                  color: e.type === 'item_started'
-                    ? COLORE.doing
-                    : (e.ok ? COLORE.done : COLORE.failed)
-                }}>
-                  <span>{e.type === 'item_started' ? '▸' : (e.ok ? '✓' : '✕')}</span>
-                  <span style={{
-                    flex: 1, overflow: 'hidden',
-                    textOverflow: 'ellipsis', whiteSpace: 'nowrap'
-                  }}>
-                    {e.title}
-                  </span>
-                  <span style={{ color: '#6e7681' }}>{e.worker}</span>
-                </div>
-              ))}
-            </div>
-          )}
-
-          {errore && (
-            <div style={{ marginTop: '6px', fontSize: '0.62rem', color: '#f85149' }}>
-              {errore}
-            </div>
-          )}
-
-          {progresso?.failed > 0 && !inCorso && (
-            <div style={{ marginTop: '6px', fontSize: '0.61rem', color: '#8b949e', lineHeight: 1.5 }}>
-              Le voci ferme hanno esaurito i tentativi. Il loro lavoro non è
-              perduto: guarda i branch delle sessioni, o rimettile in coda
-              cambiando ciò che le faceva fallire.
-            </div>
-          )}
+          {renderContenuto()}
         </div>
       )}
     </div>

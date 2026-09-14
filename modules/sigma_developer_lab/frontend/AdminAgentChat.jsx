@@ -1,15 +1,20 @@
-import React, { useState, useRef, useEffect, useMemo } from 'react';
+import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react';
+import { createPortal } from 'react-dom';
 import { 
   Send, Bot, User, Sparkles, Brain, Check, Copy, RefreshCw, 
   Terminal, FileCode, Trash2, ArrowRight, ShieldCheck, Zap, 
   ChevronDown, ChevronUp, SplitSquareVertical, Layers, Folder, 
   Plus, Edit2, Clock, Search, X, MessageSquare,
   Paperclip, Mic, MicOff, FileText, Upload,
-  ListTodo, CheckCircle2, Circle, CircleDot, RotateCw, Award, Play, Pause, Square
+  ListTodo, CheckCircle2, Circle, CircleDot, RotateCw, Award, Play, Pause, Square,
+  Settings, Activity
 } from 'lucide-react';
 import DeveloperModelSelector from './DeveloperModelSelector';
 import AgentWorkMonitor from './AgentWorkMonitor';
 import ReviewProposal from './ReviewProposal';
+import DockerViewerModal from './DockerViewerModal';
+import ActivityBar from './ActivityBar';
+import FanoutPanel from './FanoutPanel';
 import { renderMarkdownLatex } from '../../utils/markdownLatex';
 import 'katex/dist/katex.min.css';
 import Prism from 'prismjs';
@@ -252,8 +257,11 @@ export default function AdminAgentChat({
   onExecuteTerminalCommand,
   onRefreshTree,
   theme,
-  isLight
+  isLight,
+  headerPortalNode
 }) {
+  const [showDockerModal, setShowDockerModal] = useState(false);
+
   // 1. Persistent Tasks State
   const [tasks, setTasks] = useState(() => {
     try {
@@ -333,9 +341,15 @@ export default function AdminAgentChat({
   const [newPipelineInput, setNewPipelineInput] = useState('');
   const [newPipelineDesc, setNewPipelineDesc] = useState('');
   const [showNewTaskInline, setShowNewTaskInline] = useState(false);
+  // Mini-tab attiva nella barra informativa: monitor, piano, attività, ventaglio
+  const [activeInfoTab, setActiveInfoTab] = useState('piano');
   const [loopCountdown, setLoopCountdown] = useState(null);
   const autoLoopTimeoutRef = useRef(null);
   const abortControllerRef = useRef(null);
+  // Il loop riparte solo dopo che l'utente ha mandato almeno un messaggio
+  // nella sessione corrente: senza questo, riaprire la tab faceva ripartire
+  // i task da soli.
+  const userHasInteractedRef = useRef(false);
 
   // Context Length (RAM/VRAM Window) State
   const [contextTokens, setContextTokens] = useState(() => {
@@ -347,6 +361,31 @@ export default function AdminAgentChat({
     }
   });
   const [contextMetrics, setContextMetrics] = useState(null);
+  const [sandboxConfig, setSandboxConfig] = useState({
+    mode: 'host',
+    image: 'python:3.12-slim',
+    network: true,
+    docker_available: false,
+    docker_detail: '',
+    active: false
+  });
+  const [sandboxLoading, setSandboxLoading] = useState(false);
+
+  const fetchSandboxState = useCallback(async () => {
+    try {
+      const res = await fetch('/api/developer/sandbox');
+      const data = await res.json();
+      if (data && data.success) {
+        setSandboxConfig(data);
+      }
+    } catch (err) {
+      console.error('Errore recupero sandbox:', err);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchSandboxState();
+  }, [fetchSandboxState]);
   // Mirror of the backend session ledger: exactly what the model sees as
   // its own working state, so the user and the agent never disagree about
   // what has already been done.
@@ -701,6 +740,25 @@ export default function AdminAgentChat({
     }
   };
 
+  const handleToggleSandbox = async (targetMode) => {
+    setSandboxLoading(true);
+    try {
+      const res = await fetch('/api/developer/sandbox', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ mode: targetMode })
+      });
+      const data = await res.json();
+      if (data && data.success) {
+        setSandboxConfig(data);
+      }
+    } catch (err) {
+      console.error('Errore toggle sandbox:', err);
+    } finally {
+      setSandboxLoading(false);
+    }
+  };
+
   const toggleThought = (idx) => {
     setExpandedThoughts(prev => ({ ...prev, [idx]: !prev[idx] }));
   };
@@ -826,6 +884,9 @@ export default function AdminAgentChat({
   const handleSendMessage = async (textToSend) => {
     const userPrompt = textToSend || input.trim();
     if ((!userPrompt && attachedFiles.length === 0) || isStreaming) return;
+
+    // Da questo momento l'utente ha interagito: il loop può ripartire.
+    userHasInteractedRef.current = true;
 
     const currentAttachments = [...attachedFiles];
     setAttachedFiles([]);
@@ -1264,6 +1325,10 @@ ${event.diff || ''}`,
 
       // Check Auto-Loop Continuation Trigger
       setTimeout(() => {
+        // Se l'utente non ha ancora interagito (es. mount dopo refresh),
+        // non far partire il loop da solo.
+        if (!userHasInteractedRef.current) return;
+
         setTasks(currentTasks => {
           const thisTask = currentTasks.find(t => t.id === currentTaskId);
           if (!thisTask) return currentTasks;
@@ -1320,6 +1385,411 @@ ${event.diff || ''}`,
     { label: '🧹 Pulisci cartella', prompt: 'Verifica la cartella data/ e rimuovi le cartelle temporanee o di prova.' }
   ];
 
+  const renderMasterHeader = () => {
+    const textPrimary = isLight ? '#24292f' : '#f0f6fc';
+    const textMuted = isLight ? '#57606a' : '#8b949e';
+    const borderCol = isLight ? '#d0d7de' : 'rgba(255,255,255,0.08)';
+    const bgHeader = isLight ? '#ffffff' : '#0a0e14';
+    const bgCard = isLight ? 'rgba(0,0,0,0.03)' : 'rgba(255,255,255,0.04)';
+
+    const rootName = workspaceRoot ? workspaceRoot.replace(/\\/g, '/').split('/').filter(Boolean).pop() : 'Workspace';
+    const activeFileName = activeFilePath ? activeFilePath.replace(/\\/g, '/').split('/').pop() : null;
+
+    return (
+      <div style={{
+        padding: '6px 16px',
+        borderBottom: `1px solid ${borderCol}`,
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        background: bgHeader,
+        position: 'relative',
+        width: '100%',
+        boxSizing: 'border-box',
+        gap: '12px',
+        flexWrap: 'nowrap',
+        overflowX: 'auto',
+        minHeight: '42px'
+      }}>
+        {/* Left Side (Spans Center Column): Brand + Full Workspace Access + Quick Path */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexShrink: 0 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <div style={{
+              width: '26px',
+              height: '26px',
+              borderRadius: '7px',
+              background: 'linear-gradient(135deg, #00f2fe, #0284c7)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              boxShadow: '0 2px 8px rgba(0, 242, 254, 0.25)',
+              flexShrink: 0
+            }}>
+              <Bot size={15} color="#000" />
+            </div>
+            <div>
+              <div style={{ fontSize: '0.78rem', fontWeight: 800, color: textPrimary, letterSpacing: '0.5px', whiteSpace: 'nowrap' }}>
+                ADMIN AI DEVELOPER
+              </div>
+              <div style={{ fontSize: '0.62rem', color: '#22c55e', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '4px', whiteSpace: 'nowrap' }}>
+                <span style={{ display: 'inline-block', width: '6px', height: '6px', borderRadius: '50%', background: '#22c55e', boxShadow: '0 0 6px #22c55e' }} />
+                <span>Full Workspace Access</span>
+              </div>
+            </div>
+          </div>
+
+          <div style={{ width: '1px', height: '22px', background: borderCol }} />
+
+          {/* Quick Breadcrumb / Active File Chip */}
+          <div style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: '6px',
+            fontSize: '0.68rem',
+            padding: '2px 8px',
+            borderRadius: '6px',
+            background: bgCard,
+            border: `1px solid ${borderCol}`,
+            color: textMuted,
+            whiteSpace: 'nowrap'
+          }}>
+            <span style={{ fontWeight: 700, color: textPrimary }}>📁 {rootName}</span>
+            {activeFileName && (
+              <>
+                <span style={{ opacity: 0.4 }}>/</span>
+                <span style={{ color: '#00d2ff', fontWeight: 600 }}>📄 {activeFileName}</span>
+              </>
+            )}
+          </div>
+        </div>
+
+        {/* Right Side (Spacious Controls): Auto-Scroll, Auto-Exec, Revisione, Isolamento, Revisione run, Nessun limite, Docker, Loop, Nuovo Task */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0 }}>
+          {/* Controls Group 1: Auto-Scroll & Auto-Exec */}
+          <div style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: '8px',
+            padding: '3px 8px',
+            borderRadius: '6px',
+            background: bgCard,
+            border: `1px solid ${borderCol}`
+          }}>
+            <label style={{
+              fontSize: '0.65rem',
+              fontWeight: 700,
+              color: autoScroll ? '#00d2ff' : textMuted,
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '4px',
+              whiteSpace: 'nowrap'
+            }}>
+              <input
+                type="checkbox"
+                checked={autoScroll}
+                onChange={e => setAutoScroll(e.target.checked)}
+                style={{ accentColor: '#00d2ff' }}
+              />
+              Auto-Scroll
+            </label>
+
+            <div style={{ width: '1px', height: '14px', background: borderCol }} />
+
+            <label style={{
+              fontSize: '0.65rem',
+              fontWeight: 700,
+              color: autoExecuteTools ? '#22c55e' : textMuted,
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '4px',
+              whiteSpace: 'nowrap'
+            }}>
+              <input
+                type="checkbox"
+                checked={autoExecuteTools}
+                onChange={e => handleToggleAutoExecute(e.target.checked)}
+                style={{ accentColor: '#22c55e' }}
+              />
+              Auto-Exec
+            </label>
+          </div>
+
+          {/* Controls Group 2: Revisione, Isolamento, Revisione run */}
+          <div style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: '8px',
+            padding: '3px 8px',
+            borderRadius: '6px',
+            background: bgCard,
+            border: `1px solid ${borderCol}`
+          }}>
+            <label style={{
+              fontSize: '0.65rem',
+              fontWeight: 700,
+              color: reviewWrites ? '#f59e0b' : textMuted,
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '4px',
+              whiteSpace: 'nowrap'
+            }}
+            title="Ogni modifica a un file viene mostrata con il suo diff e resta solo se la approvi"
+            >
+              <input
+                type="checkbox"
+                checked={reviewWrites}
+                onChange={e => handleToggleReviewWrites(e.target.checked)}
+                style={{ accentColor: '#f59e0b' }}
+              />
+              Revisione
+            </label>
+
+            <div style={{ width: '1px', height: '14px', background: borderCol }} />
+
+            <label style={{
+              fontSize: '0.65rem',
+              fontWeight: 700,
+              color: isolateWorktree ? '#a855f7' : textMuted,
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '4px',
+              whiteSpace: 'nowrap'
+            }}
+            title="L'agente lavora in una copia git isolata del progetto, con un checkpoint per turno. A obiettivo raggiunto le modifiche passano all'albero principale, altrimenti restano su un branch dedicato"
+            >
+              <input
+                type="checkbox"
+                checked={isolateWorktree}
+                onChange={e => handleToggleIsolateWorktree(e.target.checked)}
+                style={{ accentColor: '#a855f7' }}
+              />
+              Isolamento
+            </label>
+
+            <div style={{ width: '1px', height: '14px', background: borderCol }} />
+
+            <label style={{
+              fontSize: '0.65rem',
+              fontWeight: 700,
+              color: reviewRun ? '#f59e0b' : textMuted,
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '4px',
+              whiteSpace: 'nowrap'
+            }}
+            title="A fine run mostra il diff di tutto il lavoro e chiede una sola approvazione prima di trasferirlo. Accende anche l'isolamento, che è la sua precondizione"
+            >
+              <input
+                type="checkbox"
+                checked={reviewRun}
+                onChange={e => handleToggleReviewRun(e.target.checked)}
+                style={{ accentColor: '#f59e0b' }}
+              />
+              Revisione run
+            </label>
+          </div>
+
+          {/* Profile Selector */}
+          <select
+            value={profile}
+            onChange={e => handleSelectProfile(e.target.value)}
+            title="Un tetto ai tool, indipendente dal ruolo: in sola lettura nessun ruolo può scrivere"
+            style={{
+              fontSize: '0.65rem',
+              fontWeight: 700,
+              padding: '3px 8px',
+              borderRadius: '6px',
+              cursor: 'pointer',
+              color: profile ? '#f97316' : textMuted,
+              background: isLight ? '#ffffff' : '#161b22',
+              border: profile
+                ? '1px solid rgba(249, 115, 22, 0.45)'
+                : `1px solid ${borderCol}`
+            }}
+          >
+            <option value="">Nessun limite</option>
+            <option value="read_only">Sola Lettura</option>
+            <option value="plan_only">Sola Pianificazione</option>
+          </select>
+
+          {/* Docker Sandbox Control Widget */}
+          <div style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: '6px',
+            padding: '3px 8px',
+            borderRadius: '6px',
+            background: sandboxConfig.active
+              ? 'rgba(56, 189, 248, 0.12)'
+              : bgCard,
+            border: sandboxConfig.active
+              ? '1px solid rgba(56, 189, 248, 0.4)'
+              : `1px solid ${borderCol}`,
+          }}
+          title={
+            sandboxConfig.docker_available
+              ? `Docker: ${sandboxConfig.docker_detail}. Modalità corrente: ${sandboxConfig.mode}. Clicca per commutare tra Host e Container isolato.`
+              : `Docker non disponibile: ${sandboxConfig.docker_detail}`
+          }
+          >
+            <span style={{
+              fontSize: '0.66rem',
+              fontWeight: 700,
+              color: sandboxConfig.active ? '#38bdf8' : textMuted,
+              display: 'flex',
+              alignItems: 'center',
+              gap: '4px',
+              whiteSpace: 'nowrap'
+            }}>
+              <span>🐳 Docker</span>
+            </span>
+
+            <button
+              type="button"
+              disabled={!sandboxConfig.docker_available || sandboxLoading}
+              onClick={() => handleToggleSandbox(sandboxConfig.mode === 'container' ? 'host' : 'container')}
+              style={{
+                background: sandboxConfig.active ? '#0284c7' : (isLight ? '#e1e4e8' : 'rgba(255,255,255,0.08)'),
+                color: sandboxConfig.active ? '#ffffff' : textPrimary,
+                border: 'none',
+                borderRadius: '4px',
+                fontSize: '0.63rem',
+                fontWeight: 700,
+                padding: '2px 7px',
+                cursor: sandboxConfig.docker_available ? 'pointer' : 'not-allowed',
+                opacity: sandboxConfig.docker_available ? 1 : 0.5,
+                transition: 'all 0.15s ease',
+                whiteSpace: 'nowrap'
+              }}
+            >
+              {sandboxConfig.mode === 'container' ? 'Sandbox Attiva' : 'Usa Docker'}
+            </button>
+
+            {/* Pulsante rapido per aprire la gestione completa Docker */}
+            <button
+              type="button"
+              onClick={() => setShowDockerModal(true)}
+              title="Apri Monitor & Gestione Container Docker"
+              style={{
+                background: 'transparent',
+                border: 'none',
+                color: textMuted,
+                cursor: 'pointer',
+                padding: '2px',
+                display: 'flex',
+                alignItems: 'center'
+              }}
+              onMouseEnter={e => e.currentTarget.style.color = '#38bdf8'}
+              onMouseLeave={e => e.currentTarget.style.color = textMuted}
+            >
+              <Settings size={12} />
+            </button>
+          </div>
+
+          {/* Quick Active Container Web Ports Navigation */}
+          {(() => {
+            const runningContainers = (sandboxConfig.containers || []).filter(c => c.State === 'running' || c.Status?.startsWith('Up'));
+            const activePorts = new Set();
+            for (const c of runningContainers) {
+              if (c.Ports) {
+                const re = /(?:^|[,\s])(?:(?:\d{1,3}\.){3}\d{1,3}|\[::\]|::)?:?(\d+)->/g;
+                let m;
+                while ((m = re.exec(c.Ports)) !== null) {
+                  if (m[1]) activePorts.add(m[1]);
+                }
+              }
+            }
+            if (activePorts.size === 0) return null;
+            return (
+              <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                {Array.from(activePorts).map(port => (
+                  <button
+                    key={port}
+                    type="button"
+                    onClick={() => window.open(`http://localhost:${port}`, '_blank', 'noopener,noreferrer')}
+                    title={`Apri applicazione web su http://localhost:${port}`}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '4px',
+                      padding: '3px 8px',
+                      borderRadius: '6px',
+                      background: 'rgba(0, 242, 254, 0.15)',
+                      border: '1px solid rgba(0, 242, 254, 0.4)',
+                      color: '#00f2fe',
+                      fontSize: '0.66rem',
+                      fontWeight: 700,
+                      cursor: 'pointer',
+                      whiteSpace: 'nowrap'
+                    }}
+                  >
+                    <span>🌐 :{port}</span>
+                  </button>
+                ))}
+              </div>
+            );
+          })()}
+
+          {/* Auto-Loop Toggle */}
+          <label style={{
+            fontSize: '0.65rem',
+            fontWeight: 700,
+            color: autoLoop ? '#00f2fe' : textMuted,
+            cursor: 'pointer',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '4px',
+            padding: '3px 8px',
+            borderRadius: '6px',
+            background: autoLoop ? (isLight ? 'rgba(0, 242, 254, 0.12)' : 'rgba(0, 242, 254, 0.1)') : bgCard,
+            border: autoLoop ? '1px solid rgba(0, 242, 254, 0.4)' : `1px solid ${borderCol}`,
+            whiteSpace: 'nowrap'
+          }}
+          title="Esegue automaticamente la catena dei task della pipeline fino al completamento"
+          >
+            <input
+              type="checkbox"
+              checked={autoLoop}
+              onChange={toggleAutoLoop}
+              style={{ accentColor: '#00f2fe' }}
+            />
+            🔁 Loop
+          </label>
+
+          {/* "+ Nuovo Task" Button */}
+          <button
+            type="button"
+            onClick={handleCreateNewTask}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '4px',
+              padding: '4px 10px',
+              borderRadius: '6px',
+              background: 'linear-gradient(135deg, rgba(0, 242, 254, 0.2), rgba(2, 132, 199, 0.25))',
+              border: '1px solid rgba(0, 242, 254, 0.4)',
+              color: '#00f2fe',
+              fontSize: '0.68rem',
+              fontWeight: 800,
+              cursor: 'pointer',
+              transition: 'all 0.15s ease',
+              whiteSpace: 'nowrap'
+            }}
+            title="Crea una nuova sessione di lavoro"
+          >
+            <Plus size={12} />
+            <span>Nuovo Task</span>
+          </button>
+        </div>
+      </div>
+    );
+  };
+
   return (
     <div style={{
       display: 'flex',
@@ -1331,210 +1801,18 @@ ${event.diff || ''}`,
       background: isLight ? '#f6f8fa' : '#0d1117',
       overflow: 'hidden'
     }}>
-      {/* Agent Chat Header */}
+      {/* Master Header: renderizzata nella barra superiore sopra la colonna centrale + destra */}
+      {headerPortalNode 
+        ? createPortal(renderMasterHeader(), headerPortalNode)
+        : renderMasterHeader()}
+
+      {/* Task Switcher & History Bar */}
       <div style={{
-        padding: '10px 14px',
+        padding: '6px 12px',
         borderBottom: isLight ? '1px solid #d0d7de' : '1px solid rgba(255,255,255,0.08)',
-        display: 'flex',
-        flexDirection: 'column',
-        gap: '8px',
         background: isLight ? '#ffffff' : '#0a0e14',
         position: 'relative'
       }}>
-        {/* Row 1: Agent Badge + Auto-Exec + New Task */}
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-            <div style={{
-              width: '24px',
-              height: '24px',
-              borderRadius: '6px',
-              background: 'linear-gradient(135deg, #00f2fe, #4facfe)',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center'
-            }}>
-              <Bot size={14} color="#000" />
-            </div>
-            <div>
-              <div style={{ fontSize: '0.76rem', fontWeight: 800, color: isLight ? '#24292f' : '#f0f6fc' }}>
-                ADMIN AI DEVELOPER
-              </div>
-              <div style={{ fontSize: '0.62rem', color: '#3fb950', fontWeight: 700 }}>
-                ● Full Workspace Access
-              </div>
-            </div>
-          </div>
-
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <label style={{
-              fontSize: '0.64rem',
-              fontWeight: 700,
-              color: autoScroll ? '#00f2fe' : '#8b949e',
-              cursor: 'pointer',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '4px'
-            }}>
-              <input
-                type="checkbox"
-                checked={autoScroll}
-                onChange={e => setAutoScroll(e.target.checked)}
-                style={{ accentColor: '#00f2fe' }}
-              />
-              Auto-Scroll
-            </label>
-
-            <label style={{
-              fontSize: '0.64rem',
-              fontWeight: 700,
-              color: autoExecuteTools ? '#3fb950' : '#8b949e',
-              cursor: 'pointer',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '4px'
-            }}>
-              <input
-                type="checkbox"
-                checked={autoExecuteTools}
-                onChange={e => handleToggleAutoExecute(e.target.checked)}
-                style={{ accentColor: '#3fb950' }}
-              />
-              Auto-Exec
-            </label>
-
-            <label style={{
-              fontSize: '0.64rem',
-              fontWeight: 700,
-              color: reviewWrites ? '#d29922' : '#8b949e',
-              cursor: 'pointer',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '4px'
-            }}
-            title="Ogni modifica a un file viene mostrata con il suo diff e resta solo se la approvi"
-            >
-              <input
-                type="checkbox"
-                checked={reviewWrites}
-                onChange={e => handleToggleReviewWrites(e.target.checked)}
-                style={{ accentColor: '#d29922' }}
-              />
-              Revisione
-            </label>
-
-            <label style={{
-              fontSize: '0.64rem',
-              fontWeight: 700,
-              color: isolateWorktree ? '#a371f7' : '#8b949e',
-              cursor: 'pointer',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '4px'
-            }}
-            title="L'agente lavora in una copia git isolata del progetto, con un checkpoint per turno. A obiettivo raggiunto le modifiche passano all'albero principale, altrimenti restano su un branch dedicato"
-            >
-              <input
-                type="checkbox"
-                checked={isolateWorktree}
-                onChange={e => handleToggleIsolateWorktree(e.target.checked)}
-                style={{ accentColor: '#a371f7' }}
-              />
-              Isolamento
-            </label>
-
-            <label style={{
-              fontSize: '0.64rem',
-              fontWeight: 700,
-              color: reviewRun ? '#d29922' : '#8b949e',
-              cursor: 'pointer',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '4px'
-            }}
-            title="A fine run mostra il diff di tutto il lavoro e chiede una sola approvazione prima di trasferirlo. Accende anche l'isolamento, che è la sua precondizione"
-            >
-              <input
-                type="checkbox"
-                checked={reviewRun}
-                onChange={e => handleToggleReviewRun(e.target.checked)}
-                style={{ accentColor: '#d29922' }}
-              />
-              Revisione run
-            </label>
-
-            <select
-              value={profile}
-              onChange={e => handleSelectProfile(e.target.value)}
-              title="Un tetto ai tool, indipendente dal ruolo: in sola lettura nessun ruolo puo scrivere, per quanti tool dichiari"
-              style={{
-                fontSize: '0.62rem',
-                fontWeight: 700,
-                padding: '2px 4px',
-                borderRadius: '4px',
-                cursor: 'pointer',
-                color: profile ? '#f0883e' : '#8b949e',
-                background: isLight ? '#ffffff' : '#161b22',
-                border: profile
-                  ? '1px solid rgba(240, 136, 62, 0.45)'
-                  : (isLight ? '1px solid #d0d7de' : '1px solid rgba(255,255,255,0.12)')
-              }}
-            >
-              <option value="">Nessun limite</option>
-              <option value="read_only">Sola Lettura</option>
-              <option value="plan_only">Sola Pianificazione</option>
-            </select>
-
-            <label style={{
-              fontSize: '0.64rem',
-              fontWeight: 700,
-              color: autoLoop ? '#00f2fe' : '#8b949e',
-              cursor: 'pointer',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '4px',
-              padding: '2px 6px',
-              borderRadius: '4px',
-              background: autoLoop ? (isLight ? 'rgba(0, 242, 254, 0.15)' : 'rgba(0, 242, 254, 0.1)') : 'transparent',
-              border: autoLoop ? '1px solid rgba(0, 242, 254, 0.4)' : '1px solid transparent'
-            }}
-            title="Esegue automaticamente la catena dei task della pipeline fino al completamento"
-            >
-              <input
-                type="checkbox"
-                checked={autoLoop}
-                onChange={toggleAutoLoop}
-                style={{ accentColor: '#00f2fe' }}
-              />
-              🔁 Loop
-            </label>
-
-            {/* "+ Nuovo Task" Button */}
-            <button
-              type="button"
-              onClick={handleCreateNewTask}
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: '4px',
-                padding: '4px 8px',
-                borderRadius: '6px',
-                background: 'rgba(0, 242, 254, 0.12)',
-                border: '1px solid rgba(0, 242, 254, 0.35)',
-                color: '#00f2fe',
-                fontSize: '0.66rem',
-                fontWeight: 800,
-                cursor: 'pointer',
-                transition: 'all 0.15s ease'
-              }}
-              title="Crea una nuova sessione di lavoro"
-            >
-              <Plus size={12} />
-              <span>Nuovo Task</span>
-            </button>
-          </div>
-        </div>
-
-        {/* Row 2: Task Switcher & History Bar */}
         <div style={{ position: 'relative' }} ref={taskMenuRef}>
           <div
             onClick={() => setShowTaskMenu(!showTaskMenu)}
@@ -1715,18 +1993,7 @@ ${event.diff || ''}`,
           isLight={isLight}
         />
 
-        {/* What the agent has actually done so far */}
-        <AgentWorkMonitor
-          ledger={ledgerState}
-          isLight={isLight}
-          gateReason={gateReason}
-          truncationCount={truncationCount}
-          resumedFrom={resumedFrom}
-          runMetrics={runMetrics}
-          diario={diario}
-          runReport={runReport}
-        />
-
+        {/* Notifiche sempre visibili: consegna, branch conservato, review, countdown */}
         {deliveredWork && (
           <div style={{
             margin: '6px 0',
@@ -1816,7 +2083,6 @@ ${event.diff || ''}`,
           </div>
         )}
 
-        {/* La modifica su cui il run e' fermo in questo momento */}
         <ReviewProposal
           proposal={pendingReview}
           onDecide={handleReviewDecide}
@@ -1824,291 +2090,7 @@ ${event.diff || ''}`,
           isLight={isLight}
         />
 
-        {/* Dynamic Action Plan & Task Pipeline Widget (Always Visible) */}
-        <div style={{
-          borderRadius: '8px',
-          background: isLight ? '#ffffff' : '#111620',
-          border: isGoalCompleted
-            ? '1px solid rgba(63, 185, 80, 0.35)'
-            : (pipeline && pipeline.length > 0 ? '1px solid rgba(0, 242, 254, 0.25)' : (isLight ? '1px solid #e1e4e8' : '1px solid rgba(255,255,255,0.08)')),
-          boxShadow: isLight ? '0 1px 4px rgba(0,0,0,0.06)' : '0 2px 10px rgba(0,0,0,0.25)',
-          overflow: 'hidden',
-          marginTop: '2px'
-        }}>
-          {/* Pipeline Header */}
-          <div 
-            onClick={() => setShowPipeline(!showPipeline)}
-            style={{
-              padding: '6px 10px',
-              background: isGoalCompleted
-                ? (isLight ? 'rgba(63, 185, 80, 0.12)' : 'rgba(63, 185, 80, 0.08)')
-                : (pipeline && pipeline.length > 0 
-                    ? (isLight ? 'rgba(0, 242, 254, 0.08)' : 'rgba(0, 242, 254, 0.05)')
-                    : (isLight ? '#f6f8fa' : '#161b22')),
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-              cursor: 'pointer',
-              userSelect: 'none'
-            }}
-          >
-            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-              <ListTodo size={13} color={isGoalCompleted ? '#3fb950' : (pipeline && pipeline.length > 0 ? '#00f2fe' : '#8b949e')} />
-              <span style={{
-                fontSize: '0.68rem',
-                fontWeight: 800,
-                color: isGoalCompleted ? '#3fb950' : (pipeline && pipeline.length > 0 ? (isLight ? '#24292f' : '#f0f6fc') : '#8b949e')
-              }}>
-                📋 Piano d'Azione & Roadmap {pipeline && pipeline.length > 0 ? `(${pipeline.filter(p => p.status === 'done').length}/${pipeline.length})` : '(In attesa di pianificazione)'}
-              </span>
-              {isGoalCompleted && (
-                <span style={{ fontSize: '0.60rem', padding: '1px 6px', borderRadius: '10px', background: 'rgba(63, 185, 80, 0.2)', color: '#3fb950', fontWeight: 800 }}>
-                  ✓ Obiettivo Raggiunto
-                </span>
-              )}
-            </div>
-
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-              {/* Progress bar */}
-              {pipeline && pipeline.length > 0 && (
-                <>
-                  <div style={{
-                    width: '70px',
-                    height: '5px',
-                    borderRadius: '3px',
-                    background: isLight ? '#e1e4e8' : 'rgba(255,255,255,0.1)',
-                    overflow: 'hidden'
-                  }}>
-                    <div style={{
-                      width: `${Math.round((pipeline.filter(p => p.status === 'done').length / Math.max(pipeline.length, 1)) * 100)}%`,
-                      height: '100%',
-                      background: isGoalCompleted ? '#3fb950' : 'linear-gradient(90deg, #00f2fe, #4facfe)',
-                      transition: 'width 0.3s ease'
-                    }} />
-                  </div>
-                  <span style={{ fontSize: '0.62rem', fontWeight: 700, color: '#8b949e' }}>
-                    {Math.round((pipeline.filter(p => p.status === 'done').length / Math.max(pipeline.length, 1)) * 100)}%
-                  </span>
-                </>
-              )}
-              {showPipeline ? <ChevronUp size={12} color="#8b949e" /> : <ChevronDown size={12} color="#8b949e" />}
-            </div>
-          </div>
-
-          {/* Pipeline Body */}
-          {showPipeline && (
-            <div style={{ padding: '8px 12px', display: 'flex', flexDirection: 'column', gap: '6px', borderTop: isLight ? '1px solid rgba(0,0,0,0.05)' : '1px solid rgba(255,255,255,0.05)' }}>
-              {(!pipeline || pipeline.length === 0) ? (
-                <div style={{
-                  padding: '10px',
-                  borderRadius: '6px',
-                  background: isLight ? 'rgba(0,0,0,0.02)' : 'rgba(255,255,255,0.02)',
-                  fontSize: '0.68rem',
-                  color: isLight ? '#57606a' : '#8b949e',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'space-between',
-                  gap: '8px'
-                }}>
-                  <span>💡 Nessun task ancora definito. L'agente creerà la scaletta al primo messaggio oppure aggiungine uno manualmente.</span>
-                  <button
-                    type="button"
-                    onClick={(e) => { e.stopPropagation(); setShowNewTaskInline(true); }}
-                    style={{
-                      padding: '3px 8px',
-                      borderRadius: '4px',
-                      background: 'rgba(0, 242, 254, 0.12)',
-                      border: '1px solid rgba(0, 242, 254, 0.35)',
-                      color: '#00f2fe',
-                      fontSize: '0.64rem',
-                      fontWeight: 700,
-                      cursor: 'pointer',
-                      flexShrink: 0
-                    }}
-                  >
-                    + Aggiungi Task
-                  </button>
-                </div>
-              ) : (
-                pipeline.map((item) => {
-                  const isDone = item.status === 'done';
-                  const inProgress = item.status === 'in_progress';
-
-                  return (
-                    <div 
-                      key={item.id}
-                      style={{
-                        display: 'flex',
-                        alignItems: 'flex-start',
-                        justifyContent: 'space-between',
-                        padding: '5px 8px',
-                        borderRadius: '6px',
-                        background: inProgress 
-                          ? (isLight ? 'rgba(0, 242, 254, 0.12)' : 'rgba(0, 242, 254, 0.08)') 
-                          : (isDone ? (isLight ? 'rgba(63, 185, 80, 0.06)' : 'rgba(63, 185, 80, 0.04)') : 'transparent'),
-                        border: inProgress ? '1px solid rgba(0, 242, 254, 0.25)' : (isDone ? '1px solid rgba(63, 185, 80, 0.15)' : '1px solid transparent'),
-                        fontSize: '0.68rem',
-                        gap: '8px'
-                      }}
-                    >
-                      <div 
-                        onClick={() => toggleTaskStatus(item.id)}
-                        style={{ display: 'flex', alignItems: 'flex-start', gap: '7px', cursor: 'pointer', flex: 1, minWidth: 0 }}
-                        title="Clicca per cambiare stato del task"
-                      >
-                        <div style={{ marginTop: '2px' }}>
-                          {isDone ? (
-                            <CheckCircle2 size={13} color="#3fb950" />
-                          ) : inProgress ? (
-                            <CircleDot size={13} color="#00f2fe" />
-                          ) : (
-                            <Circle size={13} color="#8b949e" />
-                          )}
-                        </div>
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: '2px', flex: 1, minWidth: 0 }}>
-                          <span style={{
-                            color: isDone ? '#8b949e' : (inProgress ? '#00f2fe' : (isLight ? '#24292f' : '#e6edf3')),
-                            textDecoration: isDone ? 'line-through' : 'none',
-                            fontWeight: inProgress ? 800 : 600,
-                            overflow: 'hidden',
-                            textOverflow: 'ellipsis',
-                            whiteSpace: 'nowrap'
-                          }}>
-                            {item.title}
-                          </span>
-                          {item.description && item.description !== item.title && (
-                            <span style={{
-                              fontSize: '0.60rem',
-                              color: isLight ? '#57606a' : '#8b949e',
-                              lineHeight: 1.3
-                            }}>
-                              {item.description}
-                            </span>
-                          )}
-                        </div>
-                      </div>
-
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '5px', marginTop: '2px' }}>
-                        <span 
-                          onClick={() => toggleTaskStatus(item.id)}
-                          style={{
-                            fontSize: '0.58rem',
-                            padding: '2px 6px',
-                            borderRadius: '8px',
-                            fontWeight: 800,
-                            cursor: 'pointer',
-                            background: isDone 
-                              ? 'rgba(63, 185, 80, 0.2)' 
-                              : (inProgress ? 'rgba(0, 242, 254, 0.2)' : 'rgba(255,255,255,0.08)'),
-                            color: isDone ? '#3fb950' : (inProgress ? '#00f2fe' : '#8b949e')
-                          }}
-                          title="Cambia stato"
-                        >
-                          {isDone ? '✓ FATTO' : (inProgress ? '⚡ IN CORSO' : '⏳ IN CODA')}
-                        </span>
-                        <button
-                          type="button"
-                          onClick={() => removePipelineTask(item.id)}
-                          style={{ background: 'none', border: 'none', color: '#8b949e', cursor: 'pointer', padding: '2px' }}
-                          title="Rimuovi task"
-                        >
-                          <X size={12} />
-                        </button>
-                      </div>
-                    </div>
-                  );
-                })
-              )}
-
-              {/* Inline Add Sub-task */}
-              {showNewTaskInline ? (
-                <form onSubmit={handleAddPipelineTask} style={{ display: 'flex', flexDirection: 'column', gap: '6px', marginTop: '4px', padding: '6px', borderRadius: '6px', background: isLight ? 'rgba(0,0,0,0.03)' : 'rgba(255,255,255,0.03)', border: '1px solid rgba(0, 242, 254, 0.3)' }}>
-                  <input
-                    type="text"
-                    placeholder="Titolo sotto-task (es. Creazione endpoint backend)..."
-                    value={newPipelineInput}
-                    onChange={e => setNewPipelineInput(e.target.value)}
-                    style={{
-                      padding: '4px 8px',
-                      borderRadius: '4px',
-                      border: '1px solid #00f2fe',
-                      background: isLight ? '#fff' : '#07090e',
-                      color: isLight ? '#000' : '#fff',
-                      fontSize: '0.68rem',
-                      outline: 'none'
-                    }}
-                    autoFocus
-                  />
-                  <input
-                    type="text"
-                    placeholder="Dettagli opzionali (file coinvolti, requisiti)..."
-                    value={newPipelineDesc}
-                    onChange={e => setNewPipelineDesc(e.target.value)}
-                    style={{
-                      padding: '4px 8px',
-                      borderRadius: '4px',
-                      border: isLight ? '1px solid #d0d7de' : '1px solid rgba(255,255,255,0.1)',
-                      background: isLight ? '#fff' : '#07090e',
-                      color: isLight ? '#000' : '#fff',
-                      fontSize: '0.64rem',
-                      outline: 'none'
-                    }}
-                  />
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: '6px' }}>
-                    <button
-                      type="button"
-                      onClick={() => { setShowNewTaskInline(false); setNewPipelineInput(''); setNewPipelineDesc(''); }}
-                      style={{ background: 'none', border: 'none', color: '#8b949e', cursor: 'pointer', fontSize: '0.62rem' }}
-                    >
-                      Annulla
-                    </button>
-                    <button
-                      type="submit"
-                      disabled={!newPipelineInput.trim()}
-                      style={{
-                        padding: '3px 8px',
-                        borderRadius: '4px',
-                        background: '#00f2fe',
-                        border: 'none',
-                        color: '#000',
-                        fontSize: '0.64rem',
-                        fontWeight: 700,
-                        cursor: 'pointer'
-                      }}
-                    >
-                      Salva Task
-                    </button>
-                  </div>
-                </form>
-              ) : (
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: '2px', paddingTop: '4px', borderTop: isLight ? '1px solid rgba(0,0,0,0.04)' : '1px solid rgba(255,255,255,0.04)' }}>
-                  <button
-                    type="button"
-                    onClick={() => setShowNewTaskInline(true)}
-                    style={{
-                      background: 'none',
-                      border: 'none',
-                      color: '#00f2fe',
-                      fontSize: '0.64rem',
-                      fontWeight: 700,
-                      cursor: 'pointer',
-                      display: 'inline-flex',
-                      alignItems: 'center',
-                      gap: '4px',
-                      padding: '4px 0',
-                      marginTop: '2px'
-                    }}
-                  >
-                    <Plus size={12} />
-                    <span>Aggiungi sotto-task alla pipeline</span>
-                  </button>
-                </div>
-              )}
-            </div>
-          )}
-        </div>
-
-        {/* Auto-Loop Countdown Alert Banner */}
+        {/* Auto-Loop Countdown Alert Banner — sempre visibile */}
         {loopCountdown !== null && (
           <div style={{
             padding: '6px 12px',
@@ -2119,7 +2101,6 @@ ${event.diff || ''}`,
             alignItems: 'center',
             justifyContent: 'space-between',
             boxShadow: '0 2px 10px rgba(0, 242, 254, 0.2)',
-            animation: 'pulse 1.5s infinite',
             marginTop: '2px'
           }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.70rem', fontWeight: 700, color: isLight ? '#0070f3' : '#00f2fe' }}>
@@ -2165,6 +2146,323 @@ ${event.diff || ''}`,
             </div>
           </div>
         )}
+
+        {/* ═══════════════════════════════════════════════════════════════════
+            Mini-Tab Bar: organizza Monitor, Piano, Attività, Ventaglio
+            ═══════════════════════════════════════════════════════════════════ */}
+        {(() => {
+          const borderCol = isLight ? '#d0d7de' : 'rgba(255,255,255,0.08)';
+          const tabItems = [
+            { id: 'piano', label: '📋 Piano', icon: ListTodo, color: '#00f2fe',
+              badge: pipeline && pipeline.length > 0
+                ? `${pipeline.filter(p => p.status === 'done').length}/${pipeline.length}`
+                : null },
+            { id: 'monitor', label: '📊 Monitor', icon: Activity, color: '#3fb950',
+              badge: ledgerState ? `${(ledgerState.files || []).filter(f => f.edits > 0 || f.writes > 0).length} mod` : null },
+            { id: 'attivita', label: '⚡ Attività', icon: Activity, color: '#a371f7',
+              badge: null },
+            { id: 'ventaglio', label: '🔀 Ventaglio', icon: Layers, color: '#f59e0b',
+              badge: null },
+          ];
+
+          return (
+            <div style={{
+              borderRadius: '8px',
+              background: isLight ? '#ffffff' : '#111620',
+              border: `1px solid ${borderCol}`,
+              overflow: 'hidden',
+              marginTop: '4px'
+            }}>
+              {/* La barra delle tab */}
+              <div style={{
+                display: 'flex',
+                borderBottom: `1px solid ${borderCol}`,
+                background: isLight ? '#f6f8fa' : '#0d1117'
+              }}>
+                {tabItems.map(tab => {
+                  const isActive = activeInfoTab === tab.id;
+                  return (
+                    <button
+                      key={tab.id}
+                      type="button"
+                      onClick={() => setActiveInfoTab(isActive ? null : tab.id)}
+                      style={{
+                        flex: 1,
+                        padding: '5px 6px',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        gap: '4px',
+                        background: isActive
+                          ? (isLight ? '#ffffff' : 'rgba(255,255,255,0.06)')
+                          : 'transparent',
+                        border: 'none',
+                        borderBottom: isActive
+                          ? `2px solid ${tab.color}`
+                          : '2px solid transparent',
+                        color: isActive ? tab.color : (isLight ? '#57606a' : '#8b949e'),
+                        fontSize: '0.62rem',
+                        fontWeight: isActive ? 800 : 600,
+                        cursor: 'pointer',
+                        transition: 'all 0.15s ease',
+                        whiteSpace: 'nowrap'
+                      }}
+                    >
+                      <span>{tab.label}</span>
+                      {tab.badge && (
+                        <span style={{
+                          padding: '0 4px',
+                          borderRadius: '6px',
+                          background: `${tab.color}22`,
+                          color: tab.color,
+                          fontSize: '0.56rem',
+                          fontWeight: 800
+                        }}>
+                          {tab.badge}
+                        </span>
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
+
+              {/* Contenuto della tab attiva */}
+              {activeInfoTab === 'piano' && (
+                <div style={{ maxHeight: '260px', overflowY: 'auto' }}>
+                  {/* Pipeline Header con stato obiettivo */}
+                  <div
+                    onClick={() => setShowPipeline(!showPipeline)}
+                    style={{
+                      padding: '6px 10px',
+                      background: isGoalCompleted
+                        ? (isLight ? 'rgba(63, 185, 80, 0.12)' : 'rgba(63, 185, 80, 0.08)')
+                        : (pipeline && pipeline.length > 0
+                            ? (isLight ? 'rgba(0, 242, 254, 0.08)' : 'rgba(0, 242, 254, 0.05)')
+                            : 'transparent'),
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      cursor: 'pointer',
+                      userSelect: 'none'
+                    }}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                      <span style={{
+                        fontSize: '0.66rem',
+                        fontWeight: 800,
+                        color: isGoalCompleted ? '#3fb950' : (pipeline && pipeline.length > 0 ? (isLight ? '#24292f' : '#f0f6fc') : '#8b949e')
+                      }}>
+                        Piano d'Azione {pipeline && pipeline.length > 0 ? `(${pipeline.filter(p => p.status === 'done').length}/${pipeline.length})` : ''}
+                      </span>
+                      {isGoalCompleted && (
+                        <span style={{ fontSize: '0.56rem', padding: '1px 5px', borderRadius: '8px', background: 'rgba(63, 185, 80, 0.2)', color: '#3fb950', fontWeight: 800 }}>
+                          ✓ Obiettivo Raggiunto
+                        </span>
+                      )}
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                      {pipeline && pipeline.length > 0 && (
+                        <>
+                          <div style={{
+                            width: '60px', height: '4px', borderRadius: '2px',
+                            background: isLight ? '#e1e4e8' : 'rgba(255,255,255,0.1)', overflow: 'hidden'
+                          }}>
+                            <div style={{
+                              width: `${Math.round((pipeline.filter(p => p.status === 'done').length / Math.max(pipeline.length, 1)) * 100)}%`,
+                              height: '100%',
+                              background: isGoalCompleted ? '#3fb950' : 'linear-gradient(90deg, #00f2fe, #4facfe)',
+                              transition: 'width 0.3s ease'
+                            }} />
+                          </div>
+                          <span style={{ fontSize: '0.58rem', fontWeight: 700, color: '#8b949e' }}>
+                            {Math.round((pipeline.filter(p => p.status === 'done').length / Math.max(pipeline.length, 1)) * 100)}%
+                          </span>
+                        </>
+                      )}
+                      {showPipeline ? <ChevronUp size={11} color="#8b949e" /> : <ChevronDown size={11} color="#8b949e" />}
+                    </div>
+                  </div>
+
+                  {showPipeline && (
+                    <div style={{ padding: '6px 10px', display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                      {(!pipeline || pipeline.length === 0) ? (
+                        <div style={{
+                          padding: '8px',
+                          borderRadius: '6px',
+                          background: isLight ? 'rgba(0,0,0,0.02)' : 'rgba(255,255,255,0.02)',
+                          fontSize: '0.64rem',
+                          color: isLight ? '#57606a' : '#8b949e',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'space-between',
+                          gap: '6px'
+                        }}>
+                          <span>💡 Nessun task definito. L'agente creerà la scaletta al primo messaggio.</span>
+                          <button
+                            type="button"
+                            onClick={(e) => { e.stopPropagation(); setShowNewTaskInline(true); }}
+                            style={{
+                              padding: '2px 6px', borderRadius: '4px',
+                              background: 'rgba(0, 242, 254, 0.12)',
+                              border: '1px solid rgba(0, 242, 254, 0.35)',
+                              color: '#00f2fe', fontSize: '0.60rem',
+                              fontWeight: 700, cursor: 'pointer', flexShrink: 0
+                            }}
+                          >
+                            + Aggiungi
+                          </button>
+                        </div>
+                      ) : (
+                        pipeline.map((item) => {
+                          const isDone = item.status === 'done';
+                          const inProgress = item.status === 'in_progress';
+                          return (
+                            <div
+                              key={item.id}
+                              style={{
+                                display: 'flex',
+                                alignItems: 'flex-start',
+                                justifyContent: 'space-between',
+                                padding: '4px 6px',
+                                borderRadius: '5px',
+                                background: inProgress
+                                  ? (isLight ? 'rgba(0, 242, 254, 0.10)' : 'rgba(0, 242, 254, 0.06)')
+                                  : (isDone ? (isLight ? 'rgba(63, 185, 80, 0.06)' : 'rgba(63, 185, 80, 0.04)') : 'transparent'),
+                                border: inProgress ? '1px solid rgba(0, 242, 254, 0.20)' : (isDone ? '1px solid rgba(63, 185, 80, 0.12)' : '1px solid transparent'),
+                                fontSize: '0.64rem',
+                                gap: '6px'
+                              }}
+                            >
+                              <div
+                                onClick={() => toggleTaskStatus(item.id)}
+                                style={{ display: 'flex', alignItems: 'flex-start', gap: '5px', cursor: 'pointer', flex: 1, minWidth: 0 }}
+                                title="Clicca per cambiare stato"
+                              >
+                                <div style={{ marginTop: '1px' }}>
+                                  {isDone ? <CheckCircle2 size={12} color="#3fb950" />
+                                    : inProgress ? <CircleDot size={12} color="#00f2fe" />
+                                    : <Circle size={12} color="#8b949e" />}
+                                </div>
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: '1px', flex: 1, minWidth: 0 }}>
+                                  <span style={{
+                                    color: isDone ? '#8b949e' : (inProgress ? '#00f2fe' : (isLight ? '#24292f' : '#e6edf3')),
+                                    textDecoration: isDone ? 'line-through' : 'none',
+                                    fontWeight: inProgress ? 800 : 600,
+                                    overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap'
+                                  }}>
+                                    {item.title}
+                                  </span>
+                                  {item.description && item.description !== item.title && (
+                                    <span style={{ fontSize: '0.56rem', color: '#8b949e', lineHeight: 1.3 }}>
+                                      {item.description}
+                                    </span>
+                                  )}
+                                </div>
+                              </div>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '4px', marginTop: '1px' }}>
+                                <span
+                                  onClick={() => toggleTaskStatus(item.id)}
+                                  style={{
+                                    fontSize: '0.54rem', padding: '1px 5px', borderRadius: '6px',
+                                    fontWeight: 800, cursor: 'pointer',
+                                    background: isDone ? 'rgba(63, 185, 80, 0.2)' : (inProgress ? 'rgba(0, 242, 254, 0.2)' : 'rgba(255,255,255,0.08)'),
+                                    color: isDone ? '#3fb950' : (inProgress ? '#00f2fe' : '#8b949e')
+                                  }}
+                                  title="Cambia stato"
+                                >
+                                  {isDone ? '✓' : (inProgress ? '⚡' : '⏳')}
+                                </span>
+                                <button
+                                  type="button"
+                                  onClick={() => removePipelineTask(item.id)}
+                                  style={{ background: 'none', border: 'none', color: '#8b949e', cursor: 'pointer', padding: '1px' }}
+                                  title="Rimuovi"
+                                >
+                                  <X size={10} />
+                                </button>
+                              </div>
+                            </div>
+                          );
+                        })
+                      )}
+
+                      {showNewTaskInline ? (
+                        <form onSubmit={handleAddPipelineTask} style={{
+                          display: 'flex', flexDirection: 'column', gap: '4px',
+                          marginTop: '3px', padding: '5px', borderRadius: '5px',
+                          background: isLight ? 'rgba(0,0,0,0.03)' : 'rgba(255,255,255,0.03)',
+                          border: '1px solid rgba(0, 242, 254, 0.3)'
+                        }}>
+                          <input type="text" placeholder="Titolo sotto-task..."
+                            value={newPipelineInput} onChange={e => setNewPipelineInput(e.target.value)}
+                            style={{ padding: '3px 6px', borderRadius: '4px', border: '1px solid #00f2fe',
+                              background: isLight ? '#fff' : '#07090e', color: isLight ? '#000' : '#fff',
+                              fontSize: '0.64rem', outline: 'none' }}
+                            autoFocus
+                          />
+                          <input type="text" placeholder="Dettagli opzionali..."
+                            value={newPipelineDesc} onChange={e => setNewPipelineDesc(e.target.value)}
+                            style={{ padding: '3px 6px', borderRadius: '4px',
+                              border: isLight ? '1px solid #d0d7de' : '1px solid rgba(255,255,255,0.1)',
+                              background: isLight ? '#fff' : '#07090e', color: isLight ? '#000' : '#fff',
+                              fontSize: '0.60rem', outline: 'none' }}
+                          />
+                          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '5px' }}>
+                            <button type="button"
+                              onClick={() => { setShowNewTaskInline(false); setNewPipelineInput(''); setNewPipelineDesc(''); }}
+                              style={{ background: 'none', border: 'none', color: '#8b949e', cursor: 'pointer', fontSize: '0.58rem' }}>
+                              Annulla
+                            </button>
+                            <button type="submit" disabled={!newPipelineInput.trim()}
+                              style={{ padding: '2px 6px', borderRadius: '4px', background: '#00f2fe',
+                                border: 'none', color: '#000', fontSize: '0.60rem', fontWeight: 700, cursor: 'pointer' }}>
+                              Salva
+                            </button>
+                          </div>
+                        </form>
+                      ) : (
+                        <button type="button" onClick={() => setShowNewTaskInline(true)}
+                          style={{ background: 'none', border: 'none', color: '#00f2fe',
+                            fontSize: '0.60rem', fontWeight: 700, cursor: 'pointer',
+                            display: 'inline-flex', alignItems: 'center', gap: '3px',
+                            padding: '3px 0', marginTop: '2px' }}>
+                          <Plus size={10} /> Aggiungi sotto-task
+                        </button>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {activeInfoTab === 'monitor' && (
+                <div style={{ maxHeight: '300px', overflowY: 'auto' }}>
+                  <AgentWorkMonitor
+                    ledger={ledgerState}
+                    isLight={isLight}
+                    gateReason={gateReason}
+                    truncationCount={truncationCount}
+                    resumedFrom={resumedFrom}
+                    runMetrics={runMetrics}
+                    diario={diario}
+                    runReport={runReport}
+                  />
+                </div>
+              )}
+
+              {activeInfoTab === 'attivita' && (
+                <div style={{ maxHeight: '260px', overflowY: 'auto' }}>
+                  <ActivityBar isLight={isLight} inline />
+                </div>
+              )}
+
+              {activeInfoTab === 'ventaglio' && (
+                <div style={{ maxHeight: '300px', overflowY: 'auto' }}>
+                  <FanoutPanel workspaceRoot={workspaceRoot} isLight={isLight} inline />
+                </div>
+              )}
+            </div>
+          );
+        })()}
       </div>
 
       {/* Messages List */}
@@ -2273,7 +2571,6 @@ ${event.diff || ''}`,
                       fontSize: '0.74rem',
                       fontWeight: 600,
                       boxShadow: '0 2px 8px rgba(0, 242, 254, 0.15)',
-                      animation: 'pulse 1.8s infinite',
                       marginBottom: '4px'
                     }}>
                       <RefreshCw size={13} className="spin" />
@@ -3053,6 +3350,19 @@ ${event.diff || ''}`,
           overflow-x: auto;
         }
       `}</style>
+
+      {/* Modale di Gestione Docker aperta dal widget nella Header */}
+      <DockerViewerModal
+        isOpen={showDockerModal}
+        onClose={() => setShowDockerModal(false)}
+        isLight={isLight}
+        onSelectContainer={(cid) => {
+          if (onOpenFile) {
+            onOpenFile(`docker://${cid}/`);
+          }
+          setShowDockerModal(false);
+        }}
+      />
     </div>
   );
 }

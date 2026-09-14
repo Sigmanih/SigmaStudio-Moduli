@@ -62,6 +62,12 @@ async def handle_fs_tree(request: Request):
     """GET /api/developer/fs/tree?path=<optional> — Returns workspace directory tree."""
     path = request.query_params.get("path") or get_default_workspace_root()
     depth = int(request.query_params.get("depth", 4))
+    if path.startswith("docker://"):
+        from core.harness.docker_fs import parse_docker_uri, get_docker_tree
+        cid, subpath = parse_docker_uri(path)
+        tree = await asyncio.to_thread(get_docker_tree, cid or "", subpath, depth)
+        return JSONResponse(status_code=200, content={"success": True, "tree": tree, "root": path})
+
     tree = await asyncio.to_thread(get_workspace_tree, path, depth)
     return JSONResponse(status_code=200, content={"success": True, "tree": tree, "root": path})
 
@@ -71,6 +77,12 @@ async def handle_fs_read(request: Request):
     path = request.query_params.get("path")
     if not path:
         return JSONResponse(status_code=400, content={"success": False, "error": "Parametro 'path' mancante."})
+    if path.startswith("docker://"):
+        from core.harness.docker_fs import parse_docker_uri, read_docker_file
+        cid, subpath = parse_docker_uri(path)
+        res = await asyncio.to_thread(read_docker_file, cid or "", subpath)
+        return JSONResponse(status_code=200 if res.get("success") else 400, content=res)
+
     res = await asyncio.to_thread(read_file_content, path)
     return JSONResponse(status_code=200 if res.get("success") else 400, content=res)
 
@@ -97,6 +109,13 @@ async def handle_fs_write(request: Request):
     content = body.get("content", "")
     if not path:
         return JSONResponse(status_code=400, content={"success": False, "error": "Parametro 'path' mancante."})
+
+    if path.startswith("docker://"):
+        from core.harness.docker_fs import parse_docker_uri, write_docker_file
+        cid, subpath = parse_docker_uri(path)
+        res = await asyncio.to_thread(write_docker_file, cid or "", subpath, content)
+        return JSONResponse(status_code=200 if res.get("success") else 400, content=res)
+
     res = await asyncio.to_thread(write_file_content, path, content)
     if res.get("success"):
         # Se il file appartiene a un modulo, quel lavoro va nel repository del
@@ -394,6 +413,35 @@ async def handle_workspace_roots(request: Request):
             voce["unsafe"] = motivo
         roots.append(voce)
 
+    try:
+        from core.harness.docker_fs import container_attivi
+        for c in container_attivi():
+            cid = c.get("id", "")
+            cname = c.get("name", cid[:12])
+            mounts = c.get("mounts", [])
+            # Aggiunge i bind mounts host del container
+            for m in mounts:
+                src = m.get("Source")
+                dst = m.get("Destination", "")
+                if src and Path(src).exists():
+                    roots.append({
+                        "label": f"🐳 [Docker {cname}] {dst} ({Path(src).name})",
+                        "path": str(Path(src)).replace("\\", "/"),
+                        "kind": "docker_mount",
+                        "container_id": cid,
+                        "container_name": cname,
+                    })
+            # Aggiunge anche l'accesso diretto ai file interni del container
+            roots.append({
+                "label": f"🐳 [Container] {cname} ({c.get('image', '')})",
+                "path": f"docker://{cid}/",
+                "kind": "docker_container",
+                "container_id": cid,
+                "container_name": cname,
+            })
+    except Exception as exc_dock:
+        log.debug("[Developer] container docker non inclusi nelle radici: %s", exc_dock)
+
     return JSONResponse(status_code=200, content={
         "success": True, "roots": roots,
         "current": default_root.replace("\\", "/")})
@@ -406,11 +454,10 @@ async def handle_sandbox(request: Request):
     «accesa» quando Docker non c'e' sarebbe la bugia peggiore, perche' chi
     legge crederebbe di essere protetto.
     """
-    from core.harness.esecutori import stato_sandbox
-
+    from core.harness.esecutori import info_docker_estese
     try:
-        return JSONResponse(status_code=200, content={"success": True,
-                                                      **stato_sandbox()})
+        dati = await asyncio.to_thread(info_docker_estese)
+        return JSONResponse(status_code=200, content={"success": True, **dati})
     except Exception as exc:
         return JSONResponse(status_code=500,
                             content={"success": False, "error": str(exc)})
@@ -431,6 +478,86 @@ async def handle_sandbox_save(request: Request):
     except (ValueError, OSError) as exc:
         return JSONResponse(status_code=400,
                             content={"success": False, "error": str(exc)})
+
+
+async def handle_docker_container_start(request: Request):
+    """POST /api/developer/docker/container/start — avvia un container Docker arrestato."""
+    from core.harness.docker_fs import avvia_container
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    cid = str(body.get("id") or body.get("container_id") or "").strip()
+    if not cid:
+        return JSONResponse(status_code=400, content={"success": False, "error": "Parametro 'id' mancante"})
+    esito = await asyncio.to_thread(avvia_container, cid)
+    return JSONResponse(status_code=200 if esito.get("success") else 400, content=esito)
+
+
+async def handle_docker_container_stop(request: Request):
+    """POST /api/developer/docker/container/stop — arresta un container Docker in esecuzione."""
+    from core.harness.docker_fs import ferma_container
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    cid = str(body.get("id") or body.get("container_id") or "").strip()
+    if not cid:
+        return JSONResponse(status_code=400, content={"success": False, "error": "Parametro 'id' mancante"})
+    timeout = int(body.get("timeout", 10))
+    esito = await asyncio.to_thread(ferma_container, cid, timeout)
+    return JSONResponse(status_code=200 if esito.get("success") else 400, content=esito)
+
+
+async def handle_docker_container_restart(request: Request):
+    """POST /api/developer/docker/container/restart — riavvia un container Docker."""
+    from core.harness.docker_fs import riavvia_container
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    cid = str(body.get("id") or body.get("container_id") or "").strip()
+    if not cid:
+        return JSONResponse(status_code=400, content={"success": False, "error": "Parametro 'id' mancante"})
+    timeout = int(body.get("timeout", 10))
+    esito = await asyncio.to_thread(riavvia_container, cid, timeout)
+    return JSONResponse(status_code=200 if esito.get("success") else 400, content=esito)
+
+
+async def handle_docker_container_remove(request: Request):
+    """POST /api/developer/docker/container/remove — rimuove un container Docker."""
+    from core.harness.docker_fs import rimuovi_container
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    cid = str(body.get("id") or body.get("container_id") or "").strip()
+    if not cid:
+        return JSONResponse(status_code=400, content={"success": False, "error": "Parametro 'id' mancante"})
+    force = bool(body.get("force", False))
+    esito = await asyncio.to_thread(rimuovi_container, cid, force)
+    return JSONResponse(status_code=200 if esito.get("success") else 400, content=esito)
+
+
+async def handle_docker_container_run(request: Request):
+    """POST /api/developer/docker/container/run — lancia un nuovo container (app o sandbox)."""
+    from core.harness.docker_fs import lancia_container
+    from core.harness.fs_manager import get_default_workspace_root
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    immagine = body.get("image")
+    nome = body.get("name")
+    workspace_root = body.get("workspace_root") or get_default_workspace_root()
+    porte = body.get("ports")
+    comando = body.get("command")
+    modalita = body.get("modalita") or "app"
+    esito = await asyncio.to_thread(
+        lancia_container, immagine, nome, workspace_root, porte, comando, modalita
+    )
+    return JSONResponse(status_code=200 if esito.get("success") else 400, content=esito)
+
 
 
 async def handle_projects(request: Request):
@@ -937,6 +1064,11 @@ ROUTES = (
     ("/api/developer/projects/root", handle_projects_root, ["POST"]),
     ("/api/developer/sandbox", handle_sandbox, ["GET"]),
     ("/api/developer/sandbox", handle_sandbox_save, ["POST"]),
+    ("/api/developer/docker/container/start", handle_docker_container_start, ["POST"]),
+    ("/api/developer/docker/container/stop", handle_docker_container_stop, ["POST"]),
+    ("/api/developer/docker/container/restart", handle_docker_container_restart, ["POST"]),
+    ("/api/developer/docker/container/remove", handle_docker_container_remove, ["POST"]),
+    ("/api/developer/docker/container/run", handle_docker_container_run, ["POST"]),
     ("/api/developer/orchestrator/run", handle_orchestrator_run, ["POST"]),
     ("/api/developer/orchestrator/status", handle_orchestrator_status, ["GET"]),
     ("/api/developer/orchestrator/approve", handle_orchestrator_approve, ["POST"]),

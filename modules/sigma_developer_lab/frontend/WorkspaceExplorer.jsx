@@ -1,8 +1,10 @@
 import React, { useState } from 'react';
 import { 
   Folder, FolderOpen, File, FileCode, FileText, ChevronRight, ChevronDown, 
-  Plus, Trash2, Edit2, RefreshCw, Search, HardDrive, CornerDownRight 
+  Plus, Trash2, Edit2, RefreshCw, Search, HardDrive, CornerDownRight,
+  Box, ExternalLink 
 } from 'lucide-react';
+import DockerViewerModal from './DockerViewerModal';
 
 export const getFileIcon = (filename = '') => {
   const ext = filename.split('.').pop().toLowerCase();
@@ -152,6 +154,8 @@ export default function WorkspaceExplorer({
   isLight
 }) {
   const [searchFilter, setSearchFilter] = useState('');
+  const [showDockerModal, setShowDockerModal] = useState(false);
+  const textMuted = isLight ? '#57606a' : '#8b949e';
 
   const filterTree = (node, query) => {
     if (!query) return node;
@@ -236,39 +240,116 @@ export default function WorkspaceExplorer({
           ))}
         </select>
 
-        {/* Quick Pinned Bookmarks (Home, data/, manifesti/, core/) */}
-        <div style={{ display: 'flex', gap: '4px', overflowX: 'auto', paddingBottom: '2px' }}>
-          {[
-            { label: '🏠 Home', path: '' },
-            { label: '📌 data/', path: 'data' },
-            { label: '🧠 Memoria', path: 'data/models' },
-            { label: '🎭 Ruoli', path: 'Ruoli' },
-            { label: '🧬 Core', path: 'core' }
-          ].map(pin => (
-            <button
-              key={pin.label}
-              type="button"
-              onClick={() => {
-                const base = workspaceRoots[0]?.path || '';
-                const matched = workspaceRoots.find(r => r.path.replace(/\\/g, '/').endsWith(pin.path));
-                const target = matched ? matched.path : (base ? `${base.replace(/[/\\]+$/, '')}/${pin.path}` : pin.path);
-                onSelectWorkspaceRoot(target);
-              }}
-              style={{
-                padding: '2px 5px',
-                borderRadius: '4px',
-                fontSize: '0.60rem',
-                fontWeight: 700,
-                background: isLight ? 'rgba(0,0,0,0.05)' : 'rgba(255,255,255,0.06)',
-                border: 'none',
-                color: isLight ? '#57606a' : '#8b949e',
-                cursor: 'pointer',
-                whiteSpace: 'nowrap'
-              }}
-            >
-              {pin.label}
-            </button>
-          ))}
+        {/* Rimodernizzata Development Map & Quick Pinned Bookmarks */}
+        <div style={{
+          display: 'flex',
+          flexDirection: 'column',
+          gap: '6px',
+          padding: '6px 8px',
+          borderRadius: '8px',
+          background: isLight ? 'rgba(0,0,0,0.03)' : 'rgba(255,255,255,0.03)',
+          border: isLight ? '1px solid rgba(0,0,0,0.06)' : '1px solid rgba(255,255,255,0.06)'
+        }}>
+          <div style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            fontSize: '0.62rem',
+            fontWeight: 700,
+            color: textMuted
+          }}>
+            <span style={{ textTransform: 'uppercase', letterSpacing: '0.5px' }}>Navigazione Rapida</span>
+            <span style={{ color: '#00d2ff', fontSize: '0.58rem' }}>Dev Map</span>
+          </div>
+
+          <div style={{
+            display: 'flex',
+            gap: '4px',
+            overflowX: 'auto',
+            paddingBottom: '2px',
+            scrollbarWidth: 'none',
+            msOverflowStyle: 'none'
+          }}>
+            {[
+              { label: '🏠 Home', path: '' },
+              { label: '📌 data/', path: 'data' },
+              { label: '🧠 Memoria', path: 'data/models' },
+              { label: '🎭 Ruoli', path: 'Ruoli' },
+              { label: '🧬 Core', path: 'core' },
+            ].map(pin => {
+              const isPinnedActive = pin.path === '' 
+                ? (workspaceRoot === (workspaceRoots[0]?.path || ''))
+                : (workspaceRoot.replace(/\\/g, '/').endsWith(pin.path));
+
+              return (
+                <button
+                  key={pin.label}
+                  type="button"
+                  onClick={() => {
+                    const base = workspaceRoots[0]?.path || '';
+                    const matched = workspaceRoots.find(r => r.path.replace(/\\/g, '/').endsWith(pin.path));
+                    const target = matched ? matched.path : (base ? `${base.replace(/[/\\]+$/, '')}/${pin.path}` : pin.path);
+                    onSelectWorkspaceRoot(target);
+                  }}
+                  style={{
+                    padding: '3px 7px',
+                    borderRadius: '5px',
+                    fontSize: '0.62rem',
+                    fontWeight: 700,
+                    background: isPinnedActive 
+                      ? (isLight ? 'rgba(0, 210, 255, 0.15)' : 'rgba(0, 210, 255, 0.18)')
+                      : (isLight ? '#ffffff' : 'rgba(255, 255, 255, 0.05)'),
+                    border: isPinnedActive 
+                      ? '1px solid rgba(0, 210, 255, 0.5)'
+                      : (isLight ? '1px solid #d0d7de' : '1px solid rgba(255, 255, 255, 0.08)'),
+                    color: isPinnedActive ? '#00d2ff' : (isLight ? '#24292f' : '#c9d1d9'),
+                    cursor: 'pointer',
+                    whiteSpace: 'nowrap',
+                    transition: 'all 0.15s ease',
+                    boxShadow: isPinnedActive ? '0 1px 4px rgba(0,210,255,0.2)' : 'none'
+                  }}
+                >
+                  {pin.label}
+                </button>
+              );
+            })}
+          </div>
+
+          {/* Tasto Dedicato: Visualizza Docker */}
+          <button
+            type="button"
+            onClick={() => setShowDockerModal(true)}
+            title="Apri il monitor Docker: visualizza container attivi, immagini scaricate e porte dev-server"
+            style={{
+              width: '100%',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: '6px',
+              padding: '4px 8px',
+              borderRadius: '6px',
+              fontSize: '0.65rem',
+              fontWeight: 800,
+              background: 'linear-gradient(135deg, rgba(2, 132, 199, 0.2), rgba(14, 165, 233, 0.12))',
+              border: '1px solid rgba(56, 189, 248, 0.4)',
+              color: '#38bdf8',
+              cursor: 'pointer',
+              transition: 'all 0.15s ease',
+              marginTop: '2px'
+            }}
+            onMouseEnter={e => {
+              e.currentTarget.style.background = 'linear-gradient(135deg, rgba(2, 132, 199, 0.35), rgba(14, 165, 233, 0.22))';
+              e.currentTarget.style.borderColor = '#38bdf8';
+            }}
+            onMouseLeave={e => {
+              e.currentTarget.style.background = 'linear-gradient(135deg, rgba(2, 132, 199, 0.2), rgba(14, 165, 233, 0.12))';
+              e.currentTarget.style.borderColor = 'rgba(56, 189, 248, 0.4)';
+            }}
+          >
+            <span>🐳</span>
+            <span>Visualizza Docker & Sandbox</span>
+            <ExternalLink size={10} style={{ opacity: 0.7 }} />
+          </button>
         </div>
 
         {/* Quick Filter Input */}
@@ -321,6 +402,19 @@ export default function WorkspaceExplorer({
           </div>
         )}
       </div>
+
+      {/* Modale Visualizza Docker & Sandbox Monitor */}
+      <DockerViewerModal 
+        isOpen={showDockerModal} 
+        onClose={() => setShowDockerModal(false)} 
+        isLight={isLight} 
+        onSelectContainer={(cid) => {
+          if (onSelectWorkspaceRoot) {
+            onSelectWorkspaceRoot(`docker://${cid}/`);
+          }
+          setShowDockerModal(false);
+        }}
+      />
     </div>
   );
 }
