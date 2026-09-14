@@ -347,19 +347,24 @@ async def handle_agent_chat(request: Request):
 async def handle_workspace_roots(request: Request):
     """GET /api/developer/workspace/roots — le cartelle su cui si puo' lavorare.
 
-    In cima stanno Sigma Studio e i progetti sotto l'indirizzo di sviluppo:
-    sono le scelte giuste, e vanno trovate per prime. Le lettere di unita'
-    restano perche' servono a navigare verso un progetto che sta altrove, ma
-    portano `unsafe` con il motivo: un agente su `C:/` puo' scrivere ovunque,
-    e chi sceglie deve vederlo scritto prima di sceglierlo, non dopo.
+    In cima sta l'indirizzo di sviluppo con i suoi progetti, perche' e' li' che
+    nascono gli applicativi: lavorare su Sigma Studio stesso e' il caso
+    speciale, non la norma, e va scelto apposta.
+
+    L'ordine non e' un dettaglio estetico. Con Sigma Studio in cima, un
+    compito che diceva «crea un programma **staccato da sigma**» e' stato
+    lanciato sulla radice di Sigma Studio: l'agente ha scritto `backend/`,
+    `frontend/` e `landing/` dentro il sorgente del programma che lo stava
+    eseguendo, e un commit se li e' portati dentro insieme al resto. La prima
+    voce di un elenco e' la scelta che si fa senza decidere.
+
+    Le lettere di unita' restano perche' servono a navigare verso un progetto
+    che sta altrove, ma portano `unsafe` con il motivo: un agente su `C:/` puo'
+    scrivere ovunque, e chi sceglie deve vederlo scritto prima, non dopo.
     """
     from core.progetti import elenca_progetti, radice_pericolosa, radice_progetti
 
     roots = []
-    default_root = get_default_workspace_root()
-    roots.append({"label": f"Sigma Studio ({Path(default_root).name})",
-                  "path": default_root.replace("\\", "/"), "kind": "studio"})
-
     try:
         radice = radice_progetti()
         roots.append({"label": f"Progetti ({radice.name})",
@@ -371,6 +376,10 @@ async def handle_workspace_roots(request: Request):
             })
     except Exception as exc:  # l'elenco non deve poter rompere la pagina
         log.warning("[Developer] progetti non elencati: %s", exc)
+
+    default_root = get_default_workspace_root()
+    roots.append({"label": f"Sigma Studio ({Path(default_root).name}) — il programma stesso",
+                  "path": default_root.replace("\\", "/"), "kind": "studio"})
 
     altre = [str(Path.home())]
     if os.name == "nt":
