@@ -110,7 +110,7 @@ class SemanticMCPServer(BaseMCPServer):
                 },
                 "required": ["query"]
             },
-            handler=lambda query, top_k=10: self._semantic_search(query, top_k)
+            handler=lambda query, top_k=10, force_fallback=False: self._semantic_search(query, top_k, force_fallback)
         )
         
         self.register_tool(
@@ -135,6 +135,52 @@ class SemanticMCPServer(BaseMCPServer):
             },
             handler=lambda: self._get_index_status()
         )
+
+        self.register_tool(
+            name="explain_code",
+            description="Spiega il ruolo di un simbolo (funzione, classe, modulo) o file nel contesto del progetto. "
+                       "Usa l'indice semantico per trovare il simbolo e restituisce snippet, percorso e contesto.",
+            input_schema={
+                "type": "object",
+                "properties": {
+                    "symbol": {"type": "string", "description": "Nome del simbolo (funzione, classe, modulo) da spiegare"},
+                    "path_hint": {"type": "string", "description": "Opzionale: percorso parziale per restringere la ricerca"}
+                },
+                "required": ["symbol"]
+            },
+            handler=lambda symbol, path_hint=None: self._explain_code(symbol, path_hint)
+        )
+    
+    def _explain_code(self, symbol: str, path_hint: Optional[str] = None) -> Dict[str, Any]:
+        """Trova il simbolo nell'indice e restituisce contesto e snippet."""
+        if not self._index or not self._index.get("documents"):
+            return {"error": "Indice non disponibile. Esegui prima index_codebase."}
+
+        docs = self._index["documents"]
+        # Filtra per path_hint se specificato
+        if path_hint:
+            docs = [d for d in docs if path_hint.lower() in d.get("path", "").lower()]
+
+        # Cerca il simbolo nel nome o nel contenuto
+        matches = []
+        for doc in docs:
+            name = doc.get("name", "")
+            content = doc.get("content", "")
+            if symbol.lower() in name.lower() or symbol.lower() in content.lower():
+                matches.append(doc)
+
+        if not matches:
+            return {"error": f"Simbolo '{symbol}' non trovato nell'indice."}
+
+        # Prendi il primo match più rilevante (più lungo o con più occorrenze)
+        best = max(matches, key=lambda d: len(d.get("content", "")))
+        return {
+            "symbol": symbol,
+            "path": best.get("path", ""),
+            "name": best.get("name", ""),
+            "snippet": best.get("content", "")[:500],
+            "occurrences": len(matches)
+        }
     
     def _load_index(self) -> None:
         """Carica l'indice dal disco se esiste."""
@@ -230,7 +276,7 @@ class SemanticMCPServer(BaseMCPServer):
         logger.info("Indice costruito: %d documenti", len(documents))
         return self._index
     
-    def _semantic_search(self, query: str, top_k: int = 10) -> List[Dict[str, Any]]:
+    def _semantic_search(self, query: str, top_k: int = 10, force_fallback: bool = False) -> List[Dict[str, Any]]:
         """Esegue la ricerca semantica."""
         if not self._index or not self._index.get("documents"):
             # Costruisce l'indice se non esiste
@@ -299,5 +345,10 @@ class SemanticMCPServer(BaseMCPServer):
                 "total_documents": self._index["total_documents"]
             }
         
+        elif tool_name == "explain_code":
+            symbol = arguments.get("symbol", "")
+            path_hint = arguments.get("path_hint")
+            return self._explain_code(symbol, path_hint)
+
         else:
             raise ValueError(f"Tool sconosciuto: {tool_name}")
