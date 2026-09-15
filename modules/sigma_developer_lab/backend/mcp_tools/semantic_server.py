@@ -92,45 +92,48 @@ class SemanticMCPServer(BaseMCPServer):
     """Server MCP per la ricerca semantica del codice."""
     
     def __init__(self) -> None:
-        super().__init__()
+        super().__init__(name="Semantic Code Search", version="1.0.0", description="Ricerca semantica del codice sorgente")
         self._index: Optional[Dict[str, Any]] = None
         self._load_index()
         
-        # Registra i tool
+        # Registra i tool con handler
         self.register_tool(
             name="semantic_search",
             description="Cerca nel codice sorgente per significato (non solo testo esatto). "
                        "Esempio: 'gestione errori di rete' o 'validazione input'. "
                        "Restituisce file, righe e snippet ordinati per rilevanza.",
-            parameters={
+            input_schema={
                 "type": "object",
                 "properties": {
                     "query": {"type": "string", "description": "La query semantica in linguaggio naturale"},
                     "top_k": {"type": "integer", "description": "Numero massimo di risultati (default: 10)", "default": 10}
                 },
                 "required": ["query"]
-            }
+            },
+            handler=lambda query, top_k=10: self._semantic_search(query, top_k)
         )
         
         self.register_tool(
             name="index_codebase",
             description="Costruisce o aggiorna l'indice semantico del codice sorgente. "
                        "Scansiona tutti i file di codice nel workspace e crea un indice TF-IDF.",
-            parameters={
+            input_schema={
                 "type": "object",
                 "properties": {},
                 "required": []
-            }
+            },
+            handler=lambda: self._build_index()
         )
         
         self.register_tool(
             name="index_status",
             description="Mostra lo stato dell'indice semantico: se esiste, quando è stato creato, quanti file contiene.",
-            parameters={
+            input_schema={
                 "type": "object",
                 "properties": {},
                 "required": []
-            }
+            },
+            handler=lambda: self._get_index_status()
         )
     
     def _load_index(self) -> None:
@@ -161,45 +164,48 @@ class SemanticMCPServer(BaseMCPServer):
         documents: List[Dict[str, Any]] = []
         all_tokens: List[List[str]] = []
         
-        for root, dirs, files in Path(".").rglob("*"):
-            # Filtra directory escluse
-            dirs[:] = [d for d in dirs if d not in EXCLUDE_DIRS and not d.startswith(".")]
-            
-            for file in files:
-                ext = file.suffix.lower()
-                if ext not in CODE_EXTENSIONS:
+        base = Path(".")
+        for file in base.rglob("*"):
+            # Filtra directory escluse e file nascosti
+            parts = file.parts
+            if any(p in EXCLUDE_DIRS or p.startswith(".") for p in parts[:-1]):
+                continue
+            if not file.is_file():
+                continue
+            ext = file.suffix.lower()
+            if ext not in CODE_EXTENSIONS:
+                continue
+
+            # Salta file troppo grandi (> 500KB)
+            try:
+                if file.stat().st_size > 500 * 1024:
                     continue
-                
-                # Salta file troppo grandi (> 500KB)
-                try:
-                    if file.stat().st_size > 500 * 1024:
-                        continue
-                except OSError:
-                    continue
-                
-                # Legge il file
-                try:
-                    content = file.read_text(encoding="utf-8", errors="ignore")
-                except Exception:
-                    continue
-                
-                # Tokenizza
-                tokens = _tokenize(content)
-                if not tokens:
-                    continue
-                
-                # Estrae snippet (prime 3 righe non vuote)
-                lines = [line.strip() for line in content.splitlines() if line.strip()]
-                snippet = "\n".join(lines[:3])
-                
-                doc = {
-                    "path": str(file),
-                    "tokens": tokens,
-                    "snippet": snippet,
-                    "size": len(content)
-                }
-                documents.append(doc)
-                all_tokens.append(tokens)
+            except OSError:
+                continue
+
+            # Legge il file
+            try:
+                content = file.read_text(encoding="utf-8", errors="ignore")
+            except Exception:
+                continue
+
+            # Tokenizza
+            tokens = _tokenize(content)
+            if not tokens:
+                continue
+
+            # Estrae snippet (prime 3 righe non vuote)
+            lines = [line.strip() for line in content.splitlines() if line.strip()]
+            snippet = "\n".join(lines[:3])
+
+            doc = {
+                "path": str(file),
+                "tokens": tokens,
+                "snippet": snippet,
+                "size": len(content)
+            }
+            documents.append(doc)
+            all_tokens.append(tokens)
         
         # Calcola IDF
         idf = _compute_idf(all_tokens)
