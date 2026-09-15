@@ -1116,10 +1116,12 @@ def register_mcp(mcp_hub) -> None:
         from core.modules.sigma_developer_lab.mcp_tools.lint_server import LintMCPServer
         from core.modules.sigma_developer_lab.mcp_tools.test_server import TestMCPServer
         from core.modules.sigma_developer_lab.mcp_tools.deps_server import DepsMCPServer
+        from core.modules.sigma_developer_lab.mcp_tools.health_server import HealthMCPServer
         mcp_hub.register_server(GitMCPServer)
         mcp_hub.register_server(LintMCPServer)
         mcp_hub.register_server(TestMCPServer)
         mcp_hub.register_server(DepsMCPServer)
+        mcp_hub.register_server(HealthMCPServer)
         log.info("[sigma_developer_lab] Server MCP registrati con successo in MCPHub.")
     except Exception as exc:
         log.warning("[sigma_developer_lab] Errore durante la registrazione MCP: %s", exc)
