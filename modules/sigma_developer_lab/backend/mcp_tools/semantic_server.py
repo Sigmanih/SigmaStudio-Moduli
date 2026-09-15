@@ -194,14 +194,16 @@ class SemanticMCPServer(BaseMCPServer):
             if not tokens:
                 continue
 
-            # Estrae snippet (prime 3 righe non vuote)
+            # Estrae snippet (prime 3 righe non vuote) e numero di riga del primo contenuto
             lines = [line.strip() for line in content.splitlines() if line.strip()]
             snippet = "\n".join(lines[:3])
+            first_line = next((i + 1 for i, l in enumerate(content.splitlines()) if l.strip()), 1)
 
             doc = {
                 "path": str(file),
                 "tokens": tokens,
                 "snippet": snippet,
+                "line_start": first_line,
                 "size": len(content)
             }
             documents.append(doc)
@@ -212,15 +214,16 @@ class SemanticMCPServer(BaseMCPServer):
         
         # Calcola vettori TF-IDF per ogni documento
         for doc in documents:
-            tf = _tfidf_vector(doc["tokens"], idf)
-            doc["vector"] = tf
+            tf = _compute_tf(doc["tokens"])
+            doc["vector"] = _tfidf_vector(tf, idf)
             del doc["tokens"]  # Libera memoria
         
         self._index = {
             "created_at": datetime.now(timezone.utc).isoformat(),
             "documents": documents,
             "idf": idf,
-            "total_documents": len(documents)
+            "total_documents": len(documents),
+            "status": "success"
         }
         
         self._save_index()
@@ -252,7 +255,8 @@ class SemanticMCPServer(BaseMCPServer):
             score = _cosine_similarity(query_vector, doc["vector"])
             if score > 0.01:  # Soglia minima
                 results.append({
-                    "path": doc["path"],
+                    "file": doc["path"],
+                    "line_start": doc.get("line_start", 1),
                     "score": round(score, 4),
                     "snippet": doc["snippet"]
                 })
