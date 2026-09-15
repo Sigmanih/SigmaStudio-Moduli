@@ -1119,6 +1119,7 @@ def register_mcp(mcp_hub) -> None:
         from core.modules.sigma_developer_lab.mcp_tools.health_server import HealthMCPServer
         from core.modules.sigma_developer_lab.mcp_tools.profile_server import ProfileMCPServer
         from core.modules.sigma_developer_lab.mcp_tools.screenshot_server import ScreenshotMCPServer
+        from core.modules.sigma_developer_lab.mcp_tools.semantic_server import SemanticMCPServer
         mcp_hub.register_server(GitMCPServer)
         mcp_hub.register_server(LintMCPServer)
         mcp_hub.register_server(TestMCPServer)
@@ -1126,6 +1127,7 @@ def register_mcp(mcp_hub) -> None:
         mcp_hub.register_server(HealthMCPServer)
         mcp_hub.register_server(ProfileMCPServer)
         mcp_hub.register_server(ScreenshotMCPServer)
+        mcp_hub.register_server(SemanticMCPServer)
         log.info("[sigma_developer_lab] Server MCP registrati con successo in MCPHub.")
     except Exception as exc:
         log.warning("[sigma_developer_lab] Errore durante la registrazione MCP: %s", exc)
