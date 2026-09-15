@@ -130,7 +130,7 @@ class ScreenshotMCPServer(BaseMCPServer):
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
             output_path = Path(get_default_workspace_root()) / "var" / "screenshots" / f"screenshot_{timestamp}.png"
         
-        width = params.get("width", 1280)
-        height = params.get("height", 720)
+        width = kwargs.get("width", 1280)
+        height = kwargs.get("height", 720)
         
         return _capture_screenshot(url, output_path, width, height)
