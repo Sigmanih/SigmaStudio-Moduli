@@ -362,6 +362,27 @@ class SemanticMCPServer(BaseMCPServer):
                         "score": round(score, 4),
                         "snippet": doc["snippet"]
                     })
+            # Se ancora nessun risultato, usa un fallback generico: cerca i token più lunghi della query
+            if not results and len(query_tokens) > 0:
+                logger.info("Fallback fuzzy fallito, provo con i token più lunghi della query")
+                long_tokens = [t for t in query_tokens if len(t) >= 4]
+                if long_tokens:
+                    for doc in self._index["documents"]:
+                        content_lower = doc.get("content", "").lower()
+                        name_lower = doc.get("name", "").lower()
+                        snippet_lower = doc.get("snippet", "").lower()
+                        matched_count = 0
+                        for term in long_tokens:
+                            if term in content_lower or term in name_lower or term in snippet_lower:
+                                matched_count += 1
+                        if matched_count > 0:
+                            score = min(0.03 + matched_count * 0.01, 0.2)
+                            results.append({
+                                "file": doc["path"],
+                                "line_start": doc.get("line_start", 1),
+                                "score": round(score, 4),
+                                "snippet": doc["snippet"]
+                            })
         
         # Ordina per score decrescente
         results.sort(key=lambda x: x["score"], reverse=True)
