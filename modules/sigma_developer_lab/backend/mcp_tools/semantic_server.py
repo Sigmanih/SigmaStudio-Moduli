@@ -317,6 +317,21 @@ class SemanticMCPServer(BaseMCPServer):
                     "snippet": doc["snippet"]
                 })
         
+        # Se la query concettuale non ha trovato nulla, prova un match parziale sui token
+        if not results:
+            logger.info("Nessun risultato con cosine similarity, provo match parziale sui token")
+            for doc in self._index["documents"]:
+                # Controlla se almeno un token della query compare nel contenuto
+                content_lower = doc.get("content", "").lower()
+                name_lower = doc.get("name", "").lower()
+                if any(token in content_lower or token in name_lower for token in query_tokens):
+                    results.append({
+                        "file": doc["path"],
+                        "line_start": doc.get("line_start", 1),
+                        "score": 0.01,  # Punteggio minimo per match parziale
+                        "snippet": doc["snippet"]
+                    })
+        
         # Ordina per score decrescente
         results.sort(key=lambda x: x["score"], reverse=True)
         
