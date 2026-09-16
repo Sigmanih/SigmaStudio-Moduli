@@ -345,14 +345,30 @@ class SemanticMCPServer(BaseMCPServer):
                 if tok in _sinonimi:
                     search_terms.update(_sinonimi[tok])
             # Cerca nei documenti: un match se almeno un termine compare nel contenuto/nome/snippet
+            # Usa anche i token completi del documento (non solo i 2000 caratteri troncati)
             for doc in self._index["documents"]:
                 content_lower = doc.get("content", "").lower()
                 name_lower = doc.get("name", "").lower()
                 snippet_lower = doc.get("snippet", "").lower()
+                # Token completi del documento (se presenti nell'indice)
+                doc_tokens_set = set(doc.get("tokens", [])) if isinstance(doc.get("tokens"), list) else set()
                 matched_count = 0
                 for term in search_terms:
-                    if len(term) >= 3 and (term in content_lower or term in name_lower or term in snippet_lower):
+                    if len(term) < 3:
+                        continue
+                    # Match come substring nel testo visibile O match esatto su un token del documento
+                    if term in content_lower or term in name_lower or term in snippet_lower:
                         matched_count += 1
+                    elif term in doc_tokens_set:
+                        matched_count += 1
+                # Se nessun match con i termini originali, prova con le prime 4 lettere di ogni termine
+                if matched_count == 0:
+                    for term in search_terms:
+                        if len(term) >= 5:
+                            prefix = term[:4]
+                            if prefix in content_lower or prefix in name_lower or prefix in snippet_lower:
+                                matched_count += 1
+                                break
                 if matched_count > 0:
                     # Punteggio proporzionale al numero di termini matched
                     score = min(0.05 + matched_count * 0.02, 0.3)
