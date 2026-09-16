@@ -133,7 +133,7 @@ class SemanticMCPServer(BaseMCPServer):
                 "properties": {},
                 "required": []
             },
-            handler=lambda: self._get_index_status()
+            handler=lambda: self._index_status()
         )
 
         self.register_tool(
