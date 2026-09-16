@@ -106,7 +106,8 @@ class SemanticMCPServer(BaseMCPServer):
                 "type": "object",
                 "properties": {
                     "query": {"type": "string", "description": "La query semantica in linguaggio naturale"},
-                    "top_k": {"type": "integer", "description": "Numero massimo di risultati (default: 10)", "default": 10}
+                    "top_k": {"type": "integer", "description": "Numero massimo di risultati (default: 10)", "default": 10},
+                    "force_fallback": {"type": "boolean", "description": "Forza il fallback TF-IDF anche se sentence-transformers è disponibile", "default": False}
                 },
                 "required": ["query"]
             },
@@ -317,7 +318,8 @@ class SemanticMCPServer(BaseMCPServer):
         if tool_name == "semantic_search":
             query = arguments.get("query", "")
             top_k = arguments.get("top_k", 10)
-            results = self._semantic_search(query, top_k)
+            force_fallback = arguments.get("force_fallback", False)
+            results = self._semantic_search(query, top_k, force_fallback)
             return {
                 "query": query,
                 "results": results,
