@@ -246,8 +246,17 @@ class SemanticMCPServer(BaseMCPServer):
             snippet = "\n".join(lines[:3])
             first_line = next((i + 1 for i, l in enumerate(content.splitlines()) if l.strip()), 1)
 
+            # Estrae il nome del simbolo principale (classe/funzione) per explain_code
+            name = file.stem
+            if ext == ".py":
+                m = re.search(r"^(?:class|def)\s+([A-Za-z_][A-Za-z0-9_]*)", content, re.MULTILINE)
+                if m:
+                    name = m.group(1)
+
             doc = {
                 "path": str(file),
+                "name": name,
+                "content": content[:2000],  # contenuto troncato per explain_code
                 "tokens": tokens,
                 "snippet": snippet,
                 "line_start": first_line,
@@ -300,7 +309,7 @@ class SemanticMCPServer(BaseMCPServer):
         results = []
         for doc in self._index["documents"]:
             score = _cosine_similarity(query_vector, doc["vector"])
-            if score > 0.01:  # Soglia minima
+            if score > 0.0:  # Soglia minima (qualunque match positivo)
                 results.append({
                     "file": doc["path"],
                     "line_start": doc.get("line_start", 1),
