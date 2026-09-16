@@ -317,18 +317,49 @@ class SemanticMCPServer(BaseMCPServer):
                     "snippet": doc["snippet"]
                 })
         
-        # Se la query concettuale non ha trovato nulla, prova un match parziale sui token
+        # Se la query concettuale non ha trovato nulla, prova un match fuzzy sui token
         if not results:
-            logger.info("Nessun risultato con cosine similarity, provo match parziale sui token")
+            logger.info("Nessun risultato con cosine similarity, provo match fuzzy sui token")
+            # Mappa di sinonimi IT→EN per concetti comuni nello sviluppo software
+            _sinonimi = {
+                "gestione": ["handle", "manage", "process", "error", "exception"],
+                "errori": ["error", "exception", "fault", "fail"],
+                "errore": ["error", "exception", "fault", "fail"],
+                "rete": ["network", "socket", "http", "tcp", "udp", "connection"],
+                "retry": ["retry", "reconnect", "backoff", "attempt"],
+                "rotte": ["route", "endpoint", "api", "path"],
+                "rotta": ["route", "endpoint", "api", "path"],
+                "autenticazione": ["auth", "login", "token", "session", "jwt"],
+                "autorizzazione": ["auth", "permission", "role", "access"],
+                "database": ["db", "sql", "query", "table", "model"],
+                "cache": ["cache", "memoize", "redis", "store"],
+                "configurazione": ["config", "setting", "option", "env"],
+                "interfaccia": ["ui", "component", "render", "view"],
+                "frontend": ["react", "jsx", "tsx", "vite", "component"],
+                "backend": ["api", "route", "handler", "endpoint"],
+            }
+            # Costruisce l'insieme di termini da cercare: token originali + sinonimi
+            search_terms = set()
+            for tok in query_tokens:
+                search_terms.add(tok)
+                if tok in _sinonimi:
+                    search_terms.update(_sinonimi[tok])
+            # Cerca nei documenti: un match se almeno un termine compare nel contenuto/nome/snippet
             for doc in self._index["documents"]:
-                # Controlla se almeno un token della query compare nel contenuto
                 content_lower = doc.get("content", "").lower()
                 name_lower = doc.get("name", "").lower()
-                if any(token in content_lower or token in name_lower for token in query_tokens):
+                snippet_lower = doc.get("snippet", "").lower()
+                matched_count = 0
+                for term in search_terms:
+                    if len(term) >= 3 and (term in content_lower or term in name_lower or term in snippet_lower):
+                        matched_count += 1
+                if matched_count > 0:
+                    # Punteggio proporzionale al numero di termini matched
+                    score = min(0.05 + matched_count * 0.02, 0.3)
                     results.append({
                         "file": doc["path"],
                         "line_start": doc.get("line_start", 1),
-                        "score": 0.01,  # Punteggio minimo per match parziale
+                        "score": round(score, 4),
                         "snippet": doc["snippet"]
                     })
         
