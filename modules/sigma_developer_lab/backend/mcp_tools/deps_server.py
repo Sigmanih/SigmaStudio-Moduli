@@ -119,7 +119,7 @@ class DepsMCPServer(BaseMCPServer):
 
     def missing_dependency(self) -> Optional[str]:
         if not self.is_configured():
-            return "Nessun requirements.txt o package.json trovato nel workspace.",
+            return "Nessun requirements.txt o package.json trovato nel workspace."
         return None
 
     def _register_tools(self):

@@ -127,6 +127,16 @@ async def handle_fs_write(request: Request):
             auto_sync_in_background([res.get("path") or path], nota="Modifica dall'editor")
         except Exception as exc:
             log.debug("[Developer] sincronizzazione moduli non avviata: %s", exc)
+
+        # Se il file appartiene al kernel Rust e l'hot reload è attivo, ricompila a caldo
+        norm_p = str(res.get("path") or path or "").replace("\\", "/")
+        if "sigma_engine_rust" in norm_p and (norm_p.endswith(".rs") or norm_p.endswith(".toml")):
+            try:
+                from core.harness.esecutori import carica_config
+                if carica_config().get("rust_hot_reload"):
+                    trigger_rust_hot_reload_debounced()
+            except Exception as exc:
+                log.debug("[RustHotReload] trigger fallito: %s", exc)
     return JSONResponse(status_code=200 if res.get("success") else 500, content=res)
 
 
@@ -321,9 +331,17 @@ async def handle_agent_chat(request: Request):
                         except queue.Full:
                             continue
             except Exception as e:
+                import traceback
+                err_type = type(e).__name__
+                tb_str = traceback.format_exc()
                 log.exception("Admin agent stream failed: %s", e)
                 try:
-                    events.put({"type": "error", "error": str(e)}, timeout=1.0)
+                    events.put({
+                        "type": "error",
+                        "error_type": err_type,
+                        "error": f"Errore stream ({err_type}): {str(e)}",
+                        "traceback": tb_str,
+                    }, timeout=1.0)
                 except queue.Full:
                     pass
             finally:
@@ -557,6 +575,94 @@ async def handle_docker_container_run(request: Request):
         lancia_container, immagine, nome, workspace_root, porte, comando, modalita
     )
     return JSONResponse(status_code=200 if esito.get("success") else 400, content=esito)
+
+
+_rust_reload_task: Optional[asyncio.Task] = None
+
+
+async def _do_rust_hot_reload() -> Dict[str, Any]:
+    """Compila il kernel nativo in sigma_rust_dev, inietta il binario e riavvia sigma_engine_rust_instance."""
+    import subprocess
+    import time
+    from pathlib import Path
+    from core.harness.esecutori import trova_docker, _ambiente_per_docker
+    from core.paths import repo_root
+
+    docker_bin = trova_docker()
+    if not docker_bin:
+        log.warning("[RustHotReload] Docker non trovato per il reload automatico.")
+        return {"success": False, "error": "Docker non trovato sul sistema host."}
+
+    env = _ambiente_per_docker()
+    t0 = time.time()
+    log.info("[RustHotReload] Avvio ricompilazione kernel Rust su container sigma_rust_dev...")
+
+    # 1. Compilazione release su workspace montato
+    cmd_build = [docker_bin, "exec", "-w", "/workspace", "sigma_rust_dev", "cargo", "build", "--release"]
+    try:
+        proc_build = await asyncio.to_thread(
+            subprocess.run, cmd_build, capture_output=True, text=True, timeout=180, env=env
+        )
+        if proc_build.returncode != 0:
+            err = (proc_build.stderr or proc_build.stdout or "").strip()
+            log.error("[RustHotReload] Compilazione Cargo fallita: %s", err[-300:])
+            return {"success": False, "error": f"Compilazione Rust fallita:\n{err[-600:]}"}
+    except Exception as exc:
+        log.error("[RustHotReload] Errore esecuzione cargo build: %s", exc)
+        return {"success": False, "error": f"Errore build cargo: {exc}"}
+
+    # 2. Copia del binario ELF compilato nel container di esecuzione di produzione
+    root_dir = Path(repo_root())
+    bin_path = root_dir / "projects" / "sigma_engine_rust" / "target" / "release" / "sigma_engine_rust"
+    if bin_path.is_file():
+        cmd_cp = [docker_bin, "cp", str(bin_path), "sigma_engine_rust_instance:/app/sigma_engine_rust"]
+        try:
+            await asyncio.to_thread(subprocess.run, cmd_cp, capture_output=True, text=True, timeout=30, env=env)
+        except Exception as exc:
+            log.warning("[RustHotReload] Copia binario fallita: %s", exc)
+
+    # 3. Riavvio a caldo del container di inferenza
+    cmd_restart = [docker_bin, "restart", "sigma_engine_rust_instance"]
+    try:
+        proc_restart = await asyncio.to_thread(subprocess.run, cmd_restart, capture_output=True, text=True, timeout=30, env=env)
+        if proc_restart.returncode != 0:
+            log.warning("[RustHotReload] Riavvio container fallito: %s", proc_restart.stderr)
+            return {"success": False, "error": f"Riavvio container fallito: {proc_restart.stderr}"}
+    except Exception as exc:
+        log.error("[RustHotReload] Errore riavvio container: %s", exc)
+        return {"success": False, "error": f"Errore riavvio: {exc}"}
+
+    elapsed = round(time.time() - t0, 2)
+    log.info("[RustHotReload] Hot-reload completato con successo in %ss.", elapsed)
+    return {
+        "success": True,
+        "message": f"Kernel nativo Rust ricompilato e ricaricato a caldo con successo in {elapsed}s.",
+        "elapsed": elapsed
+    }
+
+
+def trigger_rust_hot_reload_debounced(delay_s: float = 2.0) -> None:
+    """Innesca il reload a caldo con debouncing per evitare compilazioni ridondanti."""
+    global _rust_reload_task
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        return
+
+    if _rust_reload_task and not _rust_reload_task.done():
+        _rust_reload_task.cancel()
+
+    async def _debounced_runner():
+        await asyncio.sleep(delay_s)
+        await _do_rust_hot_reload()
+
+    _rust_reload_task = loop.create_task(_debounced_runner())
+
+
+async def handle_docker_rust_hot_reload(request: Request):
+    """POST /api/developer/docker/rust/hot-reload — Compila e ricarica a caldo il kernel Rust."""
+    res = await _do_rust_hot_reload()
+    return JSONResponse(status_code=200 if res.get("success") else 500, content=res)
 
 
 
@@ -1043,7 +1149,103 @@ async def handle_run_rollback(request: Request):
     return JSONResponse(status_code=200 if esito.get("success") else 400, content=esito)
 
 
+async def handle_developer_status(request: Request):
+    """GET /api/developer/status — Informa il frontend sulla disponibilità e stato del modulo Developer."""
+    root = get_default_workspace_root()
+    return JSONResponse(status_code=200, content={
+        "success": True,
+        "available": True,
+        "workspace_root": root,
+        "mcp_tools_count": 8,
+    })
+
+
+async def handle_developer_mcp_execute(request: Request):
+    """POST /api/developer/mcp/execute — Esegue direttamente un tool MCP di sviluppo."""
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    tool_name = body.get("tool", "")
+    params = body.get("params") or body.get("arguments") or {}
+    if not tool_name:
+        return JSONResponse(status_code=400, content={"success": False, "error": "Parametro 'tool' richiesto."})
+
+    from core.modules.sigma_developer_lab.mcp_tools.bridge import execute_via_mcp
+    res = await asyncio.to_thread(execute_via_mcp, tool_name, params)
+    return JSONResponse(status_code=200 if res.get("success") else 400, content=res)
+
+
+async def handle_developer_engine_status(request: Request):
+    """GET /api/developer/engine/status — Informazioni telemetriche in tempo reale sul micro-kernel nativo Rust."""
+    import time
+    import urllib.request
+    import json
+
+    status_data = {
+        "online": False,
+        "service": "sigma_engine_rust",
+        "url": "http://127.0.0.1:8090",
+        "ipc_pipe": r"\\.\pipe\sigma_engine_ipc",
+        "latency_ms": None,
+        "details": {},
+        "dual_gpu": False,
+        "gpus": [],
+    }
+
+    t0 = time.perf_counter()
+    try:
+        req = urllib.request.Request("http://127.0.0.1:8090/health", method="GET")
+        with urllib.request.urlopen(req, timeout=0.8) as resp:
+            if resp.status == 200:
+                status_data["online"] = True
+                status_data["latency_ms"] = round((time.perf_counter() - t0) * 1000, 2)
+                try:
+                    payload = json.loads(resp.read().decode("utf-8"))
+                    status_data["health"] = payload
+                except Exception:
+                    pass
+    except Exception as exc:
+        status_data["error"] = str(exc)
+
+    if status_data["online"]:
+        try:
+            req_info = urllib.request.Request("http://127.0.0.1:8090/api/engine/status", method="GET")
+            with urllib.request.urlopen(req_info, timeout=0.8) as resp_info:
+                if resp_info.status == 200:
+                    info_payload = json.loads(resp_info.read().decode("utf-8"))
+                    status_data["details"] = info_payload
+                    # Estrai configurazione GPU dal kernel nativo
+                    devs = info_payload.get("devices") or []
+                    if devs:
+                        status_data["gpus"] = devs
+                        status_data["dual_gpu"] = len(devs) >= 2
+                    elif "hardware" in info_payload:
+                        gpu_names = info_payload["hardware"].get("gpu_devices", [])
+                        status_data["gpus"] = [{"name": n} for n in gpu_names]
+                        status_data["dual_gpu"] = len(gpu_names) >= 2
+        except Exception:
+            pass
+
+    # Fallback su HardwareManager se non già estratto da Rust
+    if not status_data["gpus"]:
+        try:
+            from core.hardware_manager import HardwareManager
+            hw = HardwareManager.get_instance().get_hardware_status()
+            if hw and "gpu" in hw:
+                gpu_list = hw["gpu"].get("devices", [])
+                status_data["gpus"] = gpu_list
+                status_data["dual_gpu"] = len(gpu_list) >= 2
+        except Exception:
+            pass
+
+    return JSONResponse(status_code=200, content={"success": True, "data": status_data})
+
+
 ROUTES = (
+    ("/api/developer/status", handle_developer_status, ["GET"]),
+    ("/api/developer/engine/status", handle_developer_engine_status, ["GET"]),
+    ("/api/developer/mcp/execute", handle_developer_mcp_execute, ["POST"]),
     ("/api/developer/tasks", handle_get_tasks, ["GET"]),
     ("/api/developer/tasks", handle_save_tasks, ["POST"]),
     ("/api/developer/fs/tree", handle_fs_tree, ["GET"]),
@@ -1069,6 +1271,7 @@ ROUTES = (
     ("/api/developer/docker/container/restart", handle_docker_container_restart, ["POST"]),
     ("/api/developer/docker/container/remove", handle_docker_container_remove, ["POST"]),
     ("/api/developer/docker/container/run", handle_docker_container_run, ["POST"]),
+    ("/api/developer/docker/rust/hot-reload", handle_docker_rust_hot_reload, ["POST"]),
     ("/api/developer/orchestrator/run", handle_orchestrator_run, ["POST"]),
     ("/api/developer/orchestrator/status", handle_orchestrator_status, ["GET"]),
     ("/api/developer/orchestrator/approve", handle_orchestrator_approve, ["POST"]),
@@ -1120,6 +1323,11 @@ def register_mcp(mcp_hub) -> None:
         from core.modules.sigma_developer_lab.mcp_tools.profile_server import ProfileMCPServer
         from core.modules.sigma_developer_lab.mcp_tools.screenshot_server import ScreenshotMCPServer
         from core.modules.sigma_developer_lab.mcp_tools.semantic_server import SemanticMCPServer
+        from core.modules.sigma_developer_lab.mcp_tools.web_server import WebSearchMCPServer
+        from core.modules.sigma_developer_lab.mcp_tools.docker_server import DockerMCPServer
+        from core.modules.sigma_developer_lab.mcp_tools.runtime_server import RuntimeInspectorMCPServer
+        from core.modules.sigma_developer_lab.mcp_tools.cargo_server import RustCargoMCPServer
+        from core.modules.sigma_developer_lab.mcp_tools.supervisor_server import SupervisorMCPServer
         mcp_hub.register_server(GitMCPServer)
         mcp_hub.register_server(LintMCPServer)
         mcp_hub.register_server(TestMCPServer)
@@ -1128,6 +1336,11 @@ def register_mcp(mcp_hub) -> None:
         mcp_hub.register_server(ProfileMCPServer)
         mcp_hub.register_server(ScreenshotMCPServer)
         mcp_hub.register_server(SemanticMCPServer)
-        log.info("[sigma_developer_lab] Server MCP registrati con successo in MCPHub.")
+        mcp_hub.register_server(WebSearchMCPServer)
+        mcp_hub.register_server(DockerMCPServer)
+        mcp_hub.register_server(RuntimeInspectorMCPServer)
+        mcp_hub.register_server(RustCargoMCPServer)
+        mcp_hub.register_server(SupervisorMCPServer)
+        log.info("[sigma_developer_lab] Tutti i 13 server MCP registrati con successo in MCPHub.")
     except Exception as exc:
         log.warning("[sigma_developer_lab] Errore durante la registrazione MCP: %s", exc)

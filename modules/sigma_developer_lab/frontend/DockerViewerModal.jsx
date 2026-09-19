@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { 
   X, RefreshCw, Box, CheckCircle2, AlertCircle, ShieldCheck, 
   Layers, Terminal, Play, Square, RotateCw, Trash2, FolderOpen, Plus, Rocket,
-  ExternalLink
+  ExternalLink, Flame, HelpCircle, Zap
 } from 'lucide-react';
 
 const extractHostPorts = (portsStr) => {
@@ -24,6 +24,11 @@ export default function DockerViewerModal({ isOpen, onClose, isLight, onSelectCo
   const [feedback, setFeedback] = useState(null);
   const [activeTab, setActiveTab] = useState('containers'); // 'containers' | 'images' | 'sandbox'
 
+  // Stato Hot-Reload Kernel Rust
+  const [reloadingKernel, setReloadingKernel] = useState(false);
+  const [showHotReloadTooltip, setShowHotReloadTooltip] = useState(false);
+  const [rustTelemetry, setRustTelemetry] = useState(null);
+
   // Stato per il form di lancio container
   const [showLaunchForm, setShowLaunchForm] = useState(false);
   const [launchImage, setLaunchImage] = useState('nikolaik/python-nodejs:python3.12-nodejs22');
@@ -44,6 +49,27 @@ export default function DockerViewerModal({ isOpen, onClose, isLight, onSelectCo
           const first = data.images[0];
           setLaunchImage(`${first.Repository}:${first.Tag || 'latest'}`);
         }
+      }
+
+      // Recupera telemetria live del micro-kernel Rust su porta 8090 se attivo
+      try {
+        const controller = new AbortController();
+        const tid = setTimeout(() => controller.abort(), 1200);
+        const [resStatus, resFabric] = await Promise.allSettled([
+          fetch('http://127.0.0.1:8090/api/engine/status', { signal: controller.signal }).then(r => r.json()),
+          fetch('http://127.0.0.1:8090/api/engine/fabric/status', { signal: controller.signal }).then(r => r.json()),
+        ]);
+        clearTimeout(tid);
+        const statusVal = resStatus.status === 'fulfilled' ? resStatus.value : null;
+        const fabricVal = resFabric.status === 'fulfilled' ? resFabric.value : null;
+        if (statusVal || fabricVal) {
+          setRustTelemetry({
+            status: statusVal,
+            fabric: fabricVal,
+          });
+        }
+      } catch {
+        // Fallback se kernel non attivo su 8090
       }
     } catch (err) {
       console.error('Errore recupero dettagli Docker:', err);
@@ -95,6 +121,56 @@ export default function DockerViewerModal({ isOpen, onClose, isLight, onSelectCo
       }
     } catch (err) {
       setFeedback({ type: 'error', message: String(err) });
+    }
+  };
+
+  const handleToggleHotReload = async (enabled) => {
+    try {
+      const res = await fetch('/api/developer/sandbox', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ rust_hot_reload: enabled })
+      });
+      const data = await res.json();
+      if (data && data.success) {
+        setDockerData(prev => ({ ...prev, rust_hot_reload: enabled }));
+        setFeedback({
+          type: 'success',
+          message: enabled
+            ? '🔥 Hot-Reload Kernel Rust attivato: le modifiche ai file .rs ricompileranno e riavvieranno il container automaticamente.'
+            : 'Hot-Reload Kernel Rust disattivato.'
+        });
+      }
+    } catch (err) {
+      setFeedback({ type: 'error', message: `Errore salvataggio Hot-Reload: ${String(err)}` });
+    }
+  };
+
+  const handleTriggerHotReloadNow = async () => {
+    setReloadingKernel(true);
+    setFeedback(null);
+    try {
+      const res = await fetch('/api/developer/docker/rust/hot-reload', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' }
+      });
+      const data = await res.json();
+      if (data && data.success) {
+        setFeedback({
+          type: 'success',
+          message: `🔥 ${data.message || 'Kernel Rust ricompilato e ricaricato a caldo con successo!'}`
+        });
+        await fetchStatus();
+      } else {
+        setFeedback({
+          type: 'error',
+          message: data?.error || 'Errore durante la ricompilazione del kernel Rust.'
+        });
+      }
+    } catch (err) {
+      setFeedback({ type: 'error', message: `Errore richiesta hot-reload: ${String(err)}` });
+    } finally {
+      setReloadingKernel(false);
     }
   };
 
@@ -397,7 +473,7 @@ export default function DockerViewerModal({ isOpen, onClose, isLight, onSelectCo
           {[
             { id: 'containers', label: `Container (${containers.length})`, icon: Box },
             { id: 'images', label: `Tutte le Immagini Locali (${images.length})`, icon: Layers },
-            { id: 'sandbox', label: 'Rete & Porte Dev', icon: Terminal },
+            { id: 'sandbox', label: 'Impostazioni & Hot-Reload', icon: Terminal },
           ].map(tab => {
             const Icon = tab.icon;
             const isTabActive = activeTab === tab.id;
@@ -1036,6 +1112,353 @@ export default function DockerViewerModal({ isOpen, onClose, isLight, onSelectCo
 
           {activeTab === 'sandbox' && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+              {/* Card Hot-Reload Kernel Rust */}
+              <div style={{
+                padding: '16px',
+                background: isLight 
+                  ? 'linear-gradient(135deg, #ffffff 0%, #fff7ed 100%)' 
+                  : 'linear-gradient(135deg, rgba(30, 41, 59, 0.7) 0%, rgba(15, 23, 42, 0.85) 100%)',
+                borderRadius: '8px',
+                border: dockerData?.rust_hot_reload 
+                  ? '1px solid rgba(249, 115, 22, 0.45)' 
+                  : `1px solid ${borderModal}`,
+                boxShadow: dockerData?.rust_hot_reload 
+                  ? '0 4px 18px rgba(249, 115, 22, 0.12)' 
+                  : 'none',
+                position: 'relative',
+                transition: 'all 0.2s ease'
+              }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '10px', gap: '10px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                    <div style={{
+                      padding: '7px',
+                      borderRadius: '8px',
+                      background: dockerData?.rust_hot_reload 
+                        ? 'rgba(249, 115, 22, 0.2)' 
+                        : 'rgba(255, 255, 255, 0.05)',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      color: dockerData?.rust_hot_reload ? '#f97316' : textMuted
+                    }}>
+                      <Flame size={18} />
+                    </div>
+                    <div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                        <span style={{ fontSize: '0.84rem', fontWeight: 800, color: textPrimary }}>
+                          🔥 Hot-Reload Kernel Nativo Rust
+                        </span>
+                        
+                        {/* Info Hover Tooltip Trigger */}
+                        <div 
+                          style={{ position: 'relative', display: 'inline-flex', alignItems: 'center' }}
+                          onMouseEnter={() => setShowHotReloadTooltip(true)}
+                          onMouseLeave={() => setShowHotReloadTooltip(false)}
+                        >
+                          <div
+                            style={{
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              width: '18px',
+                              height: '18px',
+                              borderRadius: '50%',
+                              background: showHotReloadTooltip ? 'rgba(0, 210, 255, 0.25)' : (isLight ? '#e2e8f0' : 'rgba(255, 255, 255, 0.1)'),
+                              color: showHotReloadTooltip ? '#00d2ff' : textMuted,
+                              cursor: 'help',
+                              transition: 'all 0.15s ease'
+                            }}
+                            title="Passa il mouse per informazioni dettagliate sull'Hot-Reload"
+                          >
+                            <HelpCircle size={12} />
+                          </div>
+
+                          {/* Popover / Tooltip in Hover */}
+                          {showHotReloadTooltip && (
+                            <div style={{
+                              position: 'absolute',
+                              top: 'calc(100% + 8px)',
+                              left: '0',
+                              width: '320px',
+                              padding: '12px 14px',
+                              background: isLight ? '#ffffff' : '#0f172a',
+                              border: '1px solid rgba(0, 210, 255, 0.4)',
+                              borderRadius: '8px',
+                              boxShadow: '0 8px 30px rgba(0, 0, 0, 0.45)',
+                              zIndex: 100,
+                              fontSize: '0.70rem',
+                              lineHeight: '1.45',
+                              color: textPrimary
+                            }}>
+                              <div style={{ fontWeight: 800, color: '#00d2ff', marginBottom: '6px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                <Zap size={13} />
+                                <span>Cos'è l'Hot-Reload del Kernel Rust?</span>
+                              </div>
+                              <p style={{ margin: '0 0 6px 0', color: textMuted }}>
+                                Il micro-kernel Rust nativo (<code>sigma_engine_rust_instance</code>, porta 8090) gestisce l'orchestrazione zero-copy e continuous batching ad alte prestazioni.
+                              </p>
+                              <div style={{ margin: '0 0 6px 0', padding: '6px 8px', borderRadius: '5px', background: isLight ? '#f0fdf4' : 'rgba(34, 197, 94, 0.1)', border: '1px solid rgba(34, 197, 94, 0.25)' }}>
+                                <strong style={{ color: '#22c55e' }}>✓ Quando la Checkbox è Attiva:</strong><br />
+                                Ogni modifica salvata nei file <code>.rs</code> in <code>projects/sigma_engine_rust</code> attiva la ricompilazione automatica rapida in background (via <code>sigma_rust_dev</code>) e l'iniezione a caldo nel container di runtime in ~2 secondi. Le ottimizzazioni e le nuove funzioni sono subito testabili nella tab <strong>Chat</strong> senza riavvii manuali.
+                              </div>
+                              <div style={{ margin: 0, color: textMuted }}>
+                                <strong style={{ color: '#f59e0b' }}>✕ Quando è Disattivata:</strong><br />
+                                Nessuna ricompilazione automatica all'atto del salvataggio, preservando al 100% le risorse CPU durante sessioni intensive di scrittura o su macchine a basso consumo.
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+
+                      <div style={{ fontSize: '0.68rem', color: textMuted, marginTop: '2px' }}>
+                        Ricompilazione automatica e riavvio a caldo del micro-kernel (porta 8090) al salvataggio dei file sorgente
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Badge Stato Porta 8090 */}
+                  <div style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '5px',
+                    padding: '3px 8px',
+                    borderRadius: '6px',
+                    fontSize: '0.64rem',
+                    fontWeight: 700,
+                    background: dockerData?.rust_kernel_online ? 'rgba(34, 197, 94, 0.15)' : 'rgba(245, 158, 11, 0.15)',
+                    color: dockerData?.rust_kernel_online ? '#22c55e' : '#f59e0b',
+                    border: dockerData?.rust_kernel_online ? '1px solid rgba(34, 197, 94, 0.3)' : '1px solid rgba(245, 158, 11, 0.3)'
+                  }}>
+                    <div style={{
+                      width: '6px',
+                      height: '6px',
+                      borderRadius: '50%',
+                      background: dockerData?.rust_kernel_online ? '#22c55e' : '#f59e0b',
+                      boxShadow: dockerData?.rust_kernel_online ? '0 0 6px #22c55e' : 'none'
+                    }} />
+                    <span>{dockerData?.rust_kernel_online ? 'Kernel Online (Porta 8090)' : 'Kernel Offline (8090)'}</span>
+                  </div>
+                </div>
+
+                {/* Controlli: Checkbox Attivazione + Pulsante Rebuild Manuale */}
+                <div style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  paddingTop: '10px',
+                  borderTop: `1px dashed ${borderModal}`,
+                  marginTop: '8px',
+                  gap: '12px',
+                  flexWrap: 'wrap'
+                }}>
+                  <label style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '8px',
+                    cursor: 'pointer',
+                    userSelect: 'none',
+                    fontSize: '0.74rem',
+                    fontWeight: 700,
+                    color: textPrimary
+                  }}>
+                    <input 
+                      type="checkbox"
+                      checked={Boolean(dockerData?.rust_hot_reload)}
+                      onChange={(e) => handleToggleHotReload(e.target.checked)}
+                      style={{
+                        width: '16px',
+                        height: '16px',
+                        accentColor: '#f97316',
+                        cursor: 'pointer'
+                      }}
+                    />
+                    <span>Abilita Hot-Reload automatico del micro-kernel Rust</span>
+                  </label>
+
+                  <button
+                    type="button"
+                    onClick={handleTriggerHotReloadNow}
+                    disabled={reloadingKernel}
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '5px',
+                      padding: '5px 12px',
+                      borderRadius: '6px',
+                      fontSize: '0.68rem',
+                      fontWeight: 700,
+                      background: reloadingKernel 
+                        ? 'rgba(255, 255, 255, 0.1)' 
+                        : 'linear-gradient(135deg, #ea580c, #f97316)',
+                      border: 'none',
+                      color: '#ffffff',
+                      cursor: reloadingKernel ? 'not-allowed' : 'pointer',
+                      boxShadow: reloadingKernel ? 'none' : '0 2px 8px rgba(249, 115, 22, 0.3)',
+                      transition: 'all 0.15s ease'
+                    }}
+                    title="Forza subito la ricompilazione e riavvio a caldo del kernel Rust"
+                  >
+                    <RefreshCw size={12} style={{ animation: reloadingKernel ? 'spin 1s linear infinite' : 'none' }} />
+                    <span>{reloadingKernel ? 'Compilazione in corso...' : 'Ricompila & Ricarica Ora'}</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* Card Telemetria Real-Time: Radix Cache & NVMe Fabric */}
+              {rustTelemetry && (
+                <div style={{
+                  padding: '14px',
+                  background: isLight ? '#f5f3ff' : 'rgba(147, 51, 234, 0.07)',
+                  borderRadius: '8px',
+                  border: '1px solid rgba(168, 85, 247, 0.35)',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '10px'
+                }}>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <span style={{ fontSize: '1rem' }}>⚡</span>
+                      <div>
+                        <div style={{ fontSize: '0.80rem', fontWeight: 800, color: '#c084fc' }}>
+                          Telemetria Radix Cache & Storage Fabric (Rust :8090)
+                        </div>
+                        <div style={{ fontSize: '0.68rem', color: textMuted }}>
+                          Paged KV-Cache Copy-on-Write, Radix Prefix Tree e NVMe Prefetch Lookahead
+                        </div>
+                      </div>
+                    </div>
+                    <span style={{
+                      fontSize: '0.65rem',
+                      fontWeight: 700,
+                      color: '#22c55e',
+                      background: 'rgba(34, 197, 94, 0.15)',
+                      padding: '2px 8px',
+                      borderRadius: '4px'
+                    }}>
+                      O(1) Zero-Copy
+                    </span>
+                  </div>
+
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: '8px' }}>
+                    <div style={{
+                      padding: '8px',
+                      borderRadius: '6px',
+                      background: isLight ? '#ffffff' : 'rgba(0,0,0,0.25)',
+                      border: `1px solid ${borderModal}`
+                    }}>
+                      <div style={{ fontSize: '0.62rem', color: textMuted, fontWeight: 700 }}>RADIX HIT RATE</div>
+                      <div style={{ fontSize: '0.92rem', fontWeight: 800, color: '#38bdf8', marginTop: '2px' }}>
+                        {((rustTelemetry.status?.radix_cache?.hit_rate ?? 1.0) * 100).toFixed(0)}%
+                      </div>
+                      <div style={{ fontSize: '0.60rem', color: textMuted, marginTop: '2px' }}>
+                        Hits: {rustTelemetry.status?.radix_cache?.hits ?? 0} · Miss: {rustTelemetry.status?.radix_cache?.misses ?? 0}
+                      </div>
+                    </div>
+
+                    <div style={{
+                      padding: '8px',
+                      borderRadius: '6px',
+                      background: isLight ? '#ffffff' : 'rgba(0,0,0,0.25)',
+                      border: `1px solid ${borderModal}`
+                    }}>
+                      <div style={{ fontSize: '0.62rem', color: textMuted, fontWeight: 700 }}>PAGINE KV-CACHE</div>
+                      <div style={{ fontSize: '0.92rem', fontWeight: 800, color: '#4ade80', marginTop: '2px' }}>
+                        {rustTelemetry.status?.kv_cache?.free_pages ?? 2048} / {rustTelemetry.status?.kv_cache?.total_capacity_pages ?? 2048}
+                      </div>
+                      <div style={{ fontSize: '0.60rem', color: textMuted, marginTop: '2px' }}>
+                        Liberi ({rustTelemetry.status?.kv_cache?.allocated_pages ?? 0} allocati)
+                      </div>
+                    </div>
+
+                    <div style={{
+                      padding: '8px',
+                      borderRadius: '6px',
+                      background: isLight ? '#ffffff' : 'rgba(0,0,0,0.25)',
+                      border: `1px solid ${borderModal}`
+                    }}>
+                      <div style={{ fontSize: '0.62rem', color: textMuted, fontWeight: 700 }}>NVME PREFETCH</div>
+                      <div style={{ fontSize: '0.92rem', fontWeight: 800, color: '#f59e0b', marginTop: '2px' }}>
+                        L+{rustTelemetry.fabric?.nvme_prefetch_engine?.active_depth ?? 2} Lookahead
+                      </div>
+                      <div style={{ fontSize: '0.60rem', color: textMuted, marginTop: '2px' }}>
+                        {rustTelemetry.fabric?.nvme_prefetch_engine?.throttled_due_to_pressure ? '⚠️ Throttled' : '🟢 Nominale'}
+                      </div>
+                    </div>
+
+                    <div style={{
+                      padding: '8px',
+                      borderRadius: '6px',
+                      background: isLight ? '#ffffff' : 'rgba(0,0,0,0.25)',
+                      border: `1px solid ${borderModal}`
+                    }}>
+                      <div style={{ fontSize: '0.62rem', color: textMuted, fontWeight: 700 }}>STORAGE TIERING</div>
+                      <div style={{ fontSize: '0.92rem', fontWeight: 800, color: '#c084fc', marginTop: '2px' }}>
+                        RAM: {((rustTelemetry.fabric?.hierarchical_cache?.ram_limit_mb ?? 81920) / 1024).toFixed(0)} GB
+                      </div>
+                      <div style={{ fontSize: '0.60rem', color: textMuted, marginTop: '2px' }}>
+                        VRAM: {((rustTelemetry.fabric?.hierarchical_cache?.vram_limit_mb ?? 22528) / 1024).toFixed(0)} GB
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Dual-GPU Sharding Breakdown */}
+                  {Array.isArray(rustTelemetry.status?.devices) && rustTelemetry.status.devices.length > 0 && (
+                    <div style={{
+                      marginTop: '4px',
+                      padding: '8px 10px',
+                      borderRadius: '6px',
+                      background: isLight ? 'rgba(0,0,0,0.03)' : 'rgba(0,0,0,0.2)',
+                      border: `1px dashed ${borderModal}`,
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: '6px'
+                    }}>
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: '0.68rem' }}>
+                        <span style={{ fontWeight: 800, color: '#38bdf8' }}>
+                          🎮 Partizionamento Hardware Dual-GPU ({rustTelemetry.status?.sharding_mode === 'dual_gpu_asymmetric' ? 'Asimmetrico 66.7% / 33.3%' : 'Singola GPU'})
+                        </span>
+                        <span style={{ fontSize: '0.62rem', color: textMuted }}>
+                          Pipeline Parallelism Zero-Stall
+                        </span>
+                      </div>
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
+                        {rustTelemetry.status.devices.map((dev) => {
+                          const pct = Math.round((dev.used_vram_mb / Math.max(dev.total_vram_mb, 1)) * 100);
+                          return (
+                            <div key={dev.id} style={{
+                              padding: '6px 8px',
+                              borderRadius: '5px',
+                              background: isLight ? '#ffffff' : 'rgba(255,255,255,0.03)',
+                              border: `1px solid ${borderModal}`,
+                              fontSize: '0.65rem'
+                            }}>
+                              <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 700, color: textPrimary, marginBottom: '2px' }}>
+                                <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                  GPU {dev.id}: {dev.name?.replace('NVIDIA GeForce ', '')}
+                                </span>
+                                <span style={{ color: '#38bdf8' }}>{dev.assigned_layers_count} layers</span>
+                              </div>
+                              <div style={{ display: 'flex', justifyContent: 'space-between', color: textMuted, fontSize: '0.60rem', marginBottom: '4px' }}>
+                                <span>VRAM: {(dev.used_vram_mb / 1024).toFixed(1)} / {(dev.total_vram_mb / 1024).toFixed(0)} GB ({pct}%)</span>
+                                <span>Libera: {(dev.free_vram_mb / 1024).toFixed(1)} GB</span>
+                              </div>
+                              <div style={{ width: '100%', height: '4px', background: 'rgba(255,255,255,0.1)', borderRadius: '2px', overflow: 'hidden' }}>
+                                <div style={{
+                                  width: `${pct}%`,
+                                  height: '100%',
+                                  background: dev.id === 0 ? 'linear-gradient(90deg, #38bdf8, #818cf8)' : 'linear-gradient(90deg, #34d399, #10b981)',
+                                  borderRadius: '2px'
+                                }} />
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
               <div style={{
                 padding: '14px',
                 background: bgCard,

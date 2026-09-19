@@ -100,7 +100,11 @@ class ScreenshotMCPServer(BaseMCPServer):
     """MCP server per la verifica visiva tramite screenshot."""
     
     def __init__(self):
-        super().__init__(name="screenshot", description="Cattura screenshot di pagine web per verifica visiva")
+        super().__init__(
+            name="screenshot",
+            version="1.0.0",
+            description="Cattura screenshot di pagine web per verifica visiva",
+        )
         self.register_tool(
             name="screenshot_page",
             description="Cattura uno screenshot di una pagina web e lo salva in un file PNG",
@@ -117,6 +121,13 @@ class ScreenshotMCPServer(BaseMCPServer):
             handler=self._handle_screenshot_page,
             safety=SAFE,
         )
+
+    def missing_dependency(self) -> Optional[str]:
+        try:
+            import playwright  # noqa: F401
+            return None
+        except ImportError:
+            return "pip install playwright && python -m playwright install chromium"
 
     def _handle_screenshot_page(self, **kwargs) -> Dict[str, Any]:
         url = kwargs.get("url")

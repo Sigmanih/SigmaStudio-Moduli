@@ -17,12 +17,12 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from core.logger import get_logger
 from core.mcp.base_server import BaseMCPServer
+from core.harness.workspace import resolve_root
 
 logger = get_logger(__name__)
 
-# Percorso dell'indice (ricreabile, non in data/ o config/)
-INDEX_DIR = Path("var/semantic_index")
-INDEX_FILE = INDEX_DIR / "index.json"
+INDEX_SUBDIR = Path("var") / "semantic_index"
+INDEX_FILENAME = "index.json"
 
 # Estensioni da indicizzare
 CODE_EXTENSIONS = {".py", ".js", ".ts", ".jsx", ".tsx", ".css", ".html", ".md", ".json", ".yaml", ".yml", ".toml", ".cfg", ".ini"}
@@ -90,9 +90,13 @@ def _cosine_similarity(vec_a: Dict[str, float], vec_b: Dict[str, float]) -> floa
 
 class SemanticMCPServer(BaseMCPServer):
     """Server MCP per la ricerca semantica del codice."""
-    
+
     def __init__(self) -> None:
-        super().__init__(name="Semantic Code Search", version="1.0.0", description="Ricerca semantica del codice sorgente")
+        super().__init__(
+            name="Semantic Code Search",
+            version="1.0.0",
+            description="Ricerca semantica del codice sorgente",
+        )
         self._index: Optional[Dict[str, Any]] = None
         self._load_index()
         
@@ -151,7 +155,20 @@ class SemanticMCPServer(BaseMCPServer):
             },
             handler=lambda symbol, path_hint=None: self._explain_code(symbol, path_hint)
         )
-    
+
+    def _index_status(self) -> Dict[str, Any]:
+        """Stato dell'indice semantico: esistenza, data, conteggio documenti."""
+        if not self._index:
+            return {
+                "exists": False,
+                "message": "Indice non costruito. Usa index_codebase per crearlo.",
+            }
+        return {
+            "exists": True,
+            "created_at": self._index.get("created_at", ""),
+            "total_documents": self._index.get("total_documents", 0),
+        }
+
     def _explain_code(self, symbol: str, path_hint: Optional[str] = None) -> Dict[str, Any]:
         """Trova il simbolo nell'indice e restituisce contesto e snippet."""
         if not self._index or not self._index.get("documents"):
@@ -183,25 +200,34 @@ class SemanticMCPServer(BaseMCPServer):
             "occurrences": len(matches)
         }
     
+    def _index_dir(self) -> Path:
+        return Path(resolve_root()) / INDEX_SUBDIR
+
+    def _index_file(self) -> Path:
+        return self._index_dir() / INDEX_FILENAME
+
     def _load_index(self) -> None:
         """Carica l'indice dal disco se esiste."""
-        if INDEX_FILE.exists():
+        idx_file = self._index_file()
+        if idx_file.exists():
             try:
-                with open(INDEX_FILE, "r", encoding="utf-8") as f:
+                with open(idx_file, "r", encoding="utf-8") as f:
                     self._index = json.load(f)
-                logger.info("Indice semantico caricato da %s (%d documenti)", INDEX_FILE, len(self._index.get("documents", [])))
+                logger.info("Indice semantico caricato da %s (%d documenti)", idx_file, len(self._index.get("documents", [])))
             except Exception as e:
                 logger.warning("Errore nel caricamento dell'indice: %s", e)
                 self._index = None
         else:
             self._index = None
-    
+
     def _save_index(self) -> None:
         """Salva l'indice su disco."""
-        INDEX_DIR.mkdir(parents=True, exist_ok=True)
-        with open(INDEX_FILE, "w", encoding="utf-8") as f:
+        idx_dir = self._index_dir()
+        idx_file = self._index_file()
+        idx_dir.mkdir(parents=True, exist_ok=True)
+        with open(idx_file, "w", encoding="utf-8") as f:
             json.dump(self._index, f, ensure_ascii=False, indent=2)
-        logger.info("Indice semantico salvato in %s (%d documenti)", INDEX_FILE, len(self._index.get("documents", [])))
+        logger.info("Indice semantico salvato in %s (%d documenti)", idx_file, len(self._index.get("documents", [])))
     
     def _build_index(self) -> Dict[str, Any]:
         """Costruisce l'indice TF-IDF del codice sorgente."""
@@ -210,11 +236,15 @@ class SemanticMCPServer(BaseMCPServer):
         # Raccolta documenti
         documents: List[Dict[str, Any]] = []
         all_tokens: List[List[str]] = []
-        
-        base = Path(".")
+
+        base = Path(resolve_root())
         for file in base.rglob("*"):
-            # Filtra directory escluse e file nascosti
-            parts = file.parts
+            # Filtra directory escluse e file nascosti (percorso relativo)
+            try:
+                rel = file.relative_to(base)
+            except ValueError:
+                continue
+            parts = rel.parts
             if any(p in EXCLUDE_DIRS or p.startswith(".") for p in parts[:-1]):
                 continue
             if not file.is_file():
@@ -254,7 +284,7 @@ class SemanticMCPServer(BaseMCPServer):
                     name = m.group(1)
 
             doc = {
-                "path": str(file),
+                "path": str(file.relative_to(base)),
                 "name": name,
                 "content": content[:2000],  # contenuto troncato per explain_code
                 "tokens": tokens,
@@ -289,35 +319,34 @@ class SemanticMCPServer(BaseMCPServer):
     def _semantic_search(self, query: str, top_k: int = 10, force_fallback: bool = False) -> List[Dict[str, Any]]:
         """Esegue la ricerca semantica."""
         if not self._index or not self._index.get("documents"):
-            # Costruisce l'indice se non esiste
             self._build_index()
-        
+
         if not self._index or not self._index.get("documents"):
             return []
         
-        # Tokenizza la query
         query_tokens = _tokenize(query)
         if not query_tokens:
             return []
-        
-        # Calcola TF-IDF della query
+
         idf = self._index["idf"]
         query_tf = _compute_tf(query_tokens)
         query_vector = {term: tf_val * idf.get(term, 0.0) for term, tf_val in query_tf.items()}
-        
-        # Calcola similarità con ogni documento
+
         results = []
-        for doc in self._index["documents"]:
-            score = _cosine_similarity(query_vector, doc["vector"])
-            if score > 0.0:  # Soglia minima (qualunque match positivo)
-                results.append({
-                    "file": doc["path"],
-                    "line_start": doc.get("line_start", 1),
-                    "score": round(score, 4),
-                    "snippet": doc["snippet"]
-                })
-        
-        # Se la query concettuale non ha trovato nulla, prova un match fuzzy sui token
+
+        # Se force_fallback, salta il cosine e va direttamente al fuzzy
+        if not force_fallback:
+            for doc in self._index["documents"]:
+                score = _cosine_similarity(query_vector, doc["vector"])
+                if score > 0.0:
+                    results.append({
+                        "file": doc["path"],
+                        "line_start": doc.get("line_start", 1),
+                        "score": round(score, 4),
+                        "snippet": doc["snippet"]
+                    })
+
+        # Se il cosine non ha trovato nulla (o force_fallback), matching fuzzy con sinonimi
         if not results:
             logger.info("Nessun risultato con cosine similarity, provo match fuzzy sui token")
             # Mappa di sinonimi IT→EN per concetti comuni nello sviluppo software
@@ -404,45 +433,3 @@ class SemanticMCPServer(BaseMCPServer):
         results.sort(key=lambda x: x["score"], reverse=True)
         
         return results[:top_k]
-    
-    def handle_tool_call(self, tool_name: str, arguments: Dict[str, Any]) -> Any:
-        """Gestisce le chiamate ai tool."""
-        if tool_name == "semantic_search":
-            query = arguments.get("query", "")
-            top_k = arguments.get("top_k", 10)
-            force_fallback = arguments.get("force_fallback", False)
-            results = self._semantic_search(query, top_k, force_fallback)
-            return {
-                "query": query,
-                "results": results,
-                "total_results": len(results)
-            }
-        
-        elif tool_name == "index_codebase":
-            index = self._build_index()
-            return {
-                "status": "success",
-                "total_documents": index["total_documents"],
-                "created_at": index["created_at"]
-            }
-        
-        elif tool_name == "index_status":
-            if not self._index:
-                return {
-                    "exists": False,
-                    "message": "Indice non costruito. Usa index_codebase per crearlo."
-                }
-            
-            return {
-                "exists": True,
-                "created_at": self._index["created_at"],
-                "total_documents": self._index["total_documents"]
-            }
-        
-        elif tool_name == "explain_code":
-            symbol = arguments.get("symbol", "")
-            path_hint = arguments.get("path_hint")
-            return self._explain_code(symbol, path_hint)
-
-        else:
-            raise ValueError(f"Tool sconosciuto: {tool_name}")

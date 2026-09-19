@@ -5,8 +5,10 @@ import CodeEditor from './CodeEditor';
 import TerminalPanel from './TerminalPanel';
 import ModulePublisher from './ModulePublisher';
 import FanoutPanel from './FanoutPanel';
-import ActivityBar from './ActivityBar';
+import ActivityTerminalStrip from './ActivityTerminalStrip';
+import SigmaEngineNativeBar from './SigmaEngineNativeBar';
 import AdminAgentChat from './AdminAgentChat';
+import McpQuickActionsBar from './McpQuickActionsBar';
 
 export default function DeveloperStudio() {
   const { theme, addToast } = useApp();
@@ -93,6 +95,27 @@ export default function DeveloperStudio() {
       addToast?.('Errore di connessione', 'error');
     }
   };
+
+  // Ascolto per aperture file richieste dall'esterno (es. Chat principale)
+  useEffect(() => {
+    const handleExternalOpen = (e) => {
+      const targetPath = e.detail?.path;
+      if (targetPath) {
+        handleOpenFile(targetPath);
+      }
+    };
+    window.addEventListener('sigma_dev_open_file', handleExternalOpen);
+
+    try {
+      const pending = localStorage.getItem('sigma_dev_pending_open_file');
+      if (pending) {
+        localStorage.removeItem('sigma_dev_pending_open_file');
+        handleOpenFile(pending);
+      }
+    } catch (e) {}
+
+    return () => window.removeEventListener('sigma_dev_open_file', handleExternalOpen);
+  }, [handleOpenFile]);
 
   // 4. Save file
   const handleSaveFile = async (filePath, content) => {
@@ -329,11 +352,9 @@ export default function DeveloperStudio() {
             theme={theme}
             isLight={isLight}
           />
+          {/* Telemetria e stato in tempo reale del micro-kernel nativo Rust */}
+          <SigmaEngineNativeBar isLight={isLight} />
           {/* Il lavoro grande, spezzato e dato a piu' agenti */}
-          {/* Cosa sta girando adesso, chiunque lo abbia lanciato: una
-              curl, un'altra scheda, il ventaglio. Sta sopra al resto
-              perche' e' la prima domanda di chi apre la pagina. */}
-          <ActivityBar isLight={isLight} />
           <FanoutPanel workspaceRoot={workspaceRoot} isLight={isLight} />
           {/* Dove va a finire il lavoro fatto sui moduli */}
           <ModulePublisher isLight={isLight} />
@@ -417,6 +438,12 @@ export default function DeveloperStudio() {
             overflow: 'hidden',
             minWidth: '320px'
           }}>
+            <McpQuickActionsBar
+              workspaceRoot={workspaceRoot}
+              onLogTerminal={(msg) => setTerminalLogs(prev => [...prev, msg])}
+              isLight={isLight}
+            />
+
             <CodeEditor
               openFiles={openFiles}
               activeFilePath={activeFilePath}
@@ -434,6 +461,9 @@ export default function DeveloperStudio() {
               theme={theme}
               isLight={isLight}
             />
+
+            {/* Striscia compatta ad una riga con lo stato dell'attività/agente in corso */}
+            <ActivityTerminalStrip isLight={isLight} />
 
             <TerminalPanel
               workspaceRoot={workspaceRoot}

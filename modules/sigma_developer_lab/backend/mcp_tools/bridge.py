@@ -43,6 +43,42 @@ ADMIN_TO_MCP: Dict[str, str] = {
     "run_test_file": "run_test_file",
     "list_test_files": "list_test_files",
     "get_coverage": "get_coverage",
+    # Deps tools
+    "deps_audit": "deps_audit",
+    # Health tools
+    "server_health": "server_health",
+    # Profile tools
+    "profile_app": "profile_app",
+    # Screenshot tools
+    "screenshot_page": "screenshot_page",
+    # Semantic tools
+    "semantic_search": "semantic_search",
+    "index_codebase": "index_codebase",
+    "index_status": "index_status",
+    "explain_code": "explain_code",
+    # Web research tools
+    "web_search": "web_search",
+    "fetch_web_page": "fetch_web_page",
+    "docs_rust_search": "docs_rust_search",
+    # Docker tools
+    "docker_list_containers": "docker_list_containers",
+    "docker_run_container": "docker_run_container",
+    "docker_exec": "docker_exec",
+    "docker_container_status": "docker_container_status",
+    "docker_stop_container": "docker_stop_container",
+    # Runtime inspector tools
+    "inspect_runtime_state": "inspect_runtime_state",
+    "hot_reload_module": "hot_reload_module",
+    "inspect_symbol": "inspect_symbol",
+    # Cargo / Rust tools
+    "cargo_build": "cargo_build",
+    "cargo_test": "cargo_test",
+    "cargo_check": "cargo_check",
+    "cargo_clippy": "cargo_clippy",
+    # Supervisor & Evaluation tools
+    "evaluate_team_performance": "evaluate_team_performance",
+    "register_runtime_role": "register_runtime_role",
+    "run_supervisor_audit": "run_supervisor_audit",
 }
 
 # Admin agent tools that should NOT be bridged (handled locally)

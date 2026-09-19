@@ -7,7 +7,7 @@ import {
   Plus, Edit2, Clock, Search, X, MessageSquare,
   Paperclip, Mic, MicOff, FileText, Upload,
   ListTodo, CheckCircle2, Circle, CircleDot, RotateCw, Award, Play, Pause, Square,
-  Settings, Activity
+  Settings, Activity, AlertTriangle, AlertCircle, Cpu
 } from 'lucide-react';
 import DeveloperModelSelector from './DeveloperModelSelector';
 import AgentWorkMonitor from './AgentWorkMonitor';
@@ -41,6 +41,20 @@ try {
 
 const STORAGE_TASKS_KEY = 'sigma_dev_tasks_v2';
 const STORAGE_ACTIVE_TASK_KEY = 'sigma_dev_active_task_id_v2';
+
+const isAutoLoopPrompt = (msg) => {
+  if (!msg) return false;
+  if (msg.isAutomatic || msg.isSystemPrompt || msg.author === 'system') return true;
+  const content = typeof msg.content === 'string' ? msg.content.trim() : '';
+  return (
+    content.startsWith('Procedi con il task pianificato') ||
+    content.startsWith('Tutti i task pianificati nella pipeline risultano completati') ||
+    content.startsWith('Continua l\'implementazione: definisci o aggiorna la pipeline') ||
+    content.startsWith('Procedi con il prossimo task pianificato') ||
+    content.startsWith('Task riavviato su richiesta utente') ||
+    content === 'Continua.'
+  );
+};
 
 const createNewTask = (title = 'Nuovo Task') => ({
   id: `task_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
@@ -112,6 +126,22 @@ const cleanMessageText = (text) => {
   cleaned = cleaned.replace(/```(?:json|bash|sh|powershell)?\s*\{[\s\S]*?"(?:tool|action|command|path|name|tasks)"[\s\S]*?(?:```|$)/gi, '');
   // Remove completed or in-progress XML tool tags
   cleaned = cleaned.replace(/<(?:tool_call|execute_command|shell|terminal|read_file|write_file|write_to_file|list_dir|search_code|tool|pipeline|complete_goal)>[\s\S]*?(?:<\/(?:tool_call|execute_command|shell|terminal|read_file|write_file|write_to_file|list_dir|search_code|tool|pipeline|complete_goal)>|$)/gi, '');
+
+  // Deduplicazione di ripetizioni identiche in coda precedute da 🏆
+  const trophyMatch = cleaned.match(/(?:\n|^)🏆\s*(?:##\s*Obiettivo\s+completato[\s\S]*)/i);
+  if (trophyMatch && trophyMatch.index > 0) {
+    const beforeTrophy = cleaned.substring(0, trophyMatch.index).trim();
+    if (beforeTrophy.toLowerCase().includes('obiettivo completato')) {
+      cleaned = beforeTrophy;
+    }
+  }
+
+  // Se la pulizia ha svuotato completamente il testo ma c'erano token nel messaggio originale,
+  // conserviamo il testo affinché la bolla dell'assistente non resti priva di contenuto.
+  if (!cleaned.trim() && text.trim()) {
+    return text.trim();
+  }
+
   return cleaned.trim();
 };
 
@@ -119,7 +149,7 @@ if (typeof window !== 'undefined') {
   window.Prism = Prism;
 }
 
-function RichMessageContent({ content, isUser, onOpenFile, isLight }) {
+function RichMessageContent({ content, isUser, onOpenFile, isLight, noBorder }) {
   const containerRef = useRef(null);
 
   const html = useMemo(() => {
@@ -142,7 +172,7 @@ function RichMessageContent({ content, isUser, onOpenFile, isLight }) {
 
         const wrapper = document.createElement('div');
         wrapper.className = 'mermaid-wrapper';
-        wrapper.style.cssText = 'width:100%;margin:12px 0;overflow-x:auto;background:#0d1117;border:1px solid rgba(0,210,255,0.25);border-radius:8px;padding:12px;display:flex;justify-content:center;box-shadow:0 4px 16px rgba(0,0,0,0.3);';
+        wrapper.style.cssText = 'width:100%;margin:8px 0;overflow-x:auto;background:#0d1117;border:1px solid rgba(0,210,255,0.25);border-radius:6px;padding:8px;display:flex;justify-content:center;box-shadow:0 2px 8px rgba(0,0,0,0.3);';
         
         try {
           const id = `mermaid-admin-${Date.now()}-${i}`;
@@ -194,20 +224,91 @@ function RichMessageContent({ content, isUser, onOpenFile, isLight }) {
       className={`chat-content chat-md dev-chat-md ${isLight ? 'light-mode' : ''}`}
       onClick={handleClick}
       style={{
-        padding: '10px 14px',
-        borderRadius: '10px',
-        fontSize: '0.76rem',
-        lineHeight: 1.55,
-        background: isUser
-          ? (isLight ? 'rgba(0, 242, 254, 0.12)' : 'rgba(0, 242, 254, 0.1)')
-          : (isLight ? '#ffffff' : '#161b22'),
-        border: isLight ? '1px solid #d0d7de' : '1px solid rgba(255,255,255,0.08)',
+        padding: noBorder ? '4px 6px' : '6px 10px',
+        borderRadius: noBorder ? '0' : '6px',
+        fontSize: '0.74rem',
+        lineHeight: 1.5,
+        background: noBorder
+          ? 'transparent'
+          : (isUser
+              ? (isLight ? 'rgba(0, 242, 254, 0.1)' : 'rgba(0, 242, 254, 0.08)')
+              : (isLight ? '#ffffff' : '#161b22')),
+        border: noBorder ? 'none' : (isLight ? '1px solid #d0d7de' : '1px solid rgba(255,255,255,0.08)'),
         color: isLight ? '#24292f' : '#e6edf3',
         wordBreak: 'break-word',
-        boxShadow: isLight ? '0 1px 3px rgba(0,0,0,0.05)' : 'none'
+        boxShadow: !noBorder && isLight ? '0 1px 2px rgba(0,0,0,0.04)' : 'none'
       }}
       dangerouslySetInnerHTML={{ __html: html }}
     />
+  );
+}
+
+function GoalCompletionCard({ title, summary, isLight, onOpenFile }) {
+  return (
+    <div style={{
+      margin: '4px 0',
+      borderRadius: '5px',
+      background: isLight 
+        ? 'rgba(16, 185, 129, 0.03)' 
+        : 'rgba(16, 185, 129, 0.05)',
+      border: '1px solid rgba(16, 185, 129, 0.22)',
+      overflow: 'hidden'
+    }}>
+      {/* Header compatto a singola riga */}
+      <div style={{
+        padding: '3px 8px',
+        background: isLight ? 'rgba(16, 185, 129, 0.07)' : 'rgba(16, 185, 129, 0.12)',
+        borderBottom: '1px solid rgba(16, 185, 129, 0.15)',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        gap: '6px'
+      }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '5px', minWidth: 0 }}>
+          <Award size={13} color="#10b981" style={{ flexShrink: 0 }} />
+          <span style={{
+            fontSize: '0.68rem',
+            fontWeight: 700,
+            color: isLight ? '#047857' : '#34d399',
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+            whiteSpace: 'nowrap'
+          }}>
+            🎯 Obiettivo Completato{title ? `: ${title}` : ''}
+          </span>
+        </div>
+
+        <span style={{
+          display: 'inline-flex',
+          alignItems: 'center',
+          gap: '3px',
+          padding: '1px 5px',
+          borderRadius: '3px',
+          background: 'rgba(16, 185, 129, 0.15)',
+          border: '1px solid rgba(16, 185, 129, 0.25)',
+          color: '#10b981',
+          fontSize: '0.55rem',
+          fontWeight: 700,
+          flexShrink: 0
+        }}>
+          <ShieldCheck size={10} />
+          OK
+        </span>
+      </div>
+
+      {/* Content Summary compatto senza doppia card o doppi bordi */}
+      {summary && (
+        <div style={{ padding: '4px 6px' }}>
+          <RichMessageContent
+            content={summary}
+            isUser={false}
+            onOpenFile={onOpenFile}
+            isLight={isLight}
+            noBorder
+          />
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -336,6 +437,28 @@ export default function AdminAgentChat({
   const isGoalCompleted = activeTask.isGoalCompleted ?? false;
   const pipeline = activeTask.pipeline || [];
 
+  // Paginazione e Virtual Windowing dei messaggi per prestazioni ottimali del DOM
+  const [visibleCount, setVisibleCount] = useState(40);
+  useEffect(() => {
+    setVisibleCount(40);
+  }, [activeTaskId]);
+
+  // Precalcolo lineare O(N) di relatedTaskTitle e slicing degli ultimi messaggi visibili
+  const visibleMessages = useMemo(() => {
+    let currentTaskTitle = '';
+    const enriched = (messages || []).map((msg, idx) => {
+      if (msg.role === 'user') {
+        const match = msg.content?.match(/Procedi con il task pianificato(?:\s*#\d+)?:\s*"([^"]+)"/);
+        if (match) {
+          currentTaskTitle = match[1];
+        }
+      }
+      const resolvedTitle = msg.taskTitle || (msg.role === 'assistant' ? currentTaskTitle : null);
+      return { ...msg, resolvedTaskTitle: resolvedTitle, originalIndex: idx };
+    });
+    return enriched.slice(-visibleCount);
+  }, [messages, visibleCount]);
+
   // Pipeline UI & Auto-Loop
   const [showPipeline, setShowPipeline] = useState(true);
   const [newPipelineInput, setNewPipelineInput] = useState('');
@@ -437,12 +560,29 @@ export default function AdminAgentChat({
     setTasks(prev => prev.map(t => t.id === activeTask.id ? { ...t, autoLoop: nextVal } : t));
   };
 
-  const stopAutoLoop = () => {
+  const stopAutoLoop = (e) => {
+    if (e) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
+    // 1. Arresta immediatamente il timer e il countdown
     if (autoLoopTimeoutRef.current) {
       clearInterval(autoLoopTimeoutRef.current);
       autoLoopTimeoutRef.current = null;
       setLoopCountdown(null);
     }
+    // 2. Disattiva definitivamente il flag autoLoop sul task attivo
+    setTasks(prev => prev.map(t => t.id === activeTask.id ? { ...t, autoLoop: false } : t));
+
+    // 3. Se c'è una generazione o chiamata in streaming attiva, abortiscila subito
+    if (abortControllerRef.current) {
+      try {
+        abortControllerRef.current.abort();
+      } catch (err) {}
+      abortControllerRef.current = null;
+    }
+    setIsStreaming(false);
+    setAgentStatus('');
   };
 
   const handleStopGeneration = (e) => {
@@ -457,16 +597,20 @@ export default function AdminAgentChat({
       } catch (err) {}
       abortControllerRef.current = null;
     }
-    // 2. Stop Auto-Loop timer if active
-    stopAutoLoop();
+    // 2. Stop Auto-Loop timer and permanently disable autoLoop
+    if (autoLoopTimeoutRef.current) {
+      clearInterval(autoLoopTimeoutRef.current);
+      autoLoopTimeoutRef.current = null;
+      setLoopCountdown(null);
+    }
 
-    // 3. Mark current streaming message as finished
+    // 3. Mark current streaming message as finished and autoLoop = false
     setIsStreaming(false);
     setAgentStatus('');
     setTasks(prev => prev.map(t => {
       if (t.id === activeTask.id) {
         const msgs = (t.messages || []).map(m => m.isStreaming ? { ...m, isStreaming: false } : m);
-        return { ...t, messages: msgs, updatedAt: new Date().toISOString() };
+        return { ...t, autoLoop: false, messages: msgs, updatedAt: new Date().toISOString() };
       }
       return t;
     }));
@@ -881,11 +1025,24 @@ export default function AdminAgentChat({
   }, [tasks, taskSearchQuery]);
 
   // Send Message & Stream Response with clean turn-based step splitting
-  const handleSendMessage = async (textToSend) => {
-    const userPrompt = textToSend || input.trim();
-    if ((!userPrompt && attachedFiles.length === 0) || isStreaming) return;
+  const handleSendMessage = async (textToSend, isAuto = false) => {
+    const userPrompt = textToSend !== undefined ? textToSend : input.trim();
+    if (!userPrompt && attachedFiles.length === 0) return;
 
-    // Da questo momento l'utente ha interagito: il loop può ripartire.
+    // Se l'agente sta già elaborando (isStreaming):
+    // Se la chiamata è un trigger automatico del loop (isAuto = true), evitiamo sovrapposizioni.
+    // Se invece è l'UTENTE che invia un messaggio, interrompiamo lo stream in corso
+    // per dare precedenza immediata all'istruzione dell'utente e reindirizzare l'agente!
+    if (isStreaming) {
+      if (isAuto) return;
+      if (abortControllerRef.current) {
+        try { abortControllerRef.current.abort(); } catch (err) {}
+        abortControllerRef.current = null;
+      }
+      setIsStreaming(false);
+    }
+
+    // Da questo momento l'utente ha interagito: il loop può ripartire se non attivo.
     userHasInteractedRef.current = true;
 
     const currentAttachments = [...attachedFiles];
@@ -895,14 +1052,19 @@ export default function AdminAgentChat({
       setIsListening(false);
     }
 
-    // Stop any pending auto-loop countdown
-    stopAutoLoop();
+    // Cancella eventuali countdown del loop precedenti: l'istruzione dell'utente ha priorità
+    setLoopCountdown(null);
+    if (autoLoopTimeoutRef.current) {
+      clearInterval(autoLoopTimeoutRef.current);
+      autoLoopTimeoutRef.current = null;
+    }
 
     // Read the true latest task state from latestTasksRef to avoid stale closure
     const currentTasks = latestTasksRef.current || tasks;
     const currentTask = currentTasks.find(t => t.id === activeTaskId) || currentTasks[0] || activeTask;
     const currentTaskId = currentTask.id;
-    const existingMessages = currentTask.messages || [];
+    // Se c'era un messaggio parziale rimasto in streaming, sigillalo prima di appendere il nuovo messaggio
+    const existingMessages = (currentTask.messages || []).map(m => m.isStreaming ? { ...m, isStreaming: false } : m);
 
     // Auto-update task title from first user prompt if still generic
     const isGenericTitle = currentTask.title.startsWith('Nuovo Task') || currentTask.title.startsWith('Task #');
@@ -910,26 +1072,40 @@ export default function AdminAgentChat({
       ? (userPrompt ? (userPrompt.slice(0, 36) + (userPrompt.length > 36 ? '...' : '')) : `Allegati (${currentAttachments.length})`) 
       : currentTask.title;
 
+    const activeSubTask = (currentTask.pipeline || []).find(p => p.status === 'in_progress') ||
+                          (currentTask.pipeline || []).find(p => p.status === 'pending');
+    const taskTitleMatch = userPrompt.match(/Procedi con il task pianificato(?:\s*#\d+)?:\s*"([^"]+)"/);
+    const activeTaskTitle = taskTitleMatch ? taskTitleMatch[1] : (activeSubTask?.title || '');
+
+    const isAutomaticMessage = isAuto || (typeof textToSend === 'string' && (
+      textToSend.startsWith('Procedi con il task pianificato') ||
+      textToSend.startsWith('Tutti i task pianificati nella pipeline') ||
+      textToSend.startsWith('Continua l\'implementazione:')
+    ));
+
     const userMsgObj = { 
       role: 'user', 
       content: userPrompt || `Analizza i file allegati: ${currentAttachments.map(a => a.name).join(', ')}`,
       attachments: currentAttachments.length > 0 ? currentAttachments : undefined,
-      timestamp: new Date().toISOString()
+      timestamp: new Date().toISOString(),
+      isAutomatic: isAutomaticMessage
     };
 
     const newMessages = [...existingMessages, userMsgObj];
     let activeMsgIndex = newMessages.length;
 
-    // Append user message + first assistant turn placeholder
+    // Append user message + first assistant turn placeholder and reset goal completion
     setTasks(prev => prev.map(t => {
       if (t.id === currentTaskId) {
         return {
           ...t,
           title: newTitle,
+          isGoalCompleted: false, // Reset stato completamento per la nuova istruzione
+          autoLoop: true, // Mantiene attivo l'auto-loop per l'avanzamento dei task
           updatedAt: new Date().toISOString(),
           messages: [
             ...newMessages,
-            { role: 'assistant', content: '', thought: '', tools: [], isStreaming: true, timestamp: new Date().toISOString() }
+            { role: 'assistant', content: '', thought: '', tools: [], isStreaming: true, taskTitle: activeTaskTitle, timestamp: new Date().toISOString() }
           ]
         };
       }
@@ -1010,6 +1186,18 @@ export default function AdminAgentChat({
                 promptTokens: event.prompt_tokens,
                 limit: event.context_limit,
                 maxTokens: event.max_tokens
+              });
+              continue;
+            }
+
+            // Telemetria live di contesto: TPS, TTFT e token in ingresso.
+            if (event.type === 'context_telemetry') {
+              setContextMetrics({
+                turn: event.turn,
+                tps: event.tps,
+                ttftMs: event.ttft_ms,
+                promptTokens: event.prompt_tokens,
+                generatedTokensLastTurn: event.generated_tokens_last_turn
               });
               continue;
             }
@@ -1141,7 +1329,45 @@ ${event.diff || ''}`,
             // The completion gate refused: show why, so a stalled run is
             // diagnosable without reading the transcript.
             if (event.type === 'completion_rejected') {
-              setGateReason(event.reason || null);
+              const reason = event.reason || 'Criteri di accettazione o verifiche non soddisfatte';
+              setGateReason(reason);
+              setAgentStatus(`⚠️ Completamento respinto: ${reason}`);
+              setTasks(prev => prev.map(t => {
+                if (t.id === currentTaskId) {
+                  const msgs = [...t.messages];
+                  const cur = { ...msgs[activeMsgIndex] };
+                  cur.gateRejected = true;
+                  cur.gateReason = reason;
+                  msgs[activeMsgIndex] = cur;
+                  return { ...t, messages: msgs, updatedAt: new Date().toISOString() };
+                }
+                return t;
+              }));
+              continue;
+            }
+
+            // Handle error event from harness/engine/model
+            if (event.type === 'error') {
+              const errMsg = event.error || event.message || 'Errore riscontrato';
+              const errType = event.error_type || 'Errore';
+              const tb = event.traceback || '';
+              setAgentStatus(`❌ ${errType}: ${errMsg}`);
+              setTasks(prev => prev.map(t => {
+                if (t.id === currentTaskId) {
+                  const msgs = [...t.messages];
+                  const cur = { ...msgs[activeMsgIndex] };
+                  cur.isError = true;
+                  cur.errorType = errType;
+                  cur.errorMessage = errMsg;
+                  cur.traceback = tb;
+                  if (!cur.content) {
+                    cur.content = `⚠️ **[${errType}]**: ${errMsg}`;
+                  }
+                  msgs[activeMsgIndex] = cur;
+                  return { ...t, messages: msgs, updatedAt: new Date().toISOString() };
+                }
+                return t;
+              }));
               continue;
             }
 
@@ -1166,9 +1392,16 @@ ${event.diff || ''}`,
 
             // Handle pipeline task updates from model
             if (event.type === 'pipeline_update' && Array.isArray(event.tasks)) {
+              const hasPending = event.tasks.some(p => p.status !== 'done' && p.status !== 'completed');
               setTasks(prev => prev.map(t => {
                 if (t.id === currentTaskId) {
-                  return { ...t, pipeline: event.tasks, updatedAt: new Date().toISOString() };
+                  return { 
+                    ...t, 
+                    pipeline: event.tasks, 
+                    // Se ci sono task ancora in sospeso, l'obiettivo non è concluso
+                    isGoalCompleted: hasPending ? false : t.isGoalCompleted,
+                    updatedAt: new Date().toISOString() 
+                  };
                 }
                 return t;
               }));
@@ -1197,12 +1430,15 @@ ${event.diff || ''}`,
                     if (msgs[activeMsgIndex]) {
                       msgs[activeMsgIndex].isStreaming = false;
                     }
+                    const activeSubTask2 = (t.pipeline || []).find(p => p.status === 'in_progress') ||
+                                           (t.pipeline || []).find(p => p.status === 'pending');
                     msgs.push({
                       role: 'assistant',
                       content: '',
                       thought: '',
                       tools: [],
                       isStreaming: true,
+                      taskTitle: msgs[activeMsgIndex]?.taskTitle || activeSubTask2?.title || '',
                       timestamp: new Date().toISOString()
                     });
                     activeMsgIndex = msgs.length - 1;
@@ -1334,19 +1570,46 @@ ${event.diff || ''}`,
           if (!thisTask) return currentTasks;
 
           const isLoopOn = thisTask.autoLoop ?? true;
-          const isCompleted = thisTask.isGoalCompleted ?? false;
+          const pTasks = thisTask.pipeline || [];
+          const hasPendingTasks = pTasks.length > 0 && pTasks.some(p => p.status !== 'done' && p.status !== 'completed');
+          // L'obiettivo è considerato completato solo se non ci sono task ancora in sospeso
+          const isCompleted = (thisTask.isGoalCompleted ?? false) && !hasPendingTasks;
           if (!isLoopOn || isCompleted) return currentTasks;
 
-          const pTasks = thisTask.pipeline || [];
+          const msgs = thisTask.messages || [];
+
+          // Protezione Anti-Loop: verifichiamo se l'assistente risponde a vuoto o non produce modifiche
+          const recentAssistant = msgs.filter(m => m.role === 'assistant').slice(-2);
+          const isStuckEmpty = recentAssistant.length >= 2 && recentAssistant.every(m => {
+            const hasContent = m.content && m.content.trim().length > 0;
+            const hasTools = Array.isArray(m.tools) && m.tools.length > 0;
+            return !hasContent && !hasTools;
+          });
+
+          // Se lo stesso identico prompt utente si ripete per 3 turni di fila
+          const recentUsers = msgs.filter(m => m.role === 'user').slice(-3);
+          const isPromptStuck = recentUsers.length >= 3 && recentUsers.every(m => m.content === recentUsers[0].content);
+
+          if (isStuckEmpty || isPromptStuck) {
+            console.warn('[AdminAgentChat] Auto-loop interrotto per mancato avanzamento o risposte vuote.');
+            return currentTasks.map(t => t.id === currentTaskId ? { ...t, autoLoop: false } : t);
+          }
+
           const pendingTask = pTasks.find(p => p.status === 'in_progress') || pTasks.find(p => p.status === 'pending');
 
           let nextPrompt = '';
           if (pendingTask) {
-            nextPrompt = `Procedi con il task pianificato: "${pendingTask.title}". Esegui i tool necessari (scrittura file con write_file o comandi terminale) per completarlo ed aggiorna lo stato del task con tool:pipeline.`;
-          } else if (pTasks.length > 0 && pTasks.every(p => p.status === 'done')) {
+            nextPrompt = `Procedi con il task pianificato #${pendingTask.id || ''}: "${pendingTask.title}". Esegui i tool necessari (scrittura file con write_file/edit_file o comandi terminale) per completarlo. Al termine del lavoro su questo task, aggiorna la pipeline impostando lo status a "done" per questo task tramite il blocco tool pipeline.`;
+          } else if (pTasks.length > 0 && pTasks.every(p => p.status === 'done' || p.status === 'completed')) {
+            const msgs = thisTask.messages || [];
+            const lastUserMsg = [...msgs].reverse().find(m => m.role === 'user');
+            if (lastUserMsg && lastUserMsg.content.includes('Tutti i task pianificati nella pipeline risultano completati')) {
+              // Verifica finale già richiesta nel turno precedente: fermiamo l'auto-loop per evitare chiamate infinite
+              return currentTasks.map(t => t.id === currentTaskId ? { ...t, autoLoop: false, isGoalCompleted: true } : t);
+            }
             nextPrompt = `Tutti i task pianificati nella pipeline risultano completati. Effettua una verifica finale o dichiara complete_goal con il riepilogo del lavoro svolto.`;
           } else {
-            nextPrompt = `Continua l'implementazione: definisci la pipeline dei task tramite tool:pipeline ed esegui le modifiche ai file del workspace.`;
+            nextPrompt = `Continua l'implementazione: definisci o aggiorna la pipeline dei task tramite il blocco tool pipeline ed esegui le modifiche ai file del workspace.`;
           }
 
           setLoopCountdown(2);
@@ -1356,7 +1619,7 @@ ${event.diff || ''}`,
             if (count <= 0) {
               clearInterval(timer);
               setLoopCountdown(null);
-              handleSendMessage(nextPrompt);
+              handleSendMessage(nextPrompt, true);
             } else {
               setLoopCountdown(count);
             }
@@ -2465,6 +2728,47 @@ ${event.diff || ''}`,
         })()}
       </div>
 
+      {/* Sticky Active Execution Bar quando l'agente sta lavorando */}
+      {isStreaming && (
+        <div style={{
+          padding: '4px 10px',
+          background: isLight ? 'rgba(0, 242, 254, 0.1)' : 'rgba(0, 242, 254, 0.08)',
+          borderBottom: '1px solid rgba(0, 242, 254, 0.22)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          fontSize: '0.66rem',
+          fontWeight: 700,
+          color: isLight ? '#0070f3' : '#00f2fe'
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+            <RefreshCw size={12} className="spin" />
+            <span>
+              {agentStatus || (() => {
+                const runningTask = pipeline.find(p => p.status === 'in_progress') || pipeline.find(p => p.status !== 'done');
+                return runningTask ? `In esecuzione task: "${runningTask.title}"` : "L'agente sta elaborando la risposta...";
+              })()}
+            </span>
+          </div>
+          <button
+            type="button"
+            onClick={stopAutoLoop}
+            style={{
+              padding: '2px 8px',
+              borderRadius: '4px',
+              background: '#ef4444',
+              color: '#fff',
+              border: 'none',
+              fontSize: '0.60rem',
+              fontWeight: 800,
+              cursor: 'pointer'
+            }}
+          >
+            Ferma Loop
+          </button>
+        </div>
+      )}
+
       {/* Messages List */}
       <div 
         ref={messagesContainerRef}
@@ -2480,29 +2784,128 @@ ${event.diff || ''}`,
           scrollBehavior: 'auto'
         }}
       >
-        {messages.map((msg, idx) => (
-          <div key={idx} style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-            <div style={{
+        {/* Paginazione: Carica messaggi precedenti */}
+        {messages.length > visibleCount && (
+          <div style={{
+            textAlign: 'center',
+            padding: '8px 0',
+            marginBottom: '4px',
+            borderBottom: isLight ? '1px dashed #d0d7de' : '1px dashed rgba(255,255,255,0.1)'
+          }}>
+            <button
+              onClick={() => setVisibleCount(prev => prev + 40)}
+              style={{
+                background: isLight ? 'rgba(0, 112, 243, 0.08)' : 'rgba(0, 242, 254, 0.08)',
+                border: isLight ? '1px solid rgba(0, 112, 243, 0.25)' : '1px solid rgba(0, 242, 254, 0.25)',
+                color: isLight ? '#0070f3' : '#00f2fe',
+                padding: '5px 14px',
+                borderRadius: '6px',
+                cursor: 'pointer',
+                fontSize: '0.70rem',
+                fontWeight: 600,
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '6px'
+              }}
+            >
+              <Clock size={12} />
+              <span>Carica messaggi precedenti (mostrati {visibleMessages.length} di {messages.length})</span>
+            </button>
+          </div>
+        )}
+
+        {visibleMessages.map((msg, idx) => {
+          const relatedTaskTitle = msg.resolvedTaskTitle;
+          const prevMsg = idx > 0 ? visibleMessages[idx - 1] : null;
+          const isConsecutiveAssistant = prevMsg && prevMsg.role === msg.role && msg.role === 'assistant';
+          const isSameTask = isConsecutiveAssistant && (prevMsg.resolvedTaskTitle === relatedTaskTitle);
+          const showAgentHeader = !isConsecutiveAssistant;
+          const showTaskBadge = msg.role === 'assistant' && relatedTaskTitle && (!isConsecutiveAssistant || !isSameTask);
+
+          return (
+          <div
+            key={msg.originalIndex ?? idx}
+            style={{
               display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-              fontSize: '0.68rem',
-              fontWeight: 700,
-              color: msg.role === 'user' ? '#00f2fe' : (isLight ? '#57606a' : '#8b949e')
-            }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                {msg.role === 'user' ? <User size={12} /> : <Bot size={12} />}
-                <span>{msg.role === 'user' ? 'Tu' : 'Admin AI Agent'}</span>
-              </div>
-              <span style={{
-                fontSize: '0.60rem',
-                fontWeight: 500,
-                color: isLight ? '#8c959f' : '#6e7681',
-                fontFamily: 'monospace'
+              flexDirection: 'column',
+              gap: isConsecutiveAssistant ? '3px' : '5px',
+              paddingLeft: isConsecutiveAssistant ? '10px' : 0,
+              borderLeft: isConsecutiveAssistant 
+                ? (isLight ? '2px solid rgba(0, 112, 243, 0.2)' : '2px solid rgba(0, 242, 254, 0.2)') 
+                : 'none',
+              marginLeft: isConsecutiveAssistant ? '4px' : 0,
+              marginTop: isConsecutiveAssistant ? '2px' : (idx > 0 ? '8px' : '2px'),
+              marginBottom: isConsecutiveAssistant ? '3px' : '6px'
+            }}
+          >
+            {showAgentHeader && (
+              <div style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                fontSize: '0.68rem',
+                fontWeight: 700,
+                color: msg.role === 'user' 
+                  ? (isAutoLoopPrompt(msg) ? (isLight ? '#6366f1' : '#a78bfa') : '#00f2fe') 
+                  : (isLight ? '#57606a' : '#8b949e')
               }}>
-                {formatMessageTimestamp(msg.timestamp || new Date().toISOString())}
-              </span>
-            </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  {msg.role === 'user' ? (
+                    isAutoLoopPrompt(msg) ? (
+                      <Cpu size={12} style={{ color: isLight ? '#6366f1' : '#a78bfa' }} />
+                    ) : (
+                      <User size={12} />
+                    )
+                  ) : (
+                    <Bot size={12} />
+                  )}
+                  <span>{msg.role === 'user' ? (isAutoLoopPrompt(msg) ? 'Sistema' : 'Tu') : 'Admin AI Agent'}</span>
+                  {msg.role === 'user' && isAutoLoopPrompt(msg) && (
+                    <span style={{
+                      fontSize: '0.58rem',
+                      padding: '1px 5px',
+                      borderRadius: '4px',
+                      background: isLight ? 'rgba(99, 102, 241, 0.1)' : 'rgba(167, 139, 250, 0.15)',
+                      color: isLight ? '#4f46e5' : '#c4b5fd',
+                      fontWeight: 600,
+                      marginLeft: '2px'
+                    }}>
+                      Auto
+                    </span>
+                  )}
+                </div>
+                <span style={{
+                  fontSize: '0.60rem',
+                  fontWeight: 500,
+                  color: isLight ? '#8c959f' : '#6e7681',
+                  fontFamily: 'monospace'
+                }}>
+                  {formatMessageTimestamp(msg.timestamp || new Date().toISOString())}
+                </span>
+              </div>
+            )}
+
+            {/* Badge Identificativo Sotto-Task Corrente (mostrato solo al cambio di task) */}
+            {showTaskBadge && (
+              <div style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '5px',
+                padding: '2px 8px',
+                borderRadius: '4px',
+                background: isLight ? 'rgba(0, 242, 254, 0.1)' : 'rgba(0, 242, 254, 0.08)',
+                border: '1px solid rgba(0, 242, 254, 0.25)',
+                color: isLight ? '#0070f3' : '#00f2fe',
+                fontSize: '0.64rem',
+                fontWeight: 700,
+                width: 'fit-content',
+                marginTop: '1px',
+                marginBottom: '2px'
+              }}>
+                <CircleDot size={11} color="#00f2fe" />
+                <span>Task in corso: {relatedTaskTitle}</span>
+              </div>
+            )}
 
             {/* Collapsible Thinking Bubble */}
             {msg.thought && (
@@ -2554,7 +2957,26 @@ ${event.diff || ''}`,
               const contentText = msg.role === 'user' ? msg.content : cleanMessageText(msg.content);
               const showLoadingBanner = msg.isStreaming && msg.role === 'assistant' && !contentText && (!msg.thought || !msg.thought.trim());
 
-              if (!contentText && (!msg.attachments || msg.attachments.length === 0) && !showLoadingBanner) return null;
+              if (!contentText && (!msg.attachments || msg.attachments.length === 0) && !showLoadingBanner) {
+                // Se non c'è testo ma il turno ha registrato token ed è privo di tool visualizzati,
+                // mostriamo un messaggio sobrio indicante l'azione o lo stato
+                if (msg.role === 'assistant' && (!msg.tools || msg.tools.length === 0) && msg.metrics?.tokens > 0 && !msg.isStreaming) {
+                  return (
+                    <div style={{
+                      padding: '4px 8px',
+                      borderRadius: '5px',
+                      background: isLight ? '#f6f8fa' : '#161b22',
+                      border: isLight ? '1px solid #d0d7de' : '1px solid rgba(255,255,255,0.06)',
+                      color: isLight ? '#57606a' : '#8b949e',
+                      fontSize: '0.66rem',
+                      fontStyle: 'italic'
+                    }}>
+                      {msg.content?.trim() || "Analisi interna completata: passaggio alla fase successiva."}
+                    </div>
+                  );
+                }
+                return null;
+              }
               return (
                 <div>
                   {/* Model Loading / Inference Alert Card */}
@@ -2617,64 +3039,107 @@ ${event.diff || ''}`,
                       ))}
                     </div>
                   )}
-                  {contentText && (
-                    <RichMessageContent
-                      content={contentText}
-                      isUser={msg.role === 'user'}
-                      onOpenFile={onOpenFile}
-                      isLight={isLight}
-                    />
+                  {contentText && (() => {
+                    const isGoalCompletion = msg.role === 'assistant' && (
+                      /^(?:🏆\s*)?##\s*Obiettivo\s+completato/i.test(contentText) ||
+                      /^\s*Obiettivo\s+completato\s*[:—–\-]/i.test(contentText)
+                    );
+
+                    if (isGoalCompletion) {
+                      let goalTitle = '';
+                      let goalBody = contentText;
+                      const titleMatch = contentText.match(/^(?:🏆\s*)?##\s*Obiettivo\s+completato(?:\s*[:—–\-]\s*([^\n]+))?/i) ||
+                                         contentText.match(/^\s*Obiettivo\s+completato(?:\s*[:—–\-]\s*([^\n]+))?/i);
+                      if (titleMatch) {
+                        goalTitle = (titleMatch[1] || '').trim();
+                        goalBody = contentText.replace(titleMatch[0], '').trim();
+                      }
+                      return (
+                        <GoalCompletionCard
+                          title={goalTitle || 'Obiettivo di Sviluppo Raggiunto'}
+                          summary={goalBody}
+                          isLight={isLight}
+                          onOpenFile={onOpenFile}
+                        />
+                      );
+                    }
+
+                    return (
+                      <RichMessageContent
+                        content={contentText}
+                        isUser={msg.role === 'user'}
+                        onOpenFile={onOpenFile}
+                        isLight={isLight}
+                      />
+                    );
+                  })()}
+
+                  {/* Card Notifica Eccezione / Errore Runtime Esplicito */}
+                  {msg.isError && (
+                    <div style={{
+                      marginTop: '8px',
+                      padding: '10px 14px',
+                      borderRadius: '8px',
+                      background: isLight ? 'rgba(239, 68, 68, 0.08)' : 'rgba(239, 68, 68, 0.12)',
+                      border: '1px solid rgba(239, 68, 68, 0.45)',
+                      boxShadow: '0 2px 10px rgba(239, 68, 68, 0.15)',
+                      fontSize: '0.72rem'
+                    }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontWeight: 800, color: '#ef4444', marginBottom: '4px' }}>
+                        <AlertTriangle size={15} color="#ef4444" />
+                        <span>{msg.errorType ? `Eccezione / Errore Rilevato: ${msg.errorType}` : 'Errore durante l\'elaborazione'}</span>
+                      </div>
+                      <div style={{ color: isLight ? '#991b1b' : '#fca5a5', lineHeight: 1.45, fontWeight: 500 }}>
+                        {msg.errorMessage || 'Si è verificato un errore nel flusso di esecuzione.'}
+                      </div>
+                      {msg.traceback && (
+                        <details style={{ marginTop: '8px', fontSize: '0.66rem' }}>
+                          <summary style={{ cursor: 'pointer', fontWeight: 700, color: '#ef4444' }}>
+                            Visualizza Dettagli Tecnici & Traceback
+                          </summary>
+                          <pre style={{
+                            margin: '6px 0 0 0',
+                            padding: '8px',
+                            background: isLight ? '#f8fafc' : '#090d13',
+                            border: '1px solid rgba(239, 68, 68, 0.2)',
+                            borderRadius: '6px',
+                            overflowX: 'auto',
+                            fontFamily: 'Consolas, monospace',
+                            whiteSpace: 'pre-wrap',
+                            color: isLight ? '#334155' : '#94a3b8',
+                            lineHeight: 1.35
+                          }}>
+                            {msg.traceback}
+                          </pre>
+                        </details>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Card Notifica Rifiuto Completamento Obiettivo (Gate Reason) */}
+                  {msg.gateRejected && (
+                    <div style={{
+                      marginTop: '8px',
+                      padding: '8px 12px',
+                      borderRadius: '8px',
+                      background: isLight ? 'rgba(245, 158, 11, 0.1)' : 'rgba(245, 158, 11, 0.12)',
+                      border: '1px solid rgba(245, 158, 11, 0.4)',
+                      fontSize: '0.70rem',
+                      color: isLight ? '#b45309' : '#fcd34d'
+                    }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontWeight: 800, marginBottom: '2px' }}>
+                        <AlertCircle size={14} color="#f59e0b" />
+                        <span>Completamento respinto dal sistema di verifica</span>
+                      </div>
+                      <div style={{ lineHeight: 1.4 }}>
+                        {msg.gateReason}
+                      </div>
+                    </div>
                   )}
                 </div>
               );
             })()}
 
-            {/* Generation Metrics Bar (t/s, TTFT, Tokens, Duration, Datastamp) */}
-            {msg.metrics && msg.role === 'assistant' && (
-              <div style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: '8px',
-                fontSize: '0.62rem',
-                padding: '2px 4px',
-                color: isLight ? '#57606a' : '#8b949e',
-                flexWrap: 'wrap'
-              }}>
-                {msg.metrics.tps > 0 && (
-                  <span style={{ 
-                    color: msg.metrics.isLive ? '#00f2fe' : '#3fb950', 
-                    fontWeight: 800,
-                    display: 'inline-flex',
-                    alignItems: 'center',
-                    gap: '4px'
-                  }}>
-                    ⚡ {msg.metrics.tps} t/s
-                    {msg.metrics.isLive && (
-                      <span style={{ 
-                        display: 'inline-block', 
-                        width: '6px', 
-                        height: '6px', 
-                        borderRadius: '50%', 
-                        background: '#00f2fe',
-                        boxShadow: '0 0 6px #00f2fe'
-                      }} />
-                    )}
-                  </span>
-                )}
-                {msg.metrics.ttft_ms > 0 && (
-                  <span>⏱️ TTFT {msg.metrics.ttft_ms}ms</span>
-                )}
-                {msg.metrics.tokens > 0 && (
-                  <span>• {msg.metrics.tokens} tokens</span>
-                )}
-                {msg.metrics.duration_s > 0 && (
-                  <span>• {msg.metrics.duration_s}s</span>
-                )}
-                <span style={{ marginLeft: 'auto', opacity: 0.75 }}>
-                  🕒 {formatMessageTimestamp(msg.timestamp || new Date().toISOString())}
-                </span>
-              </div>
-            )}
 
             {/* Tool Execution Badges & Sealed Action Alert Cards */}
             {msg.tools && msg.tools.length > 0 && (
@@ -2690,83 +3155,84 @@ ${event.diff || ''}`,
                     <div
                       key={tIdx}
                       style={{
-                        borderRadius: '10px',
-                        background: isLight ? '#ffffff' : '#0a0e14',
+                        borderRadius: '6px',
+                        background: isLight ? '#ffffff' : '#0d1117',
                         border: isLight 
-                          ? (isDone ? '1px solid #d0d7de' : '1px solid rgba(0, 242, 254, 0.4)')
-                          : (isDone ? (isSuccess ? '1px solid rgba(63, 185, 80, 0.3)' : '1px solid rgba(239, 68, 68, 0.3)') : '1px solid rgba(0, 242, 254, 0.4)'),
+                          ? '1px solid #e1e4e8' 
+                          : (isDone ? (isSuccess ? '1px solid rgba(63, 185, 80, 0.22)' : '1px solid rgba(239, 68, 68, 0.22)') : '1px solid rgba(0, 242, 254, 0.3)'),
                         overflow: 'hidden',
-                        boxShadow: isLight ? '0 1px 4px rgba(0,0,0,0.06)' : '0 2px 8px rgba(0,0,0,0.3)',
-                        fontSize: '0.7rem'
+                        fontSize: '0.67rem',
+                        marginBottom: '2px'
                       }}
                     >
-                      {/* Action Header Alert Banner (Click to toggle expand/collapse) */}
+                      {/* Action Header Alert Banner (compatto e snello) */}
                       <div 
                         onClick={() => toggleTool(toolKey)}
                         style={{
-                          padding: '6px 10px',
+                          padding: '3px 8px',
                           background: isDone 
                             ? (isSuccess 
-                                ? (isLight ? 'rgba(63, 185, 80, 0.1)' : 'rgba(63, 185, 80, 0.08)')
-                                : (isLight ? 'rgba(239, 68, 68, 0.1)' : 'rgba(239, 68, 68, 0.08)'))
-                            : (isLight ? 'rgba(0, 242, 254, 0.1)' : 'rgba(0, 242, 254, 0.08)'),
+                                ? (isLight ? 'rgba(63, 185, 80, 0.06)' : 'rgba(63, 185, 80, 0.06)')
+                                : (isLight ? 'rgba(239, 68, 68, 0.06)' : 'rgba(239, 68, 68, 0.06)'))
+                            : (isLight ? 'rgba(0, 242, 254, 0.06)' : 'rgba(0, 242, 254, 0.06)'),
                           display: 'flex',
                           alignItems: 'center',
                           justifyContent: 'space-between',
-                          borderBottom: isExpanded ? (isLight ? '1px solid rgba(0,0,0,0.06)' : '1px solid rgba(255,255,255,0.06)') : 'none',
+                          borderBottom: isExpanded ? (isLight ? '1px solid rgba(0,0,0,0.05)' : '1px solid rgba(255,255,255,0.05)') : 'none',
                           cursor: 'pointer',
                           userSelect: 'none'
                         }}
                       >
                         <span style={{ 
-                          fontWeight: 800, 
+                          fontWeight: 700, 
                           color: isDone ? (isSuccess ? '#3fb950' : '#ef4444') : '#00f2fe', 
                           display: 'flex', 
                           alignItems: 'center', 
-                          gap: '6px' 
+                          gap: '5px',
+                          fontFamily: 'Consolas, monospace'
                         }}>
-                          {t.tool === 'terminal' && <Terminal size={13} />}
-                          {t.tool === 'read_file' && <FileCode size={13} />}
-                          {t.tool === 'write_file' && <SplitSquareVertical size={13} />}
-                          {t.tool === 'edit_file' && <Edit2 size={13} />}
-                          {t.tool === 'glob' && <Search size={13} />}
-                          {t.tool === 'delete' && <Trash2 size={13} />}
-                          {t.tool === 'list_dir' && <Layers size={13} />}
-                          {(t.tool === 'search_code' || t.tool === 'grep') && <Search size={13} />}
-                          {(t.tool === 'pipeline' || t.tool === 'tasks' || t.tool === 'set_tasks') && <ListTodo size={13} />}
-                          {(t.tool === 'complete_goal' || t.tool === 'finish_task') && <Award size={13} />}
+                          {t.tool === 'terminal' && <Terminal size={12} />}
+                          {t.tool === 'read_file' && <FileCode size={12} />}
+                          {t.tool === 'write_file' && <SplitSquareVertical size={12} />}
+                          {t.tool === 'edit_file' && <Edit2 size={12} />}
+                          {t.tool === 'glob' && <Search size={12} />}
+                          {t.tool === 'delete' && <Trash2 size={12} />}
+                          {t.tool === 'list_dir' && <Layers size={12} />}
+                          {(t.tool === 'search_code' || t.tool === 'grep') && <Search size={12} />}
+                          {(t.tool === 'pipeline' || t.tool === 'tasks' || t.tool === 'set_tasks') && <ListTodo size={12} />}
+                          {(t.tool === 'complete_goal' || t.tool === 'finish_task') && <Award size={12} />}
                           <span>
-                            {t.tool === 'edit_file' ? 'MODIFICA CHIRURGICA FILE' :
-                             t.tool === 'glob' ? 'RICERCA FILE PER PATTERN' :
-                             t.tool === 'write_file' ? 'MODIFICA / SCRITTURA FILE' :
-                             t.tool === 'terminal' ? 'ESECUZIONE TERMINALE' :
-                             t.tool === 'delete' ? 'ELIMINAZIONE FILE / CARTELLA' :
-                             t.tool === 'read_file' ? 'LETTURA FILE' :
-                             t.tool === 'list_dir' ? 'ESPLORAZIONE DIRECTORY' :
-                             (t.tool === 'search_code' || t.tool === 'grep') ? 'RICERCA NEL CODICE' :
-                             (t.tool === 'pipeline' || t.tool === 'tasks' || t.tool === 'set_tasks') ? 'AGGIORNAMENTO PIPELINE TASK' :
-                             (t.tool === 'complete_goal' || t.tool === 'finish_task') ? 'OBIETTIVO COMPLETATO' :
-                             `AZIONE: ${t.tool.toUpperCase()}`}
+                            {t.tool === 'edit_file' ? 'edit_file' :
+                             t.tool === 'glob' ? 'glob' :
+                             t.tool === 'write_file' ? 'write_file' :
+                             t.tool === 'terminal' ? 'terminal' :
+                             t.tool === 'delete' ? 'delete' :
+                             t.tool === 'read_file' ? 'read_file' :
+                             t.tool === 'list_dir' ? 'list_dir' :
+                             (t.tool === 'search_code' || t.tool === 'grep') ? 'search' :
+                             (t.tool === 'pipeline' || t.tool === 'tasks' || t.tool === 'set_tasks') ? 'pipeline' :
+                             (t.tool === 'complete_goal' || t.tool === 'finish_task') ? 'finish_task' :
+                             t.tool}
                           </span>
                         </span>
 
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
                           <span style={{
-                            fontSize: '0.62rem',
-                            padding: '2px 8px',
-                            borderRadius: '12px',
+                            fontSize: '0.58rem',
+                            padding: '1px 6px',
+                            borderRadius: '4px',
                             background: isDone 
-                              ? (isSuccess ? 'rgba(63, 185, 80, 0.2)' : 'rgba(239, 68, 68, 0.2)')
-                              : 'rgba(0, 242, 254, 0.2)',
+                              ? (isSuccess ? 'rgba(63, 185, 80, 0.15)' : 'rgba(239, 68, 68, 0.15)')
+                              : 'rgba(0, 242, 254, 0.15)',
                             color: isDone ? (isSuccess ? '#3fb950' : '#ef4444') : '#00f2fe',
-                            fontWeight: 800,
+                            fontWeight: 700,
                             display: 'flex',
                             alignItems: 'center',
-                            gap: '4px'
+                            gap: '3px'
                           }}>
-                            {isDone ? (isSuccess ? '✓ Completato' : '✕ Errore') : '⏳ In esecuzione...'}
+                            {isDone ? (isSuccess ? '✓ OK' : '✕ Errore') : '⏳ In corso'}
                           </span>
-                          {isExpanded ? <ChevronUp size={12} color="#8b949e" /> : <ChevronDown size={12} color="#8b949e" />}
+                          {isExpanded ? <ChevronUp size={11} color="#8b949e" /> : <ChevronDown size={11} color="#8b949e" />}
                         </div>
                       </div>
 
@@ -2836,18 +3302,22 @@ ${event.diff || ''}`,
                             </div>
                           )}
 
-                          {/* Complete Goal preview */}
+                          {/* Complete Goal preview status compatto (nessuna duplicazione della GoalCompletionCard) */}
                           {(t.tool === 'complete_goal' || t.tool === 'finish_task') && (
                             <div style={{
-                              color: '#3fb950',
-                              fontSize: '0.70rem',
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: '5px',
+                              padding: '2px 6px',
+                              borderRadius: '4px',
+                              background: 'rgba(16, 185, 129, 0.1)',
+                              color: '#10b981',
+                              fontSize: '0.64rem',
                               fontWeight: 700,
-                              background: isLight ? 'rgba(63, 185, 80, 0.1)' : 'rgba(63, 185, 80, 0.08)',
-                              padding: '6px 8px',
-                              borderRadius: '6px',
-                              marginTop: '2px'
+                              width: 'fit-content'
                             }}>
-                              🏆 {t.params?.summary || t.result?.summary || 'Tutti i task della pipeline sono stati completati con successo.'}
+                              <CheckCircle2 size={12} color="#10b981" />
+                              <span>Obiettivo verificato e completato</span>
                             </div>
                           )}
 
@@ -2906,29 +3376,84 @@ ${event.diff || ''}`,
                 })}
               </div>
             )}
-
-            {/* Turn Completion Seal */}
-            {!msg.isStreaming && msg.role === 'assistant' && (
+            {/* Generation Metrics Bar (t/s, TTFT, Tokens, Duration, Datastamp posizionate sotto le azioni) */}
+            {msg.metrics && msg.role === 'assistant' && (
               <div style={{
                 display: 'flex',
                 alignItems: 'center',
-                justifyContent: 'space-between',
-                padding: '3px 6px',
-                fontSize: '0.60rem',
+                gap: '8px',
+                fontSize: '0.62rem',
+                padding: '3px 4px',
                 color: isLight ? '#57606a' : '#8b949e',
-                borderBottom: isLight ? '1px solid rgba(0,0,0,0.05)' : '1px solid rgba(255,255,255,0.04)',
-                marginBottom: '4px'
+                flexWrap: 'wrap',
+                marginTop: '2px',
+                marginBottom: isConsecutiveAssistant ? '2px' : '4px'
               }}>
-                <span style={{ display: 'flex', alignItems: 'center', gap: '4px', color: '#3fb950', fontWeight: 700 }}>
-                  ✓ Risposta completata
-                </span>
-                <span>
-                  {msg.metrics?.duration_s ? `${msg.metrics.duration_s}s` : ''}
+                {msg.metrics.tps > 0 && (
+                  <span style={{ 
+                    color: msg.metrics.isLive ? '#00f2fe' : '#3fb950', 
+                    fontWeight: 800,
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '4px'
+                  }}>
+                    ⚡ {msg.metrics.tps} t/s
+                    {msg.metrics.isLive && (
+                      <span style={{ 
+                        display: 'inline-block', 
+                        width: '6px', 
+                        height: '6px', 
+                        borderRadius: '50%', 
+                        background: '#00f2fe',
+                        boxShadow: '0 0 6px #00f2fe'
+                      }} />
+                    )}
+                  </span>
+                )}
+                {msg.metrics.speculative_speedup > 1.0 && (
+                  <span style={{
+                    color: '#34d399',
+                    fontWeight: 700,
+                    background: 'rgba(16, 185, 129, 0.1)',
+                    padding: '1px 5px',
+                    borderRadius: '4px',
+                    border: '1px solid rgba(16, 185, 129, 0.25)',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '3px'
+                  }}>
+                    🚀 {msg.metrics.speculative_speedup}x Speculative{msg.metrics.speculative_acceptance_rate ? ` (${msg.metrics.speculative_acceptance_rate}%)` : ''}
+                  </span>
+                )}
+                {msg.metrics.grammar_constrained && (
+                  <span style={{
+                    color: '#00f2fe',
+                    fontWeight: 700,
+                    background: 'rgba(0, 242, 254, 0.08)',
+                    padding: '1px 5px',
+                    borderRadius: '4px',
+                    border: '1px solid rgba(0, 242, 254, 0.22)'
+                  }}>
+                    JSON-FSM ✓
+                  </span>
+                )}
+                {msg.metrics.ttft_ms > 0 && (
+                  <span>⏱️ TTFT {msg.metrics.ttft_ms}ms</span>
+                )}
+                {msg.metrics.tokens > 0 && (
+                  <span>• {msg.metrics.tokens} tokens</span>
+                )}
+                {msg.metrics.duration_s > 0 && (
+                  <span>• {msg.metrics.duration_s}s</span>
+                )}
+                <span style={{ marginLeft: 'auto', opacity: 0.75 }}>
+                  🕒 {formatMessageTimestamp(msg.timestamp || new Date().toISOString())}
                 </span>
               </div>
             )}
           </div>
-        ))}
+          );
+        })}
         <div ref={chatEndRef} />
       </div>
 
@@ -3149,8 +3674,15 @@ ${event.diff || ''}`,
           type="text"
           value={input}
           onChange={e => setInput(e.target.value)}
-          placeholder={isListening ? "🎤 Ascolto in corso..." : (isStreaming ? "L'agente sta elaborando..." : "Chiedi all'AI Developer Agent... (puoi allegare o trascinare file)")}
-          disabled={isStreaming}
+          placeholder={
+            isListening 
+              ? "🎤 Ascolto in corso..." 
+              : isStreaming 
+              ? "Scrivi un'istruzione per intervenire nel loop (premi Invio per inviare)..." 
+              : loopCountdown !== null 
+              ? `Loop in corso (${loopCountdown}s)... Scrivi un'istruzione per indirizzare l'agente...` 
+              : "Chiedi all'AI Developer Agent... (puoi allegare o trascinare file)"
+          }
           style={{
             flex: 1,
             padding: '6px 10px',
@@ -3163,13 +3695,14 @@ ${event.diff || ''}`,
           }}
         />
 
-        {isStreaming || loopCountdown !== null ? (
+        {/* Pulsante Ferma Loop (visibile sempre durante lo streaming o il countdown) */}
+        {(isStreaming || loopCountdown !== null) && (
           <button
             type="button"
             onClick={handleStopGeneration}
             title="Ferma il loop e l'elaborazione dell'agente"
             style={{
-              padding: '6px 14px',
+              padding: '6px 12px',
               borderRadius: '8px',
               background: 'linear-gradient(135deg, #ef4444, #dc2626)',
               border: '1px solid #b91c1c',
@@ -3177,35 +3710,51 @@ ${event.diff || ''}`,
               cursor: 'pointer',
               display: 'flex',
               alignItems: 'center',
-              gap: '6px',
+              gap: '5px',
               fontWeight: 800,
-              fontSize: '0.74rem',
+              fontSize: '0.72rem',
               boxShadow: '0 2px 10px rgba(239, 68, 68, 0.45)',
-              transition: 'all 0.15s ease'
+              transition: 'all 0.15s ease',
+              whiteSpace: 'nowrap'
             }}
           >
-            <Square size={13} fill="#ffffff" />
+            <Square size={12} fill="#ffffff" />
             <span>Ferma Loop</span>
           </button>
-        ) : (
-          <button
-            type="submit"
-            disabled={!input.trim() && attachedFiles.length === 0}
-            style={{
-              padding: '6px 14px',
-              borderRadius: '8px',
-              background: (input.trim() || attachedFiles.length > 0) ? 'linear-gradient(135deg, #00f2fe, #4facfe)' : (isLight ? '#e1e4e8' : '#21262d'),
-              border: 'none',
-              color: (input.trim() || attachedFiles.length > 0) ? '#000000' : '#8b949e',
-              cursor: (input.trim() || attachedFiles.length > 0) ? 'pointer' : 'default',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center'
-            }}
-          >
-            <Send size={13} />
-          </button>
         )}
+
+        {/* Pulsante Invia: sempre accessibile, abilitato se c'è testo o file da inviare */}
+        <button
+          type="submit"
+          disabled={!input.trim() && attachedFiles.length === 0}
+          title={
+            isStreaming
+              ? "Intervieni subito e invia la nuova istruzione all'agente"
+              : loopCountdown !== null
+              ? "Invia subito l'istruzione e avvia il task"
+              : "Invia messaggio all'agente"
+          }
+          style={{
+            padding: '6px 14px',
+            borderRadius: '8px',
+            background: (input.trim() || attachedFiles.length > 0) 
+              ? 'linear-gradient(135deg, #00f2fe, #4facfe)' 
+              : (isLight ? '#e1e4e8' : '#21262d'),
+            border: 'none',
+            color: (input.trim() || attachedFiles.length > 0) ? '#000000' : '#8b949e',
+            cursor: (input.trim() || attachedFiles.length > 0) ? 'pointer' : 'default',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '5px',
+            fontWeight: 700,
+            fontSize: '0.72rem',
+            transition: 'all 0.15s ease',
+            whiteSpace: 'nowrap'
+          }}
+        >
+          <Send size={13} />
+          <span>Invia</span>
+        </button>
       </form>
 
       <style>{`
