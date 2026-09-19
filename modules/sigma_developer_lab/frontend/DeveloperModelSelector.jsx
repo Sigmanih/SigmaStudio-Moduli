@@ -279,6 +279,35 @@ export default function DeveloperModelSelector({
                   {activeModelObj.size}
                 </span>
               )}
+              {contextMetrics?.tps != null && contextMetrics.tps > 0 && (
+                <span style={{
+                  fontSize: '0.58rem',
+                  fontWeight: 800,
+                  padding: '1px 5px',
+                  borderRadius: '4px',
+                  background: contextMetrics.tps >= 30 ? 'rgba(63, 185, 80, 0.18)' : 'rgba(210, 153, 34, 0.15)',
+                  color: contextMetrics.tps >= 30 ? '#3fb950' : '#d29922',
+                  whiteSpace: 'nowrap'
+                }}>
+                  ⚡{contextMetrics.tps} t/s
+                </span>
+              )}
+              {contextMetrics?.ttftMs != null && contextMetrics.ttftMs > 0 && (
+                <span style={{
+                  fontSize: '0.58rem',
+                  fontWeight: 700,
+                  padding: '1px 5px',
+                  borderRadius: '4px',
+                  background: contextMetrics.ttftMs <= 5000 ? 'rgba(63, 185, 80, 0.12)' : 'rgba(210, 153, 34, 0.12)',
+                  color: contextMetrics.ttftMs <= 5000 ? '#3fb950' : '#d29922',
+                  whiteSpace: 'nowrap'
+                }}>
+                  {contextMetrics.ttftMs < 1000
+                    ? `${Math.round(contextMetrics.ttftMs)}ms`
+                    : `${(contextMetrics.ttftMs / 1000).toFixed(1)}s`
+                  } TTFT
+                </span>
+              )}
             </div>
           </div>
         </div>
