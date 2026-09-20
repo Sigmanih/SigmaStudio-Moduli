@@ -1,0 +1,43 @@
+{
+  "id": "sigma_eda_lab",
+  "name": "EDA Lab & PCB Placement",
+  "version": "v1.0.0",
+  "category": "Progettazione hardware",
+  "description": "Piazzamento ottimizzato dei componenti, dimensionamento delle piste secondo IPC-2221 e valutazione di una scheda, sopra il bridge MCP di EasyEDA Pro.",
+  "author": "Sigma Core Team",
+  "repository": "https://github.com/Sigmanih/SigmaStudio-Moduli",
+  "branch": "main",
+  "path": "modules/sigma_eda_lab",
+  "tags": [
+    "EasyEDA Pro",
+    "PCB Placement",
+    "IPC-2221",
+    "Simulated Annealing",
+    "Design Review"
+  ],
+  "size": "~60 KB",
+  "icon": "CircuitBoard",
+  "color": "#00d2ff",
+  "requirements": "requirements.txt",
+  "changelog": [
+    {
+      "version": "v1.0.0",
+      "date": "2026-09-20",
+      "notes": "Primo rilascio: piazzamento a ricottura simulata, larghezza piste IPC-2221, valutazione della scheda e ponte verso il server MCP di EasyEDA Pro."
+    }
+  ],
+  "requires": {
+    "hardware": {
+      "requires": {},
+      "recommended": {
+        "ram_gb": 16
+      },
+      "reason_if_unavailable": null
+    },
+    "modules": [],
+    "external_mcp": [
+      "easyeda_pro"
+    ]
+  },
+  "surface": "mcp-only"
+}
