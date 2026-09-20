@@ -198,3 +198,85 @@ def run_drc_inspection(project_id: str, hub=None) -> Dict[str, Any]:
         "by_net_disconnected": list(sorted({e["net"] for e in by_category["disconnected"] if e["net"]})),
         "details": by_category,
     }
+
+
+def route_all_unrouted(project_id: str, default_width_mil: float = 10.0,
+                       power_width_mil: float = 20.0, hub=None) -> Dict[str, Any]:
+    """Instrada automaticamente tutte le net ancora senza piste.
+
+    Applica larghezze differenziate (piste di alimentazione piu' larghe) e
+    spezzate a 45 gradi, eseguendo al termine un controllo DRC.
+    """
+    unr = get_unrouted_summary(project_id, hub)
+    items = unr.get("unrouted_nets", [])
+    results = []
+
+    for item in items:
+        net = item["net"]
+        width = power_width_mil if item.get("net_class") in ("power", "ground") else default_width_mil
+        layer = 1
+        res = route_pads_of_net(project_id, net, width_mil=width, layer=layer, hub=hub)
+        results.append({
+            "net": net,
+            "success": res.get("success", False),
+            "tracks": res.get("tracks_added", 0),
+        })
+
+    after_drc = run_drc_inspection(project_id, hub)
+    after_unr = get_unrouted_summary(project_id, hub)
+
+    return {
+        "success": True,
+        "processed_nets": len(results),
+        "results": results,
+        "unrouted_remaining": after_unr.get("unrouted_nets_count", 0),
+        "drc_errors": after_drc.get("total_errors", 0),
+        "drc_passed": after_drc.get("passed", False),
+    }
+
+
+def add_mounting_holes(project_id: str, margin_mm: float = 5.0,
+                       hole_dia_mm: float = 3.2, pad_dia_mm: float = 6.0,
+                       hub=None) -> Dict[str, Any]:
+    """Posiziona 4 fori di montaggio (via meccanici) nei quattro angoli del contorno scheda."""
+    dim = bridge.call("easyeda_board_dimensions", {"projectId": project_id}, hub)
+    w_mm = float(dim.get("width_mm") or 100.0)
+    h_mm = float(dim.get("height_mm") or 80.0)
+
+    # Converti in mil per EasyEDA
+    margin_mil = margin_mm * bridge.MIL_PER_MM
+    hole_mil = hole_dia_mm * bridge.MIL_PER_MM
+    pad_mil = pad_dia_mm * bridge.MIL_PER_MM
+    w_mil = w_mm * bridge.MIL_PER_MM
+    h_mil = h_mm * bridge.MIL_PER_MM
+
+    corners = [
+        (margin_mil, margin_mil),
+        (w_mil - margin_mil, margin_mil),
+        (w_mil - margin_mil, h_mil - margin_mil),
+        (margin_mil, h_mil - margin_mil),
+    ]
+
+    placed = []
+    for x, y in corners:
+        try:
+            res = bridge.call("easyeda_pcb_add_via", {
+                "projectId": project_id,
+                "x": round(x, 2),
+                "y": round(y, 2),
+                "holeSize": round(hole_mil, 2),
+                "outerDiameter": round(pad_mil, 2),
+                "netName": "AGND",
+                "confirmWrite": True,
+            }, hub)
+            if res.get("primitiveId"):
+                placed.append(res.get("primitiveId"))
+        except Exception as exc:
+            log.warning("[mounting_holes] Impossibile posizionare foro a (%s, %s): %s", x, y, exc)
+
+    return {
+        "success": len(placed) == 4,
+        "holes_placed": len(placed),
+        "hole_dia_mm": hole_dia_mm,
+        "primitives": placed,
+    }
