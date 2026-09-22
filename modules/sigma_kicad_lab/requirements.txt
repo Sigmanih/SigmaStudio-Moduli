@@ -1,0 +1,2 @@
+# Nessuna dipendenza Python aggiuntiva: il modulo usa solo la libreria standard.
+# Requisito di sistema: KiCad 8+ installato (per kicad-cli).

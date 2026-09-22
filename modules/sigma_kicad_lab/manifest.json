@@ -1,0 +1,50 @@
+{
+  "id": "sigma_kicad_lab",
+  "name": "PCB Lab — KiCad",
+  "version": "v1.0.0",
+  "category": "Progettazione Hardware",
+  "tabType": "kicad_lab",
+  "sidebarLabel": "PCB Lab",
+  "sidebarIcon": "CircuitBoard",
+  "sidebarBadge": "KICAD",
+  "sidebarBadgeColor": "rgba(13,110,253,0.25)",
+  "sidebarCategory": "Infrastruttura & Sistema",
+  "description": "Laboratorio PCB con KiCad 10: apertura progetti, lettura di schede e pad, piazzamento a ricottura simulata, instradamento delle piste, via e footprint, dimensionamento IPC-2221, verifica DRC/ERC ed export Gerber. Si usa a mano dalla scheda oppure affidando i task al team di agenti.",
+  "author": "Sigma Core Team",
+  "repository": "https://github.com/Sigmanih/SigmaStudio-Moduli",
+  "branch": "main",
+  "path": "modules/sigma_kicad_lab",
+  "tags": [
+    "KiCad",
+    "PCB Design",
+    "Hardware Agents",
+    "IPC-2221",
+    "Simulated Annealing",
+    "DRC/ERC",
+    "Gerber",
+    "3D Render"
+  ],
+  "size": "~250 KB",
+  "icon": "CircuitBoard",
+  "color": "#0d6efd",
+  "requirements": "requirements.txt",
+  "changelog": [
+    {
+      "version": "v1.0.0",
+      "date": "2026-09-20",
+      "notes": "Rilascio completo Hardware Studio: canvas 2D/3D interattivo, team di agenti hardware a 5 fasi, DRC/ERC headless e routing IPC-2221."
+    }
+  ],
+  "requires": {
+    "hardware": {
+      "requires": {},
+      "recommended": {
+        "ram_gb": 8
+      },
+      "reason_if_unavailable": null
+    },
+    "modules": [],
+    "external_mcp": []
+  },
+  "surface": "full"
+}
