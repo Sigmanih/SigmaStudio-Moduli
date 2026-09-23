@@ -82,18 +82,46 @@ def _check_http_endpoint(url: str, timeout: float = 2.0) -> Dict[str, Any]:
         }
 
 
-def _count_files(root: Path, patterns: List[str]) -> int:
-    """Conta i file che matchano i pattern dati sotto root (recursivo)."""
+#: Cartelle che non contengono sorgente del progetto e che pesano quanto tutto
+#: il resto messo insieme. Senza potarle, `os.walk` dalla radice attraversa
+#: centinaia di migliaia di voci: in questo repository `projects/*/target/` da
+#: solo ne ha oltre trentamila dopo una compilazione release, e il conteggio
+#: passava da istantaneo a minuti. Un tool di salute che ci mette minuti non
+#: viene usato, e un agente che lo chiama ci perde il turno.
+CARTELLE_DA_SALTARE = frozenset({
+    ".git", ".hg", ".svn",
+    "node_modules", "__pycache__", ".pytest_cache", ".mypy_cache", ".ruff_cache",
+    ".venv", "venv", "env",
+    "target", "dist", "build", "out",
+    ".backups", ".sigma_backups", "unsloth_compiled_cache",
+})
+
+
+def _conta_per_gruppo(root: Path, gruppi: Dict[str, List[str]]) -> Dict[str, int]:
+    """Conta i file di ogni gruppo di pattern con **una sola** passata.
+
+    Prima si camminava l'albero una volta per gruppo — quattro passate
+    complete — e senza saltare niente.
+    """
     import fnmatch
-    count = 0
+
+    conteggi = {etichetta: 0 for etichetta in gruppi}
     try:
-        for dirpath, _dirnames, filenames in os.walk(root):
+        for _dirpath, dirnames, filenames in os.walk(root):
+            dirnames[:] = [d for d in dirnames if d not in CARTELLE_DA_SALTARE]
             for fname in filenames:
-                if any(fnmatch.fnmatch(fname, p) for p in patterns):
-                    count += 1
+                for etichetta, patterns in gruppi.items():
+                    if any(fnmatch.fnmatch(fname, p) for p in patterns):
+                        conteggi[etichetta] += 1
+                        break
     except PermissionError:
         pass
-    return count
+    return conteggi
+
+
+def _count_files(root: Path, patterns: List[str]) -> int:
+    """Conta i file che corrispondono ai pattern sotto root."""
+    return _conta_per_gruppo(root, {"_": list(patterns)})["_"]
 
 
 class HealthMCPServer(BaseMCPServer):
@@ -192,10 +220,8 @@ class HealthMCPServer(BaseMCPServer):
             "markdown": ["*.md"],
             "json": ["*.json"],
         }
-        report["project_stats"] = {
-            label: _count_files(root, patterns)
-            for label, patterns in stats_patterns.items()
-        }
+        # Una passata sola sull'albero, non una per gruppo.
+        report["project_stats"] = _conta_per_gruppo(root, stats_patterns)
 
         # --- Riepilogo rapido ---
         missing_key = [f["path"] for f in report["key_files"] if not f["exists"]]

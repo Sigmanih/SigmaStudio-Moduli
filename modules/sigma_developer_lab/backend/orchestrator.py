@@ -473,6 +473,16 @@ class DevOrchestrator:
             f"**{goal}**\n\n"
             f"Usa list_dir e read_file per esplorare la struttura. "
             f"Poi crea una pipeline di task con il tool `pipeline`."
+            f"\n\nPer ogni voce del piano, prima di scriverla:\n"
+            f"1) elenca i file che deve toccare;\n"
+            f"2) per ogni dato che la voce da per presente, cerca CHI lo produce e\n"
+            f"verifica che arrivi in ingresso a quei file (search_code e read_file\n"
+            f"sui chiamanti);\n"
+            f"3) se il dato non arriva, o la voce include il file che lo porta, o\n"
+            f"il criterio cambia.\n"
+            f"Una premessa sbagliata in un piano diventa un difetto nel codice, e\n"
+            f"chi esegue non ha modo di accorgersene: il 23 settembre 2026 e\n"
+            f"costata 30 turni su 30 senza una riga scritta."
         )
 
         architect_output = []

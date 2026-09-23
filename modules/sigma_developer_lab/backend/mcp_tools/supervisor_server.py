@@ -9,6 +9,8 @@ from typing import Any, Dict, List, Optional
 
 from core.logger import get_logger
 
+from core.mcp.base_server import BaseMCPServer
+from core.mcp.governance import SAFE, SENSITIVE
 log = get_logger("supervisor_server")
 
 
@@ -36,8 +38,54 @@ def _audit_codebase(project_dir: str) -> Dict[str, Any]:
     }
 
 
-class SupervisorMCPServer:
+class SupervisorMCPServer(BaseMCPServer):
     """Server MCP per la supervisione dei comportamenti del team e il calcolo del punteggio (0-100%)."""
+
+    def __init__(self):
+        # Ereditare da `BaseMCPServer` non e una formalita: senza nome e
+        # versione questo server faceva sollevare `list_all_servers()`, cioe
+        # la scheda MCP dell applicazione si rompeva appena il modulo era
+        # installato, e i suoi tool non erano raggiungibili per nome.
+        super().__init__(
+            name="Developer Supervisor",
+            version="1.0.0",
+            description=(
+                "Supervisione del team: valutazione delle prestazioni (0-100%), "
+                "registrazione di ruoli a runtime e audit del codice."
+            ),
+        )
+        self._register_tools()
+
+    def _register_tools(self) -> None:
+        # Gli schemi si dichiarano una volta sola, in `get_tools_metadata`; qui
+        # si aggiungono i gestori e la classe di sicurezza. Valutazione e audit
+        # leggono e basta; `register_runtime_role` cambia la squadra mentre gira,
+        # quindi chiede un assenso come ogni cosa che tocca il runtime.
+        gestori = {
+            "evaluate_team_performance": (self._handle_evaluate, SAFE),
+            "register_runtime_role": (self._handle_register_role, SENSITIVE),
+            "run_supervisor_audit": (self._handle_audit, SAFE),
+        }
+        for meta in self.get_tools_metadata():
+            nome = meta.get("name")
+            gestore, sicurezza = gestori.get(nome, (None, SAFE))
+            if gestore is None:
+                continue
+            self.register_tool(
+                name=nome,
+                description=meta.get("description", ""),
+                input_schema=meta.get("parameters") or {"type": "object", "properties": {}},
+                handler=self._adatta(gestore),
+                safety=sicurezza,
+                category="developer_supervisor",
+            )
+
+    def _adatta(self, gestore):
+        # `call_tool` chiama il gestore con gli argomenti per nome; i gestori di
+        # questo server prendono il dizionario intero, come lo prendevano prima.
+        def _invoca(**argomenti):
+            return gestore(argomenti)
+        return _invoca
 
     def get_tools_metadata(self) -> List[Dict[str, Any]]:
         return [

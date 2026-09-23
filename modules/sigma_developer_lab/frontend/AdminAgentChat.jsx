@@ -14,7 +14,6 @@ import AgentWorkMonitor from './AgentWorkMonitor';
 import ReviewProposal from './ReviewProposal';
 import DockerViewerModal from './DockerViewerModal';
 import ActivityBar from './ActivityBar';
-import FanoutPanel from './FanoutPanel';
 import { renderMarkdownLatex } from '../../utils/markdownLatex';
 import 'katex/dist/katex.min.css';
 import Prism from 'prismjs';
@@ -464,7 +463,7 @@ export default function AdminAgentChat({
   const [newPipelineInput, setNewPipelineInput] = useState('');
   const [newPipelineDesc, setNewPipelineDesc] = useState('');
   const [showNewTaskInline, setShowNewTaskInline] = useState(false);
-  // Mini-tab attiva nella barra informativa: monitor, piano, attività, ventaglio
+  // Mini-tab attiva nella barra informativa: monitor, piano, attività
   const [activeInfoTab, setActiveInfoTab] = useState('piano');
   const [loopCountdown, setLoopCountdown] = useState(null);
   const autoLoopTimeoutRef = useRef(null);
@@ -484,6 +483,19 @@ export default function AdminAgentChat({
     }
   });
   const [contextMetrics, setContextMetrics] = useState(null);
+  // Tetto dei turni di un run: lo stesso numero che il ciclo usa per decidere
+  // quando proporre di spezzare la voce (meta dei turni senza scritture). Prima
+  // di oggi il frontend non lo mandava e il server ripiegava su 30: chi
+  // guardava non poteva sapere quanto tempo restava. Si cambia da console con
+  // localStorage.setItem('sigma_dev_max_turns', '60').
+  const maxTurns = (() => {
+    try {
+      const salvato = parseInt(localStorage.getItem('sigma_dev_max_turns'), 10);
+      return Number.isFinite(salvato) && salvato > 0 ? salvato : 30;
+    } catch {
+      return 30;
+    }
+  })();
   const [sandboxConfig, setSandboxConfig] = useState({
     mode: 'host',
     image: 'python:3.12-slim',
@@ -1142,6 +1154,7 @@ export default function AdminAgentChat({
           model: selectedModel,
           auto_execute_tools: autoExecuteTools,
           context_tokens: contextTokens,
+          max_turns: maxTurns,
           // L'identita' del task e' anche quella della sessione di lavoro sul
           // server: e' cio' che permette all'agente di ritrovare i file che
           // aveva gia' letto dopo un refresh della pagina.
@@ -1199,6 +1212,21 @@ export default function AdminAgentChat({
                 promptTokens: event.prompt_tokens,
                 generatedTokensLastTurn: event.generated_tokens_last_turn
               });
+              continue;
+            }
+
+            // Metriche di fine turno: TPS e TTFT precisi misurati dopo la
+            // generazione completa. Sovrascrivono i valori parziali di
+            // context_telemetry con dati definitivi.
+            if (event.type === 'metrics') {
+              setContextMetrics(prev => ({
+                ...prev,
+                tps: event.tps,
+                ttftMs: event.ttft_ms,
+                turnTokens: event.tokens,
+                totalTokens: event.total_tokens,
+                turnDurationS: event.duration_s
+              }));
               continue;
             }
 
@@ -1597,9 +1625,22 @@ ${event.diff || ''}`,
 
           const pendingTask = pTasks.find(p => p.status === 'in_progress') || pTasks.find(p => p.status === 'pending');
 
+          // Cosa e cambiato rispetto al giro precedente. Rimandare la stessa
+          // stringa identica e il modo in cui questo loop ha bruciato trenta
+          // turni su trenta: il modello rileggeva la stessa richiesta, con le
+          // proprie risposte identiche in mezzo, e non aveva niente di nuovo su
+          // cui lavorare. Una richiesta che dice cosa manca e una richiesta
+          // diversa, e li vale il turno che costa.
+          const ultimoTurno = [...msgs].reverse().find(
+            m => m.role === 'assistant' && Array.isArray(m.tools) && m.tools.length > 0);
+          const scritto = !!ultimoTurno && ultimoTurno.tools.some(
+            t => ['write_file', 'edit_file', 'append_file'].includes(t.tool) && t.status === 'done');
+          const usati = ultimoTurno ? [...new Set(ultimoTurno.tools.map(t => t.tool))].join(', ') : '';
+
           let nextPrompt = '';
           if (pendingTask) {
-            nextPrompt = `Procedi con il task pianificato #${pendingTask.id || ''}: "${pendingTask.title}". Esegui i tool necessari (scrittura file con write_file/edit_file o comandi terminale) per completarlo. Al termine del lavoro su questo task, aggiorna la pipeline impostando lo status a "done" per questo task tramite il blocco tool pipeline.`;
+            const avanti = scritto ? '' : ` Nel turno precedente NON hai modificato nessun file${usati ? ` (strumenti usati: ${usati})` : ''}. Se il lavoro e piu grande di quanto sembrava, non insistere: spezza la voce con il blocco tool pipeline in due-quattro passi piu piccoli, ognuno con i file che tocca, e poi esegui il primo.`;
+            nextPrompt = `Procedi con il task pianificato #${pendingTask.id || ''}: "${pendingTask.title}". Esegui i tool necessari (scrittura file con write_file/edit_file o comandi terminale) per completarlo. Al termine del lavoro su questo task, aggiorna la pipeline impostando lo status a "done" per questo task tramite il blocco tool pipeline.` + avanti;
           } else if (pTasks.length > 0 && pTasks.every(p => p.status === 'done' || p.status === 'completed')) {
             const msgs = thisTask.messages || [];
             const lastUserMsg = [...msgs].reverse().find(m => m.role === 'user');
@@ -2424,8 +2465,6 @@ ${event.diff || ''}`,
               badge: ledgerState ? `${(ledgerState.files || []).filter(f => f.edits > 0 || f.writes > 0).length} mod` : null },
             { id: 'attivita', label: '⚡ Attività', icon: Activity, color: '#a371f7',
               badge: null },
-            { id: 'ventaglio', label: '🔀 Ventaglio', icon: Layers, color: '#f59e0b',
-              badge: null },
           ];
 
           return (
@@ -2715,12 +2754,6 @@ ${event.diff || ''}`,
               {activeInfoTab === 'attivita' && (
                 <div style={{ maxHeight: '260px', overflowY: 'auto' }}>
                   <ActivityBar isLight={isLight} inline />
-                </div>
-              )}
-
-              {activeInfoTab === 'ventaglio' && (
-                <div style={{ maxHeight: '300px', overflowY: 'auto' }}>
-                  <FanoutPanel workspaceRoot={workspaceRoot} isLight={isLight} inline />
                 </div>
               )}
             </div>
@@ -3202,17 +3235,17 @@ ${event.diff || ''}`,
                           {(t.tool === 'pipeline' || t.tool === 'tasks' || t.tool === 'set_tasks') && <ListTodo size={12} />}
                           {(t.tool === 'complete_goal' || t.tool === 'finish_task') && <Award size={12} />}
                           <span>
-                            {t.tool === 'edit_file' ? 'edit_file' :
-                             t.tool === 'glob' ? 'glob' :
-                             t.tool === 'write_file' ? 'write_file' :
-                             t.tool === 'terminal' ? 'terminal' :
-                             t.tool === 'delete' ? 'delete' :
-                             t.tool === 'read_file' ? 'read_file' :
-                             t.tool === 'list_dir' ? 'list_dir' :
-                             (t.tool === 'search_code' || t.tool === 'grep') ? 'search' :
-                             (t.tool === 'pipeline' || t.tool === 'tasks' || t.tool === 'set_tasks') ? 'pipeline' :
-                             (t.tool === 'complete_goal' || t.tool === 'finish_task') ? 'finish_task' :
-                             t.tool}
+                            {t.tool === 'edit_file' ? 'MODIFICA MIRATA FILE' :
+                             t.tool === 'glob' ? 'RICERCA FILE PER PATTERN' :
+                             t.tool === 'write_file' ? 'MODIFICA / SCRITTURA FILE' :
+                             t.tool === 'terminal' ? 'ESECUZIONE TERMINALE' :
+                             t.tool === 'delete' ? 'ELIMINAZIONE FILE / CARTELLA' :
+                             t.tool === 'read_file' ? 'LETTURA FILE' :
+                             t.tool === 'list_dir' ? 'ESPLORAZIONE DIRECTORY' :
+                             (t.tool === 'search_code' || t.tool === 'grep') ? 'RICERCA NEL CODICE' :
+                             (t.tool === 'pipeline' || t.tool === 'tasks' || t.tool === 'set_tasks') ? 'AGGIORNAMENTO PIPELINE TASK' :
+                             (t.tool === 'complete_goal' || t.tool === 'finish_task') ? 'OBIETTIVO COMPLETATO' :
+                             `AZIONE: ${t.tool.toUpperCase()}`}
                           </span>
                         </span>
 

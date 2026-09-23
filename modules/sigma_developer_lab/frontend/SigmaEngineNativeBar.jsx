@@ -4,7 +4,7 @@
 // =============================================================================
 
 import React, { useState, useEffect, useCallback } from 'react';
-import { Cpu, Zap, Server, HardDrive, RefreshCw, ChevronDown, ChevronRight, CheckCircle2, AlertCircle } from 'lucide-react';
+import { Cpu, Zap, Server, HardDrive, RefreshCw, ChevronDown, ChevronRight, CheckCircle2, AlertCircle, Hammer } from 'lucide-react';
 
 const INTERVALLO_POLL_MS = 3000;
 
@@ -12,6 +12,9 @@ export default function SigmaEngineNativeBar({ isLight = false }) {
   const [engineStatus, setEngineStatus] = useState(null);
   const [isOpen, setIsOpen] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
+  // Ricompilazione del kernel: un solo stato, perche' il tasto deve dire
+  // in che punto e' senza aprire nessun pannello.
+  const [rebuild, setRebuild] = useState({ inCorso: false, esito: null, messaggio: '' });
 
   const fetchStatus = useCallback(async () => {
     try {
@@ -40,6 +43,43 @@ export default function SigmaEngineNativeBar({ isLight = false }) {
     setIsRefreshing(true);
     fetchStatus();
   };
+
+  // Ricompila il kernel nativo e lo ricarica a caldo.
+  //
+  // La rotta esisteva gia' — la usava solo un tasto dentro il modale Docker,
+  // dove nessuno lo cercava. Qui sta accanto all'indicatore di stato, che e'
+  // il posto in cui si guarda quando ci si chiede se il kernel gira.
+  //
+  // Compila (30-60 s), inietta il binario nel contenitore e lo riavvia: il
+  // tasto resta occupato per tutto il tempo e lo dice, perche' un pulsante
+  // che sembra libero mentre lavora viene premuto due volte.
+  const handleRebuild = useCallback(async (e) => {
+    e.stopPropagation();
+    if (rebuild.inCorso) return;
+    setRebuild({ inCorso: true, esito: null, messaggio: 'Compilazione in corso...' });
+    try {
+      const res = await fetch('/api/developer/docker/rust/hot-reload', { method: 'POST' });
+      const dati = await res.json().catch(() => null);
+      if (res.ok && dati?.success) {
+        setRebuild({
+          inCorso: false,
+          esito: 'ok',
+          messaggio: dati.message || 'Kernel ricompilato e riavviato.',
+        });
+        // Il contenitore si sta riavviando: la telemetria va riletta dopo,
+        // non adesso, o mostrerebbe offline un kernel che sta tornando su.
+        setTimeout(fetchStatus, 2500);
+      } else {
+        setRebuild({
+          inCorso: false,
+          esito: 'errore',
+          messaggio: dati?.error || `Ricompilazione fallita (HTTP ${res.status}).`,
+        });
+      }
+    } catch (err) {
+      setRebuild({ inCorso: false, esito: 'errore', messaggio: String(err) });
+    }
+  }, [rebuild.inCorso, fetchStatus]);
 
   const isOnline = !!engineStatus?.online;
   const latency = engineStatus?.latency_ms;
@@ -106,6 +146,35 @@ export default function SigmaEngineNativeBar({ isLight = false }) {
         </div>
 
         <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+          {/* Ricompila: solo a kernel attivo. A kernel spento non c'e'
+              niente da ricaricare a caldo, e un tasto che fallisce sempre
+              e' peggio di un tasto assente. */}
+          {isOnline && (
+            <button
+              onClick={handleRebuild}
+              disabled={rebuild.inCorso}
+              style={{
+                background: rebuild.esito === 'errore'
+                  ? (isLight ? 'rgba(239,68,68,0.10)' : 'rgba(239,68,68,0.15)')
+                  : (isLight ? 'rgba(59,130,246,0.10)' : 'rgba(59,130,246,0.15)'),
+                border: 'none',
+                borderRadius: '4px',
+                cursor: rebuild.inCorso ? 'wait' : 'pointer',
+                padding: '2px 7px',
+                color: rebuild.esito === 'errore' ? '#ef4444' : '#3b82f6',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '4px',
+                fontSize: '0.68rem',
+                fontWeight: 600,
+                opacity: rebuild.inCorso ? 0.7 : 1,
+              }}
+              title={rebuild.messaggio || 'Ricompila il kernel Rust e ricaricalo a caldo nel contenitore'}
+            >
+              <Hammer size={11} className={rebuild.inCorso ? 'animate-spin' : ''} />
+              {rebuild.inCorso ? 'Compilo...' : 'Ricompila'}
+            </button>
+          )}
           <button
             onClick={handleManualRefresh}
             style={{
@@ -124,6 +193,31 @@ export default function SigmaEngineNativeBar({ isLight = false }) {
           {isOpen ? <ChevronDown size={14} color={mutedColor} /> : <ChevronRight size={14} color={mutedColor} />}
         </div>
       </div>
+
+      {/* L'esito dell'ultima ricompilazione, sotto l'intestazione.
+          Un errore di compilazione e' lungo e va letto: resta li' finche'
+          non si ricompila di nuovo, invece di sparire da solo. */}
+      {rebuild.esito && (
+        <div
+          style={{
+            padding: '6px 12px',
+            fontSize: '0.68rem',
+            lineHeight: 1.45,
+            color: rebuild.esito === 'ok' ? '#22c55e' : '#ef4444',
+            background: rebuild.esito === 'ok'
+              ? (isLight ? 'rgba(34,197,94,0.08)' : 'rgba(34,197,94,0.10)')
+              : (isLight ? 'rgba(239,68,68,0.08)' : 'rgba(239,68,68,0.10)'),
+            borderTop: `1px solid ${borderColor}`,
+            whiteSpace: 'pre-wrap',
+            maxHeight: '160px',
+            overflowY: 'auto',
+            fontFamily: rebuild.esito === 'errore' ? 'ui-monospace, monospace' : 'inherit',
+          }}
+        >
+          {rebuild.esito === 'ok' ? '\u2713 ' : '\u2717 '}
+          {rebuild.messaggio}
+        </div>
+      )}
 
       {/* Contenuto dettagliato espanso */}
       {isOpen && (

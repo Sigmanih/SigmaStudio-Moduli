@@ -581,12 +581,39 @@ _rust_reload_task: Optional[asyncio.Task] = None
 
 
 async def _do_rust_hot_reload() -> Dict[str, Any]:
-    """Compila il kernel nativo in sigma_rust_dev, inietta il binario e riavvia sigma_engine_rust_instance."""
+    """Compila il kernel Rust, inietta il binario nel contenitore e lo riavvia.
+
+    Tre cose che questa funzione aveva sbagliate, e che si sono viste solo
+    premendo il tasto:
+
+    **L'import non esisteva.** `from core.paths import repo_root`: quel nome in
+    `core.paths` non c'e'. La rotta rispondeva 500 da sempre, e il tasto dentro
+    il modale Docker non aveva mai funzionato.
+
+    **Il contenitore di build stava su un'altra Debian.** `sigma_rust_dev` era
+    `rust:slim` — che segue la Debian corrente, oggi trixie con glibc 2.41 —
+    mentre il contenitore di esecuzione e' `debian:bookworm-slim`, glibc 2.36.
+    Il binario compilava, veniva iniettato, e il kernel moriva in ciclo con
+    ``version `GLIBC_2.39' not found``. Ora il dev container e' fissato a
+    `rust:slim-bookworm`, la stessa base del Dockerfile.
+
+    **Il binario veniva preso dal disco dell'host.** Host e contenitore
+    condividevano `target/`: una compilazione Windows e una Linux si
+    sovrascrivevano a vicenda nella stessa cartella. Ora il dev container
+    compila in `CARGO_TARGET_DIR=/target_linux`, che e' solo suo, e il binario
+    si estrae da li'.
+
+    E una garanzia che prima non c'era: **se il kernel non torna su, si
+    ripristina il binario precedente**. Un ricaricamento a caldo che lascia il
+    servizio in ciclo di riavvio e' peggio di non averlo.
+    """
     import subprocess
+    import tempfile
     import time
+    import urllib.request
     from pathlib import Path
+
     from core.harness.esecutori import trova_docker, _ambiente_per_docker
-    from core.paths import repo_root
 
     docker_bin = trova_docker()
     if not docker_bin:
@@ -595,49 +622,94 @@ async def _do_rust_hot_reload() -> Dict[str, Any]:
 
     env = _ambiente_per_docker()
     t0 = time.time()
-    log.info("[RustHotReload] Avvio ricompilazione kernel Rust su container sigma_rust_dev...")
 
-    # 1. Compilazione release su workspace montato
-    cmd_build = [docker_bin, "exec", "-w", "/workspace", "sigma_rust_dev", "cargo", "build", "--release"]
-    try:
-        proc_build = await asyncio.to_thread(
-            subprocess.run, cmd_build, capture_output=True, text=True, timeout=180, env=env
+    async def _esegui(cmd, timeout):
+        return await asyncio.to_thread(
+            subprocess.run, cmd, capture_output=True, text=True,
+            timeout=timeout, env=env
         )
-        if proc_build.returncode != 0:
-            err = (proc_build.stderr or proc_build.stdout or "").strip()
-            log.error("[RustHotReload] Compilazione Cargo fallita: %s", err[-300:])
-            return {"success": False, "error": f"Compilazione Rust fallita:\n{err[-600:]}"}
-    except Exception as exc:
-        log.error("[RustHotReload] Errore esecuzione cargo build: %s", exc)
-        return {"success": False, "error": f"Errore build cargo: {exc}"}
 
-    # 2. Copia del binario ELF compilato nel container di esecuzione di produzione
-    root_dir = Path(repo_root())
-    bin_path = root_dir / "projects" / "sigma_engine_rust" / "target" / "release" / "sigma_engine_rust"
-    if bin_path.is_file():
-        cmd_cp = [docker_bin, "cp", str(bin_path), "sigma_engine_rust_instance:/app/sigma_engine_rust"]
-        try:
-            await asyncio.to_thread(subprocess.run, cmd_cp, capture_output=True, text=True, timeout=30, env=env)
-        except Exception as exc:
-            log.warning("[RustHotReload] Copia binario fallita: %s", exc)
+    log.info("[RustHotReload] Compilazione del kernel in sigma_rust_dev...")
+    build = await _esegui(
+        [docker_bin, "exec", "-w", "/workspace", "sigma_rust_dev",
+         "cargo", "build", "--release"], 600
+    )
+    if build.returncode != 0:
+        err = (build.stderr or build.stdout or "").strip()
+        log.error("[RustHotReload] Compilazione fallita: %s", err[-300:])
+        return {"success": False, "error": f"Compilazione Rust fallita:\n{err[-1200:]}"}
 
-    # 3. Riavvio a caldo del container di inferenza
-    cmd_restart = [docker_bin, "restart", "sigma_engine_rust_instance"]
-    try:
-        proc_restart = await asyncio.to_thread(subprocess.run, cmd_restart, capture_output=True, text=True, timeout=30, env=env)
-        if proc_restart.returncode != 0:
-            log.warning("[RustHotReload] Riavvio container fallito: %s", proc_restart.stderr)
-            return {"success": False, "error": f"Riavvio container fallito: {proc_restart.stderr}"}
-    except Exception as exc:
-        log.error("[RustHotReload] Errore riavvio container: %s", exc)
-        return {"success": False, "error": f"Errore riavvio: {exc}"}
+    # Il binario vive dentro il contenitore di build: si estrae e si reinietta.
+    with tempfile.TemporaryDirectory() as tmp:
+        locale = Path(tmp) / "sigma_engine_rust"
+        estrai = await _esegui(
+            [docker_bin, "cp",
+             "sigma_rust_dev:/target_linux/release/sigma_engine_rust", str(locale)], 120
+        )
+        if estrai.returncode != 0 or not locale.is_file():
+            return {"success": False,
+                    "error": "Binario compilato non trovato in sigma_rust_dev: "
+                             f"{(estrai.stderr or '').strip()[:300]}"}
+
+        # Il precedente si conserva: se il nuovo non parte, si torna indietro.
+        salvataggio = Path(tmp) / "precedente"
+        await _esegui(
+            [docker_bin, "cp",
+             "sigma_engine_rust_instance:/app/sigma_engine_rust", str(salvataggio)], 120
+        )
+
+        inietta = await _esegui(
+            [docker_bin, "cp", str(locale),
+             "sigma_engine_rust_instance:/app/sigma_engine_rust"], 120
+        )
+        if inietta.returncode != 0:
+            return {"success": False,
+                    "error": f"Iniezione del binario fallita: {(inietta.stderr or '').strip()[:300]}"}
+
+        riavvio = await _esegui(
+            [docker_bin, "restart", "sigma_engine_rust_instance"], 60)
+        if riavvio.returncode != 0:
+            return {"success": False,
+                    "error": f"Riavvio del contenitore fallito: {(riavvio.stderr or '').strip()[:300]}"}
+
+        # Il kernel deve tornare a rispondere. Se non lo fa entro il tempo
+        # concesso, il binario nuovo non parte e si rimette quello di prima.
+        vivo = False
+        for _ in range(20):
+            await asyncio.sleep(1.0)
+            try:
+                with urllib.request.urlopen(
+                        "http://127.0.0.1:8090/health", timeout=2) as risposta:
+                    if risposta.status == 200:
+                        vivo = True
+                        break
+            except Exception:
+                continue
+
+        if not vivo:
+            motivo = ""
+            diario = await _esegui(
+                [docker_bin, "logs", "--tail", "5", "sigma_engine_rust_instance"], 30)
+            motivo = ((diario.stderr or "") + (diario.stdout or "")).strip()[-400:]
+            if salvataggio.is_file():
+                await _esegui(
+                    [docker_bin, "cp", str(salvataggio),
+                     "sigma_engine_rust_instance:/app/sigma_engine_rust"], 120)
+                await _esegui(
+                    [docker_bin, "restart", "sigma_engine_rust_instance"], 60)
+                return {"success": False,
+                        "error": "Il kernel nuovo non e' ripartito: ripristinato "
+                                 f"quello precedente.\n{motivo}"}
+            return {"success": False,
+                    "error": f"Il kernel non e' ripartito e non c'era un binario "
+                             f"precedente da ripristinare.\n{motivo}"}
 
     elapsed = round(time.time() - t0, 2)
-    log.info("[RustHotReload] Hot-reload completato con successo in %ss.", elapsed)
+    log.info("[RustHotReload] Hot-reload completato in %ss.", elapsed)
     return {
         "success": True,
-        "message": f"Kernel nativo Rust ricompilato e ricaricato a caldo con successo in {elapsed}s.",
-        "elapsed": elapsed
+        "message": f"Kernel Rust ricompilato, iniettato e ripartito in {elapsed}s.",
+        "elapsed": elapsed,
     }
 
 
@@ -1210,7 +1282,10 @@ async def handle_developer_engine_status(request: Request):
 
     if status_data["online"]:
         try:
-            req_info = urllib.request.Request("http://127.0.0.1:8090/api/engine/status", method="GET")
+            from core.engine.backends.sigmarust_backend import _intestazioni
+            req_info = urllib.request.Request(
+                "http://127.0.0.1:8090/api/engine/status",
+                headers=_intestazioni(), method="GET")
             with urllib.request.urlopen(req_info, timeout=0.8) as resp_info:
                 if resp_info.status == 200:
                     info_payload = json.loads(resp_info.read().decode("utf-8"))
@@ -1328,6 +1403,10 @@ def register_mcp(mcp_hub) -> None:
         from core.modules.sigma_developer_lab.mcp_tools.runtime_server import RuntimeInspectorMCPServer
         from core.modules.sigma_developer_lab.mcp_tools.cargo_server import RustCargoMCPServer
         from core.modules.sigma_developer_lab.mcp_tools.supervisor_server import SupervisorMCPServer
+        # Le primitive di filesystem dell harness, esposte all hub: un client
+        # esterno scrive con le stesse garanzie degli agenti locali (backup,
+        # sintassi, diagnostica sulla patch sbagliata) invece che dalla shell.
+        from core.modules.sigma_developer_lab.mcp_tools.fs_server import DeveloperFsMCPServer
         mcp_hub.register_server(GitMCPServer)
         mcp_hub.register_server(LintMCPServer)
         mcp_hub.register_server(TestMCPServer)
@@ -1341,6 +1420,7 @@ def register_mcp(mcp_hub) -> None:
         mcp_hub.register_server(RuntimeInspectorMCPServer)
         mcp_hub.register_server(RustCargoMCPServer)
         mcp_hub.register_server(SupervisorMCPServer)
+        mcp_hub.register_server(DeveloperFsMCPServer)
         log.info("[sigma_developer_lab] Tutti i 13 server MCP registrati con successo in MCPHub.")
     except Exception as exc:
         log.warning("[sigma_developer_lab] Errore durante la registrazione MCP: %s", exc)

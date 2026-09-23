@@ -10,10 +10,11 @@ L'indice persiste in var/semantic_index/ ed è ricreabile.
 import json
 import math
 import re
+import time
 from collections import Counter
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, Iterator, List, Optional, Tuple
 
 from core.logger import get_logger
 from core.mcp.base_server import BaseMCPServer
@@ -28,7 +29,50 @@ INDEX_FILENAME = "index.json"
 CODE_EXTENSIONS = {".py", ".js", ".ts", ".jsx", ".tsx", ".css", ".html", ".md", ".json", ".yaml", ".yml", ".toml", ".cfg", ".ini"}
 
 # Directory da escludere dall'indicizzazione
-EXCLUDE_DIRS = {"node_modules", ".git", "__pycache__", ".venv", "venv", "dist", "build", ".next", ".cache", "store", "config"}
+EXCLUDE_DIRS = {"node_modules", ".git", "__pycache__", ".venv", "venv", "dist", "build", ".next", ".cache", "store", "config", "var"}
+
+#: Quanti file si guardano cercando quelli nuovi, e per quanto tempo: `index_status`
+#: non puo' costare quanto una indicizzazione, e deve dirlo quando si ferma.
+#: Un secondo, non due: misurato il 23 settembre 2026, `index_status` su questo
+#: repository costa 4,2 secondi in tutto (3 di caricamento dell'indice piu' la
+#: passeggiata) - ed e' un tool che si chiama per sapere come sta l'indice, non
+#: per aspettare. La passeggiata dichiara comunque di essere parziale.
+SCANSIONE_MASSIMA = 6000
+SECONDI_DI_SCANSIONE = 1.0
+
+
+def _candidati(base: Path) -> Iterator[Path]:
+    """I file che l'indice puo' contenere, secondo i suoi criteri.
+
+    Sta fuori da `_build_index` perche' serve anche a chi cerca i file *nuovi*:
+    due passeggiate con due filtri diversi darebbero due idee diverse di cosa
+    merita di stare nell'indice.
+    """
+    for file in base.rglob("*"):
+        try:
+            rel = file.relative_to(base)
+        except ValueError:
+            continue
+        # L'indice non indicizza se stesso: `index.json` e' un `.json` dentro la
+        # radice, quindi senza questa riga entrava nel proprio indice, si
+        # contava come «file nuovo» a ogni controllo e si dichiarava sempre
+        # indietro - un allarme che suona sempre non e' un allarme.
+        if rel.parts[:len(INDEX_SUBDIR.parts)] == INDEX_SUBDIR.parts:
+            continue
+        parts = rel.parts
+        if any(p in EXCLUDE_DIRS or p.startswith(".") for p in parts[:-1]):
+            continue
+        if not file.is_file():
+            continue
+        if file.suffix.lower() not in CODE_EXTENSIONS:
+            continue
+        try:
+            if file.stat().st_size > 500 * 1024:
+                continue
+        except OSError:
+            continue
+        yield file
+
 
 
 def _tokenize(text: str) -> List[str]:
@@ -132,7 +176,7 @@ class SemanticMCPServer(BaseMCPServer):
         
         self.register_tool(
             name="index_status",
-            description="Mostra lo stato dell'indice semantico: se esiste, quando è stato creato, quanti file contiene.",
+            description="Mostra lo stato dell'indice semantico: se esiste, quando è stato creato, quanti file contiene, e quanti file sono cambiati, nuovi o spariti da allora. Se dice che l'indice è indietro, esegui index_codebase.",
             input_schema={
                 "type": "object",
                 "properties": {},
@@ -157,17 +201,121 @@ class SemanticMCPServer(BaseMCPServer):
         )
 
     def _index_status(self) -> Dict[str, Any]:
-        """Stato dell'indice semantico: esistenza, data, conteggio documenti."""
+        """Stato dell'indice, con quanto e' indietro rispetto al disco.
+
+        Un indice senza la nozione di «vecchio» e' una mappa che si dichiara
+        sempre buona: chi cerca ci crede e lavora sul codice di ieri senza
+        saperlo. Qui si contano le tre cose che rendono vecchia una mappa - un
+        file cambiato, un file sparito, un file mai visto - e si dice cosa fare.
+        """
         if not self._index:
             return {
                 "exists": False,
                 "message": "Indice non costruito. Usa index_codebase per crearlo.",
             }
-        return {
+        fresco = self._freschezza(con_scansione=True)
+        esito: Dict[str, Any] = {
             "exists": True,
             "created_at": self._index.get("created_at", ""),
             "total_documents": self._index.get("total_documents", 0),
+            **fresco,
         }
+        if not fresco["aggiornato"]:
+            esito["message"] = (
+                "L'indice e' indietro rispetto al disco (%d cambiati, %d nuovi, "
+                "%d spariti su %d esaminati). Esegui index_codebase prima di "
+                "fidarti dei risultati della ricerca."
+                % (fresco["modificati"], fresco["nuovi"], fresco["spariti"],
+                   fresco["esaminati"]))
+        return esito
+
+    def _quando_costruito(self) -> float:
+        """Quando l'indice e' stato costruito.
+
+        Il numero c'e' per gli indici nuovi; per quelli costruiti prima si usa la
+        data del file, perche' senza una data un indice vecchio risulterebbe
+        eternamente fresco - che e' il difetto, non un caso limite.
+        """
+        costruito = (self._index or {}).get("built_at")
+        if isinstance(costruito, (int, float)) and costruito > 0:
+            return float(costruito)
+        try:
+            return self._index_file().stat().st_mtime
+        except OSError:
+            return 0.0
+
+    def _freschezza(self, con_scansione: bool = True) -> Dict[str, Any]:
+        """Quanto l'indice e' indietro: cambiati, nuovi, spariti.
+
+        Le prime due voci costano uno `stat` per documento. La terza costa una
+        passeggiata sull'albero, quindi ha un tetto di file e di tempo e
+        **dichiara** se l'ha toccato: un controllo parziale che si presenta come
+        completo e' peggio di un controllo mancante.
+        """
+        documenti = list((self._index or {}).get("documents") or [])
+        base = Path(resolve_root())
+        costruito = self._quando_costruito()
+
+        modificati = 0
+        spariti = 0
+        percorsi_indicizzati = set()
+        for doc in documenti:
+            rel = str(doc.get("path") or "")
+            percorsi_indicizzati.add(rel)
+            intero = base / rel
+            try:
+                quando = intero.stat().st_mtime
+            except OSError:
+                spariti += 1
+                continue
+            if costruito and quando > costruito:
+                modificati += 1
+
+        nuovi = 0
+        esaminati = 0
+        scansione_parziale = False
+        if con_scansione:
+            scadenza = time.monotonic() + SECONDI_DI_SCANSIONE
+            for file in _candidati(base):
+                esaminati += 1
+                if esaminati > SCANSIONE_MASSIMA or time.monotonic() > scadenza:
+                    scansione_parziale = True
+                    break
+                try:
+                    rel = str(file.relative_to(base)).replace("\\", "/")
+                except ValueError:
+                    continue
+                if rel not in percorsi_indicizzati and rel.replace("/", "\\") not in percorsi_indicizzati:
+                    nuovi += 1
+
+        return {
+            "aggiornato": bool(not modificati and not nuovi and not spariti),
+            "modificati": modificati,
+            "nuovi": nuovi,
+            "spariti": spariti,
+            "esaminati": esaminati,
+            "scansione_parziale": scansione_parziale,
+            "costruito_il": costruito,
+        }
+
+    def _segna_vecchi(self, risultati: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """Marca i risultati che vengono da un file cambiato dopo l'indice.
+
+        Solo dove serve: un risultato fresco resta esattamente com'era, e quello
+        vecchio se lo porta scritto addosso. Costa uno `stat` per risultato, non
+        per documento.
+        """
+        base = Path(resolve_root())
+        costruito = self._quando_costruito()
+        if not costruito:
+            return risultati
+        for voce in risultati:
+            try:
+                if (base / str(voce.get("file") or "")).stat().st_mtime > costruito:
+                    voce["stale"] = True
+            except OSError:
+                voce["mancante"] = True
+        return risultati
 
     def _explain_code(self, symbol: str, path_hint: Optional[str] = None) -> Dict[str, Any]:
         """Trova il simbolo nell'indice e restituisce contesto e snippet."""
@@ -238,27 +386,8 @@ class SemanticMCPServer(BaseMCPServer):
         all_tokens: List[List[str]] = []
 
         base = Path(resolve_root())
-        for file in base.rglob("*"):
-            # Filtra directory escluse e file nascosti (percorso relativo)
-            try:
-                rel = file.relative_to(base)
-            except ValueError:
-                continue
-            parts = rel.parts
-            if any(p in EXCLUDE_DIRS or p.startswith(".") for p in parts[:-1]):
-                continue
-            if not file.is_file():
-                continue
+        for file in _candidati(base):
             ext = file.suffix.lower()
-            if ext not in CODE_EXTENSIONS:
-                continue
-
-            # Salta file troppo grandi (> 500KB)
-            try:
-                if file.stat().st_size > 500 * 1024:
-                    continue
-            except OSError:
-                continue
 
             # Legge il file
             try:
@@ -306,6 +435,9 @@ class SemanticMCPServer(BaseMCPServer):
         
         self._index = {
             "created_at": datetime.now(timezone.utc).isoformat(),
+            # Il numero, non solo la data leggibile: e' quello che permette di
+            # chiedersi «questo file e' cambiato dopo?».
+            "built_at": time.time(),
             "documents": documents,
             "idf": idf,
             "total_documents": len(documents),
@@ -432,4 +564,4 @@ class SemanticMCPServer(BaseMCPServer):
         # Ordina per score decrescente
         results.sort(key=lambda x: x["score"], reverse=True)
         
-        return results[:top_k]
+        return self._segna_vecchi(results[:top_k])
