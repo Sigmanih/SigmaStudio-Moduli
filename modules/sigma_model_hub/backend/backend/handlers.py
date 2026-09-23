@@ -548,6 +548,11 @@ def handle_models_local_list(self):
                     summary = next((r for k, r in referti.items()
                                     if k.split("/")[-1] == coda), None)
             m["benchmark_summary"] = summary or {"has_benchmarks": False}
+            if summary:
+                m["tool_score"] = summary.get("tool_score")
+                m["tool_passed"] = summary.get("tool_passed")
+                m["tool_total"] = summary.get("tool_total")
+                m["has_tool_benchmark"] = summary.get("has_tool_benchmark", False)
             # Dove questo modello e' gia' pubblicato, se lo e'. Serve a poterlo
             # aggiornare senza riscrivere a mano l'identificativo del
             # repository — che riscritto sbagliato non da' errore, crea un
@@ -745,8 +750,11 @@ def handle_models_hf_card_update(self):
     """POST /api/models/hf/card/update — Riscrive solo la scheda su HF."""
     try:
         body = self.read_json_body() if hasattr(self, 'read_json_body') else {}
-        local_ref = (body.get("local_path") or body.get("model_id")
+        local_ref = (body.get("local_path") or body.get("model_path")
                      or body.get("filename"))
+        explicit_model_id = body.get("model_id") or body.get("clean_name") or ""
+        if not local_ref:
+            local_ref = explicit_model_id
         if not local_ref:
             self.send_json_response({"success": False,
                                      "error": "Modello non indicato"}, 400)
@@ -757,6 +765,7 @@ def handle_models_hf_card_update(self):
             repo_id=body.get("repo_id"),
             card=body.get("card"),
             token=body.get("token"),
+            model_id=explicit_model_id or None,
             custom_notes=body.get("custom_notes") or None,
             include_benchmarks=bool(body.get("include_benchmarks", True)),
             include_hardware=bool(body.get("include_hardware", True)),
@@ -1395,6 +1404,7 @@ def register_routes(app=None) -> None:
         '/api/models/hf/repo/discover': handle_models_hf_repo_discover,
         '/api/models/hf/repo/attach': handle_models_hf_repo_attach,
         '/api/models/hf/card/update': handle_models_hf_card_update,
+        '/api/models/hf/publish/card': handle_models_hf_card_update,
         '/api/models/publication/forget': handle_models_publication_forget,
         '/api/models/hf/repo/rename': handle_models_hf_repo_rename,
         '/api/models/delete': handle_models_local_delete,
