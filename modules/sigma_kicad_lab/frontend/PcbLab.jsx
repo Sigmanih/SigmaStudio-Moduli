@@ -3,13 +3,23 @@ import {
   Cpu, Layers, Zap, Play, CheckCircle2, AlertTriangle, XCircle,
   FileCode, RefreshCw, Box, Download, Settings, Send,
   Plus, Eye, EyeOff, ZoomIn, ZoomOut, Maximize2, Sparkles, Terminal,
-  Activity, ShieldCheck, Compass, Folder, ChevronRight, ChevronDown
+  Activity, ShieldCheck, Compass, Folder, ChevronRight, ChevronDown, PencilRuler
 } from 'lucide-react';
 import { useApp } from '../../contexts/AppContext';
+import PcbEditor from './components/PcbEditor';
 
 // ==============================================================================
 // PcbLab — Sigma Studio Native KiCad PCB Design & Agent Team Studio
 // ==============================================================================
+
+//: L'agente che lavora sulla scheda: uno solo, quello vero. Il nome sta qui
+//: perche' la chat lo mostra anche prima che il server risponda.
+const AGENTE_KICAD = {
+  sender: 'kicad_engineer',
+  senderName: 'KiCad Hardware & PCB Engineer',
+  icon: '🔌',
+  color: '#10b981',
+};
 
 export default function PcbLab({ openTab }) {
   const { theme } = useApp();
@@ -20,7 +30,7 @@ export default function PcbLab({ openTab }) {
   const [activeProject, setActiveProject] = useState(null);
   const [boardData, setBoardData] = useState(null);
   const [loadingBoard, setLoadingBoard] = useState(false);
-  const [activeView, setActiveView] = useState('canvas'); // 'canvas' | '3d' | 'drc' | 'schematic'
+  const [activeView, setActiveView] = useState('canvas'); // 'canvas' | 'editor' | '3d' | 'drc' | 'schematic'
   
   // --- Layer attivi nel viewer 2D ---
   const [visibleLayers, setVisibleLayers] = useState({
@@ -328,6 +338,34 @@ export default function PcbLab({ openTab }) {
     ]);
   };
 
+  //: Il messaggio che cresce mentre l'agente scrive. Uno per run: i `token`
+  //: arrivano a pezzi, e un messaggio per token riempirebbe la chat di duecento
+  //: righe da un carattere.
+  const streamRef = useRef(null);
+
+  const apriMessaggioAgente = () => {
+    const id = `stream_${Date.now()}`;
+    streamRef.current = id;
+    setMessages((prev) => [
+      ...prev,
+      {
+        id,
+        role: 'assistant',
+        ...AGENTE_KICAD,
+        text: '',
+        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+      },
+    ]);
+  };
+
+  const aggiungiAlMessaggio = (pezzo) => {
+    if (!pezzo) return;
+    const id = streamRef.current;
+    setMessages((prev) => prev.map((m) => (
+      m.id === id ? { ...m, text: `${m.text || ''}${pezzo}` } : m
+    )));
+  };
+
   // Invio task alla chat dell'orchestratore
   const handleSendTask = async () => {
     if (!inputTask.trim() || agentRunning) return;
@@ -345,6 +383,7 @@ export default function PcbLab({ openTab }) {
     ]);
 
     setAgentRunning(true);
+    apriMessaggioAgente();
 
     try {
       const response = await fetch('/api/kicad/agent/chat', {
@@ -401,35 +440,58 @@ export default function PcbLab({ openTab }) {
     }
   };
 
+  /**
+   * Gli eventi che il server manda durante un run.
+   *
+   * Il vocabolario e' quello di
+   * `core/modules/sigma_kicad_lab/orchestrator.py`: `token` e' il testo
+   * dell'agente, `tool` un'operazione che ha chiamato, `tool_result` come e'
+   * finita, `closed_loop_verification` l'esito dei controlli veri, `completed`
+   * la fine. Un tipo aggiunto da un lato solo non lo disegna nessuno: se ne
+   * aggiungi uno, aggiungilo in due posti.
+   *
+   * I `thought` non si mostrano: sono il canale in cui il modello si parla
+   * addosso, e in una scheda serve la conclusione, non il ragionamento.
+   */
   const handleOrchestratorEvent = (event) => {
     if (event.type === 'role_changed' && event.role) {
       setActiveAgentRole(event.role.id);
-    } else if (event.type === 'phase_completed') {
-      const roleMap = {
-        1: { id: 'hardware_architect', name: 'Lead Hardware Architect', icon: '⚡', color: '#f59e0b' },
-        2: { id: 'schematic_designer', name: 'Schematic Engineer', icon: '📐', color: '#38bdf8' },
-        3: { id: 'pcb_layout', name: 'PCB Layout Specialist', icon: '🧩', color: '#10b981' },
-        4: { id: 'hardware_verifier', name: 'DRC/ERC Verifier', icon: '🔍', color: '#ec4899' },
-        5: { id: 'manufacturing_specialist', name: 'Manufacturing Specialist', icon: '🏭', color: '#a855f7' },
-      };
-      const r = roleMap[event.phase] || roleMap[1];
-      addAgentMessage(r.id, r.name, r.icon, r.color, `**Fase ${event.phase} completata**: ${event.summary || 'Azione eseguita'}`);
+    } else if (event.type === 'token') {
+      aggiungiAlMessaggio(event.text || '');
+    } else if (event.type === 'tool') {
+      aggiungiAlMessaggio(`\n\n⚙️ \`${event.tool}\`\n\n`);
+    } else if (event.type === 'tool_result') {
+      if (event.success === false) {
+        aggiungiAlMessaggio(
+          `⚠️ \`${event.tool}\` non riuscito: ${event.error || 'errore non riportato'}\n\n`
+        );
+      }
+    } else if (event.type === 'status') {
+      aggiungiAlMessaggio(`\n\n_${event.message || ''}_\n\n`);
     } else if (event.type === 'closed_loop_verification') {
       addAgentMessage(
-        'hardware_verifier',
-        'DRC/ERC Verifier',
+        AGENTE_KICAD.sender,
+        AGENTE_KICAD.senderName,
         '🔍',
         '#ec4899',
-        `🔒 **Chiusura ad Anello Conclusa!**\nDRC Errors: **${event.drc_errors}** | ERC Errors: **${event.erc_errors}**\n${event.guarantee}`
+        `🔒 **Verifica conclusa**\nDRC Errors: **${event.drc_errors}** | ERC Errors: **${event.erc_errors}**\n${event.guarantee}`
       );
       setVerifiedBadge(event.drc_errors === 0 && event.erc_errors === 0);
     } else if (event.type === 'completed') {
       addAgentMessage(
-        'hardware_architect',
-        'Lead Hardware Architect',
-        '⚡',
-        '#f59e0b',
-        `🎯 **${event.message}**\nScore: **${event.score_percent}%** di conformità ai requisiti.`
+        AGENTE_KICAD.sender,
+        AGENTE_KICAD.senderName,
+        AGENTE_KICAD.icon,
+        AGENTE_KICAD.color,
+        `🎯 **${event.message}**`
+      );
+    } else if (event.type === 'error') {
+      addAgentMessage(
+        AGENTE_KICAD.sender,
+        AGENTE_KICAD.senderName,
+        '⚠️',
+        '#ef4444',
+        `Il run si è fermato: ${event.message || 'errore non riportato'}`
       );
     }
   };
@@ -870,6 +932,26 @@ export default function PcbLab({ openTab }) {
             </button>
 
             <button
+              onClick={() => setActiveView('editor')}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '6px',
+                padding: '5px 12px',
+                borderRadius: '5px',
+                background: activeView === 'editor' ? 'rgba(16,185,129,0.18)' : 'transparent',
+                border: activeView === 'editor' ? '1px solid rgba(16,185,129,0.35)' : '1px solid transparent',
+                color: activeView === 'editor' ? '#10b981' : '#94a3b8',
+                fontSize: '0.75rem',
+                fontWeight: 600,
+                cursor: 'pointer',
+              }}
+              title="Disegna la scheda: sposta i pezzi, traccia piste, metti via, collega i pad"
+            >
+              <PencilRuler size={13} /> Editor PCB
+            </button>
+
+            <button
               onClick={() => {
                 setActiveView('3d');
                 if (!render3DUrl) handleRender3D('top');
@@ -968,6 +1050,15 @@ export default function PcbLab({ openTab }) {
               </div>
             )}
           </div>
+
+          {/* VIEW: Editor PCB — scrive sul file con gli stessi tool dell'agente */}
+          {activeView === 'editor' && (
+            <PcbEditor
+              progetto={activeProject}
+              isLight={isLight}
+              onChanged={() => fetchBoardData(activeProject ? activeProject.pcb_path : '')}
+            />
+          )}
 
           {/* VIEW: 2D PCB Canvas */}
           {activeView === 'canvas' && (

@@ -1,368 +1,312 @@
 # ==============================================================================
-# core/modules/sigma_kicad_lab/orchestrator.py
-# Orchestratore del Team di Agenti Hardware & Closed-Loop KiCad Designer
+# sigma_kicad_lab/orchestrator.py — Il team hardware: un agente, gli stessi tool
 # ==============================================================================
-"""Orchestrazione a ruoli specializzati per la progettazione circuitale e PCB con KiCad.
+"""Chi progetta la scheda, e con che cosa.
 
-Questo modulo orchestra i cinque ruoli del team hardware:
-1. Hardware Architect — requisiti, power budget, selezione integrati
-2. Schematic Designer — .kicad_sch, netlist, bypass capacitor
-3. PCB Layout Engineer — .kicad_pcb, simulated annealing, IPC-2221
-4. Hardware Verifier — DRC ed ERC headless con kicad-cli (garanzia 100% 0 errori)
-5. Manufacturing Specialist — BOM, Gerber, Drill, Render 3D
+Fino al 25 settembre 2026 questo file conteneva cinque personaggi — Architect,
+Schematic, Layout, Verifier, Manufacturing — che si passavano il turno emettendo
+eventi. Nessuno dei cinque chiamava un modello: il workflow faceva passi
+meccanici (risolvi i percorsi, crea un progetto vuoto, lancia il piazzamento,
+lancia il DRC, esporta) e intorno scriveva la cronaca di un lavoro che nessuno
+stava facendo. La scheda diceva «Fase 3 completata» e il rame non si era mosso di
+un millimetro.
 
-La caratteristica fondamentale e' la CHIUSURA AD ANELLO (Closed-Loop Verification):
-il ciclo itera e non dichiara il lavoro completato finche' sia ERC che DRC
-non confermano 0 errori.
+Adesso c'e' un agente solo, quello vero: il ruolo `kicad_engineer` dell'harness,
+con i suoi tool, che apre il progetto, lo modifica e verifica quello che ha
+fatto. Le cinque fasi restano nel prompt del ruolo — sono il metodo con cui
+lavora — non cinque voci in un log.
+
+**La verifica la fa chi deve.** Alla fine del run il DRC (e l'ERC, dove c'e' uno
+schematico) viene eseguito davvero, con `kicad-cli`, e il numero che arriva
+all'interfaccia e' quello che ha risposto l'eseguibile. Uno "0 errori" scritto a
+mano in un `emit()` non e' una verifica, e' una didascalia.
+
+**Il vocabolario degli eventi e' corto e sta in due posti soli** — qui e in
+`PcbLab.jsx`, che li consuma. Allungarlo da un lato solo produce eventi che
+nessuno disegna.
 """
 from __future__ import annotations
 
 import json
-import os
 import queue
 import threading
 import time
 from pathlib import Path
-from typing import Any, Dict, Generator, List, Optional
+from typing import Any, Dict, Generator, Optional
 
 from core.logger import get_logger
-from . import bridge, kicad_cli as cli, kicad_parser as parser
 
 log = get_logger("kicad_orchestrator")
 
 
-HARDWARE_ROLES = {
-    "architect": {
-        "id": "hardware_architect",
-        "name": "Lead Hardware Architect",
-        "icon": "⚡",
-        "color": "#f59e0b",
-        "description": "Definisce requisiti, architettura alimentazione e vincoli meccanici.",
-    },
-    "schematic": {
-        "id": "schematic_designer",
-        "name": "Schematic Engineer",
-        "icon": "📐",
-        "color": "#38bdf8",
-        "description": "Crea e rifinisce gli schematici .kicad_sch, netlist e condensatori bypass.",
-    },
-    "layout": {
-        "id": "pcb_layout",
-        "name": "PCB Layout Specialist",
-        "icon": "🧩",
-        "color": "#10b981",
-        "description": "Posizionamento footprint, simulated annealing, piste IPC-2221 e piani GND.",
-    },
-    "verifier": {
-        "id": "hardware_verifier",
-        "name": "DRC/ERC Verifier",
-        "icon": "🔍",
-        "color": "#ec4899",
-        "description": "Esegue controlli di conformità headless e garantisce 0 errori DRC ed ERC.",
-    },
-    "manufacturing": {
-        "id": "manufacturing_specialist",
-        "name": "Manufacturing & BOM Specialist",
-        "icon": "🏭",
-        "color": "#a855f7",
-        "description": "Genera distinta base LCSC/JLCPCB, file Gerber di produzione e render 3D.",
-    },
+#: Come si presenta il ruolo nell'interfaccia. Uno solo: cinque facce per un
+#: agente solo sono il modo di far sembrare una squadra quello che e' un turno.
+RUOLO_SCHEDA = {
+    "id": "kicad_engineer",
+    "name": "KiCad Hardware & PCB Engineer",
+    "icon": "🔌",
+    "color": "#10b981",
+    "description": ("Legge e modifica la scheda con i tool KiCad, e verifica "
+                    "cio' che ha fatto con DRC ed ERC."),
 }
 
 
 class HardwareTeamOrchestrator:
-    """Gestisce un task hardware con streaming SSE degli eventi."""
+    """Un task hardware eseguito dall'agente KiCad, con gli eventi in streaming."""
 
     def __init__(self, task: str, project_dir: str, pcb_path: Optional[str] = None,
                  sch_path: Optional[str] = None, session_id: Optional[str] = None):
-        self.task = task.strip()
+        self.task = str(task or "").strip()
         self.project_dir = Path(project_dir)
-        self.session_id = session_id or f"hw_{int(time.time())}"
+        self.session_id = session_id or f"kicad_{int(time.time())}"
         self.event_queue: queue.Queue = queue.Queue()
         self._stopped = False
 
-        # Risolvi percorsi di lavoro
         self.pcb_path = Path(pcb_path) if pcb_path else None
         self.sch_path = Path(sch_path) if sch_path else None
         self._resolve_paths()
 
+    # --- contesto -------------------------------------------------------------
+
     def _resolve_paths(self) -> None:
-        """Individua o crea file .kicad_pcb e .kicad_sch nella cartella del progetto."""
-        self.project_dir.mkdir(parents=True, exist_ok=True)
+        """Individua i file del progetto, senza crearne di nuovi.
+
+        Creare una scheda vuota quando non ce n'e' una era il comportamento
+        vecchio, ed era una bugia comoda: l'agente riceveva un progetto che
+        nessuno aveva chiesto e il task proseguiva su quello. Se il progetto non
+        c'e', lo dice l'errore.
+        """
         if not self.pcb_path or not self.pcb_path.is_file():
-            found_pcb = list(self.project_dir.glob("*.kicad_pcb"))
-            if found_pcb:
-                self.pcb_path = found_pcb[0]
+            trovate = sorted(self.project_dir.glob("*.kicad_pcb"))
+            self.pcb_path = trovate[0] if trovate else None
         if not self.sch_path or not self.sch_path.is_file():
-            found_sch = list(self.project_dir.glob("*.kicad_sch"))
-            if found_sch:
-                self.sch_path = found_sch[0]
+            trovate = sorted(self.project_dir.glob("*.kicad_sch"))
+            self.sch_path = trovate[0] if trovate else None
 
-        # Se non esiste alcun progetto, creane uno di default per il task
-        if not self.pcb_path or not self.pcb_path.is_file():
-            proj_name = self.project_dir.name or "circuit_board"
-            created = parser.create_empty_project(self.project_dir, proj_name, width_mm=80.0, height_mm=60.0)
-            self.pcb_path = Path(created["pcb_path"])
-            self.sch_path = Path(created["sch_path"])
-
-    def emit(self, event_type: str, data: Dict[str, Any]) -> None:
-        """Invia un evento alla coda SSE."""
-        payload = {"type": event_type, "timestamp": time.time(), **data}
-        self.event_queue.put(payload)
+    def emit(self, tipo: str, **dati: Any) -> None:
+        """Mette un evento nella coda che lo stream legge."""
+        self.event_queue.put({"type": tipo, "timestamp": time.time(), **dati})
 
     def stop(self) -> None:
         self._stopped = True
 
+    def _fermo(self) -> bool:
+        return self._stopped
+
+    # --- stream ---------------------------------------------------------------
+
     def run_stream(self) -> Generator[str, None, None]:
-        """Esegue il workflow hardware in un thread e restituisce il generatore SSE."""
-        worker = threading.Thread(target=self._execute_workflow, daemon=True)
+        """Esegue il lavoro in un thread e restituisce il generatore SSE."""
+        worker = threading.Thread(target=self._esegui, daemon=True)
         worker.start()
 
         while True:
             try:
-                event = self.event_queue.get(timeout=0.5)
-                if event is None:
-                    break
-                yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
-                if event.get("type") in ("completed", "error"):
-                    break
+                evento = self.event_queue.get(timeout=0.5)
             except queue.Empty:
                 if not worker.is_alive():
+                    # Il thread e' finito senza dire perche': meglio dirlo che
+                    # lasciare l'interfaccia ad aspettare per sempre.
+                    if not self._stopped:
+                        yield self._sse({"type": "error",
+                                         "message": "Il run e' terminato senza esito."})
                     break
-                # Keep-alive SSE ping
-                yield ": ping\n\n"
+                continue
+            if evento is None:
+                break
+            yield self._sse(evento)
+            if evento.get("type") in ("completed", "error"):
+                break
 
-    def _execute_workflow(self) -> None:
-        """Il flusso a ciclo chiuso a 5 fasi del team di agenti hardware."""
+    @staticmethod
+    def _sse(evento: Dict[str, Any]) -> str:
+        return f"data: {json.dumps(evento, ensure_ascii=False)}\n\n"
+
+    # --- contesto del run -----------------------------------------------------
+
+    def _richiesta(self) -> str:
+        """Il compito, con i percorsi del progetto davanti.
+
+        L'agente ha i tool ma non sa dove sia il progetto: `kicad_open` vuole un
+        percorso, e ricavarlo dal nulla non e' compito suo.
+        """
+        righe = [self.task, "", "## Progetto su cui lavorare", ""]
+        righe.append(f"- scheda: `{self.pcb_path}`" if self.pcb_path
+                     else "- scheda: nessun file .kicad_pcb in questa cartella")
+        if self.sch_path:
+            righe.append(f"- schematico: `{self.sch_path}`")
+        righe.append(f"- cartella del progetto: `{self.project_dir}`")
+        righe.append("")
+        righe.append("Apri il progetto con `kicad_open` prima di ogni altra cosa, "
+                     "e verifica con `kicad_drc` (ed `kicad_erc` se c'e' lo "
+                     "schematico) prima di dichiarare finito.")
+        return "\n".join(righe)
+
+    def _ruolo(self):
+        """Il ruolo KiCad, coi suoi tool. Senza, il run non parte."""
+        from core.harness.roles import DEV_ROLES
+
+        ruolo = DEV_ROLES.get("kicad_engineer")
+        if ruolo is None:
+            # Succede se il modulo e' installato ma l'aggancio all'harness non e'
+            # avvenuto: un agente senza tool proverebbe comunque, e fallirebbe
+            # una chiamata per volta.
+            from . import tools
+            tools.registra()
+            ruolo = DEV_ROLES.get("kicad_engineer")
+        return ruolo
+
+    # --- esecuzione -----------------------------------------------------------
+
+    def _esegui(self) -> None:
+        """Il turno dell'agente, poi la verifica. Gli errori diventano eventi."""
         try:
-            self.emit("workflow_started", {
-                "task": self.task,
-                "project_dir": str(self.project_dir),
-                "pcb_path": str(self.pcb_path) if self.pcb_path else "",
-                "sch_path": str(self.sch_path) if self.sch_path else "",
-            })
-
-            # =================================================================
-            # FASE 1: ARCHITETTURA (Lead Hardware Architect)
-            # =================================================================
-            self._set_active_role("architect")
-            self.emit("phase_started", {"phase": 1, "title": "Analisi Requisiti & Architettura Hardware"})
-            time.sleep(0.4)
-
-            analysis = self._perform_architecture_analysis()
-            self.emit("phase_completed", {
-                "phase": 1,
-                "summary": analysis["summary"],
-                "blocks": analysis["blocks"],
-                "power_budget": analysis["power_budget"]
-            })
-
-            if self._stopped:
+            ruolo = self._ruolo()
+            if ruolo is None:
+                self.emit("error", message=(
+                    "Il ruolo kicad_engineer non e' registrato: il modulo non ha "
+                    "agganciato i suoi tool all'harness."))
+                return
+            if self.pcb_path is None:
+                self.emit("error", message=(
+                    f"In {self.project_dir} non c'e' nessun file .kicad_pcb da "
+                    "modificare."))
                 return
 
-            # =================================================================
-            # FASE 2: SCHEMATICO (Schematic Designer)
-            # =================================================================
-            self._set_active_role("schematic")
-            self.emit("phase_started", {"phase": 2, "title": "Generazione & Revisione Schematico (.kicad_sch)"})
-            time.sleep(0.5)
+            self.emit("role_changed", role=RUOLO_SCHEDA)
+            self.emit("status", message=f"Agente {ruolo.name} al lavoro.")
 
-            sch_summary = self._update_schematic(analysis)
-            self.emit("phase_completed", {
-                "phase": 2,
-                "summary": sch_summary,
-                "sch_path": str(self.sch_path),
-            })
+            # L'import sta qui e non in cima al file perche' `core.harness.loop`
+            # tira dietro il motore di inferenza: il modulo si carica all'avvio
+            # del server, e pagare quel costo per una scheda che nessuno aprira'
+            # e' un costo che si paga sempre per un lavoro che si fa a volte.
+            from core.harness.loop import stream_admin_agent_turn
 
-            if self._stopped:
-                return
+            for evento in stream_admin_agent_turn(
+                messages=[{"role": "user", "content": self._richiesta()}],
+                workspace_root=str(self.project_dir),
+                system_prompt_override=ruolo.system_prompt,
+                allowed_tools=list(ruolo.tools),
+                policy_label=ruolo.id,
+                temperature=ruolo.temperature,
+                max_turns=ruolo.max_turns,
+                max_tokens=ruolo.max_tokens,
+                auto_execute_tools=True,
+                should_cancel=self._fermo,
+                session_id=self.session_id,
+            ):
+                self._inoltra(evento)
+                if self._stopped:
+                    self.emit("status", message="Run interrotto dall'utente.")
+                    break
 
-            # =================================================================
-            # FASE 3: PIAZZAMENTO & LAYOUT (PCB Layout Specialist)
-            # =================================================================
-            self._set_active_role("layout")
-            self.emit("phase_started", {"phase": 3, "title": "Piazzamento Ottimizzato & Tracciamento (.kicad_pcb)"})
-            time.sleep(0.6)
-
-            placement_res = self._optimize_placement()
-            self.emit("phase_completed", {
-                "phase": 3,
-                "summary": "Piazzamento ottimizzato con Simulated Annealing e clearance verificate.",
-                "placement": placement_res,
-            })
-
-            if self._stopped:
-                return
-
-            # =================================================================
-            # FASE 4: VERIFICA AD ANELLO CHIUSO (DRC/ERC Verifier)
-            # =================================================================
-            self._set_active_role("verifier")
-            self.emit("phase_started", {"phase": 4, "title": "Verifica Headless ad Anello Chiuso (DRC / ERC)"})
-            time.sleep(0.4)
-
-            verification = self._run_closed_loop_verification()
-            self.emit("closed_loop_verification", verification)
-
-            if self._stopped:
-                return
-
-            # =================================================================
-            # FASE 5: FABBRICAZIONE & OUTPUT (Manufacturing Specialist)
-            # =================================================================
-            self._set_active_role("manufacturing")
-            self.emit("phase_started", {"phase": 5, "title": "Preparazione File di Produzione & Rendering 3D"})
-            time.sleep(0.5)
-
-            mfg_res = self._export_production_files()
-            self.emit("phase_completed", {
-                "phase": 5,
-                "summary": "Gerber RS-274X, Drill, BOM e Render 3D generati con successo.",
-                "artifacts": mfg_res,
-            })
-
-            # Completamento con esito 100%
-            self.emit("completed", {
-                "success": True,
-                "score_percent": 100,
-                "message": "Task completato con successo: circuito progettato, piazzato e verificato a ZERO errori.",
-                "pcb_path": str(self.pcb_path),
-                "sch_path": str(self.sch_path),
-                "drc_errors": verification.get("drc_errors", 0),
-                "erc_errors": verification.get("erc_errors", 0),
-                "gerbers_dir": mfg_res.get("gerbers_dir"),
-                "render_3d_path": mfg_res.get("render_3d_path"),
-            })
-
+            self._verifica()
         except Exception as exc:
-            log.exception("[HardwareOrchestrator] Errore workflow: %s", exc)
-            self.emit("error", {"error": str(exc)})
-        finally:
-            self.event_queue.put(None)
+            log.exception("[kicad_orchestrator] run fallito")
+            self.emit("error", message=f"{type(exc).__name__}: {exc}")
 
-    def _set_active_role(self, role_key: str) -> None:
-        role_meta = HARDWARE_ROLES.get(role_key, HARDWARE_ROLES["architect"])
-        self.emit("role_changed", {
-            "role_key": role_key,
-            "role": role_meta,
-        })
+    def _inoltra(self, evento: Dict[str, Any]) -> None:
+        """Traduce un evento dell'harness in un evento che la scheda disegna.
 
-    def _perform_architecture_analysis(self) -> Dict[str, Any]:
-        """Fase 1: Architettura di sistema."""
-        t_low = self.task.lower()
-        blocks = ["Alimentazione & Regolazione", "Filtro EMI & Disaccoppiamento", "Logica di Controllo", "Interfaccia I/O"]
-        power_budget = "Alimentazione 5V/3.3V, consumo stimato < 450mA, tracce di alimentazione 0.8mm (IPC-2221)."
+        I `thought` non si inoltrano. Sono il canale in cui il modello si parla
+        addosso — migliaia di token che nessuno legge — e l'interfaccia non li
+        disegnerebbe comunque: mandarli sarebbe traffico per un consumatore che
+        non esiste.
+        """
+        tipo = str((evento or {}).get("type") or "")
+        if tipo == "token":
+            pezzo = evento.get("token") or ""
+            if pezzo:
+                self.emit("token", text=pezzo)
+        elif tipo == "tool_start":
+            self.emit("tool", tool=evento.get("tool"), params=evento.get("params"))
+        elif tipo == "tool_result":
+            esito = evento.get("result") or {}
+            self.emit("tool_result", tool=evento.get("tool"),
+                      success=bool(esito.get("success")),
+                      error=str(esito.get("error") or ""))
+        elif tipo == "goal_complete":
+            self.emit("status", message=str(
+                evento.get("summary") or "L'agente ha dichiarato il lavoro completo."))
+        elif tipo == "cancelled":
+            self.emit("status", message="Run annullato.")
+        elif tipo == "error":
+            self.emit("error", message=str(evento.get("message")
+                                           or evento.get("error")
+                                           or "Errore dell'agente."))
+        elif tipo == "run_metrics":
+            self.emit("metrics", **{k: v for k, v in evento.items()
+                                    if k not in ("type", "timestamp")})
 
-        if "12v" in t_low or "alimentat" in t_low or "step-down" in t_low:
-            blocks = ["Ingresso 12V con diodo schottky", "Regolatore switching/lineare", "Filtro LC", "Massa GND analogica/digitale"]
-            power_budget = "Corrente di picco fino a 1.5A: tracce VCC 1.2mm, clearance isolamento 0.3mm."
+    # --- verifica -------------------------------------------------------------
 
-        summary = f"Architettura validata per: '{self.task[:120]}'. Ripartizione in {len(blocks)} stadi funzionali."
-        return {
-            "summary": summary,
-            "blocks": blocks,
-            "power_budget": power_budget,
-        }
+    def _verifica(self) -> None:
+        """DRC ed ERC veri, sul file appena scritto.
 
-    def _update_schematic(self, analysis: Dict[str, Any]) -> str:
-        """Fase 2: Verifica ed aggiornamento dello schematico."""
-        if not self.sch_path or not self.sch_path.is_file():
-            return "Schematico inizializzato."
-        # Se lo schematico è vuoto o appena creato, leggilo e conferma la struttura
+        Il progetto si riapre perche' l'agente puo' aver lavorato su un altro
+        file, o averlo aperto e chiuso: la verifica deve guardare quello che e'
+        finito sul disco adesso.
+        """
+        from . import tools
+
+        apertura = tools.kicad_open(str(self.pcb_path))
+        if not apertura.get("success"):
+            self.emit("status", message=("Il progetto non si e' riaperto: "
+                                         "verifica non eseguita."))
+            self._chiudi(0, "Verifica non eseguita: il progetto non si e' "
+                            "riaperto.")
+            return
+
+        drc_errori = self._conteggio(tools.kicad_drc, "DRC")
+        erc_errori = None
+        if self.sch_path:
+            erc_errori = self._conteggio(tools.kicad_erc, "ERC")
+
+        if drc_errori is None and erc_errori is None:
+            self.emit("status", message=("Verifica non eseguita: kicad-cli non "
+                                         "ha risposto."))
+            self._chiudi(0, "Verifica non eseguita: kicad-cli non ha risposto.")
+            return
+
+        pulito = (drc_errori in (None, 0)) and (erc_errori in (None, 0))
+        garanzia = ("La scheda non ha violazioni rilevate da kicad-cli." if pulito
+                    else "Restano violazioni: vanno corrette prima di mandare "
+                         "la scheda in produzione.")
+        self.emit("closed_loop_verification",
+                  drc_errors=drc_errori if drc_errori is not None else -1,
+                  erc_errors=erc_errori if erc_errori is not None else -1,
+                  guarantee=garanzia)
+        self._chiudi(
+            100 if pulito else 60,
+            f"Verifica conclusa — DRC {self._mostra(drc_errori)}, "
+            f"ERC {self._mostra(erc_errori)}.")
+
+    def _chiudi(self, punteggio: int, messaggio: str) -> None:
+        """L'ultimo evento di ogni run.
+
+        Sempre, anche quando la verifica non si e' potuta fare: uno stream che
+        finisce senza verdetto lascia l'interfaccia ad aspettare, e chi legge
+        crede che il lavoro stia ancora andando avanti.
+        """
+        self.emit("completed", message=messaggio, score_percent=punteggio)
+
+    @staticmethod
+    def _conteggio(esecutore, etichetta: str) -> Optional[int]:
+        """Gli errori riportati da un controllo, o None se non ha risposto."""
         try:
-            info = parser.read_schematic(self.sch_path)
-            return f"Schematico sincronizzato con {len(info.components)} simboli e {len(info.connections)} nodi di connessione."
+            rapporto = esecutore()
         except Exception as exc:
-            log.debug("Lettura schematico parziale: %s", exc)
-            return "Schematico analizzato con successo."
-
-    def _optimize_placement(self) -> Dict[str, Any]:
-        """Fase 3: Ricottura simulata e piazzamento componenti."""
-        if not self.pcb_path or not self.pcb_path.is_file():
-            return {"optimized": False, "reason": "Nessun file PCB"}
-
+            log.warning("[kicad_orchestrator] %s non eseguito: %s", etichetta, exc)
+            return None
+        if not rapporto.get("success"):
+            log.warning("[kicad_orchestrator] %s fallito: %s", etichetta,
+                        rapporto.get("error"))
+            return None
         try:
-            board = bridge.read_board(self.pcb_path, sch_path=self.sch_path)
-            # Se ci sono componenti posizionati, applica ottimizzazione
-            if len(board.components) >= 2:
-                from core.modules.sigma_eda_lab import placement
-                opt = placement.optimize_placement(board, iterations=3000)
-                # Applica solo se migliora il punteggio
-                if opt.moves:
-                    moves_dict = {m["designator"]: (m["x_mm"], m["y_mm"], m.get("rotation", 0.0)) for m in opt.moves}
-                    parser.update_multiple_positions(self.pcb_path, moves_dict)
-                    return {
-                        "optimized": True,
-                        "components_moved": len(opt.moves),
-                        "initial_cost": round(opt.initial_cost, 2),
-                        "final_cost": round(opt.final_cost, 2),
-                        "improvement_percent": round(opt.improvement_pct, 1),
-                    }
-            return {"optimized": True, "components_count": len(board.components), "message": "Piazzamento ordinato confermato."}
-        except Exception as exc:
-            log.warning("[HardwareOrchestrator] Piazzamento warning: %s", exc)
-            return {"optimized": False, "warning": str(exc)}
+            return int(rapporto.get("total_errors") or 0)
+        except (TypeError, ValueError):
+            return None
 
-    def _run_closed_loop_verification(self) -> Dict[str, Any]:
-        """Fase 4: Anello chiuso di verifica DRC ed ERC."""
-        drc_errors = 0
-        erc_errors = 0
-        drc_details: List[Dict[str, Any]] = []
-        erc_details: List[Dict[str, Any]] = []
-
-        # 1. Esegui DRC se possibile
-        if self.pcb_path and self.pcb_path.is_file():
-            try:
-                drc_rep = cli.run_drc(self.pcb_path)
-                drc_errors = drc_rep.get("total_errors", 0)
-                drc_details = drc_rep.get("violations", [])
-            except Exception as exc:
-                log.info("DRC report note: %s", exc)
-
-        # 2. Esegui ERC se possibile
-        if self.sch_path and self.sch_path.is_file():
-            try:
-                erc_rep = cli.run_erc(self.sch_path)
-                erc_errors = erc_rep.get("total_errors", 0)
-                erc_details = erc_rep.get("violations", [])
-            except Exception as exc:
-                log.info("ERC report note: %s", exc)
-
-        # Logica di auto-correzione a ciclo chiuso se vi fossero errori
-        passes = (drc_errors == 0 and erc_errors == 0)
-
-        return {
-            "passed": passes,
-            "drc_errors": drc_errors,
-            "erc_errors": erc_errors,
-            "drc_violations": drc_details[:10],
-            "erc_violations": erc_details[:10],
-            "guarantee": "100% VERIFIED — 0 DRC, 0 ERC, 100% ROUTING INTEGRITY",
-        }
-
-    def _export_production_files(self) -> Dict[str, Any]:
-        """Fase 5: Generazione pacchetto Gerber, distinta base BOM e render 3D."""
-        res: Dict[str, Any] = {}
-        if self.pcb_path and self.pcb_path.is_file():
-            try:
-                gerber_rep = cli.export_gerbers(self.pcb_path)
-                res["gerbers_dir"] = gerber_rep.get("output_dir")
-                res["gerber_files_count"] = gerber_rep.get("total_files", 0)
-            except Exception as exc:
-                log.warning("Gerber export note: %s", exc)
-
-            try:
-                render_rep = cli.render_3d(self.pcb_path, width=1280, height=720, side="top")
-                if render_rep.get("success"):
-                    res["render_3d_path"] = render_rep.get("output_path")
-            except Exception as exc:
-                log.warning("3D Render note: %s", exc)
-
-        if self.sch_path and self.sch_path.is_file():
-            try:
-                bom_rep = cli.export_bom(self.sch_path)
-                res["bom_path"] = bom_rep.get("output_path")
-            except Exception as exc:
-                log.warning("BOM export note: %s", exc)
-
-        return res
+    @staticmethod
+    def _mostra(valore: Optional[int]) -> str:
+        return "non eseguito" if valore is None else str(valore)

@@ -106,6 +106,45 @@ def cmd_cerca_footprint(args):
             "troncato": False}
 
 
+def cmd_indice_footprint(args):
+    """Tutti i footprint di tutte le librerie, in una passata sola.
+
+    `cmd_cerca_footprint` riapre le librerie a ogni chiamata: cercare «R_0805»
+    su KiCad 10 costa 5,6 secondi, quasi tutti spesi a scorrere indici che non
+    cambiano fra una ricerca e l'altra. Quel tempo e' l'attesa che l'utente
+    sente come «la ricerca non risponde», ed e' l'unica ragione per cui questa
+    funzione esiste: enumerare una volta tutto e filtrare in memoria.
+
+    L'elenco non e' una cache: e' il contenuto vero, letto adesso. A tenerlo
+    fresco pensa il ponte, che sa quando e' stato costruito.
+    """
+    base = args["cartella_librerie"]
+    if not os.path.isdir(base):
+        return {"ok": False, "errore": f"Cartella librerie inesistente: {base}"}
+
+    indice = {}
+    for voce in sorted(os.listdir(base)):
+        if not voce.endswith(".pretty"):
+            continue
+        nome_lib = voce[:-len(".pretty")]
+        cartella = os.path.join(base, voce)
+        if not os.path.isdir(cartella):
+            continue
+        try:
+            nomi = sorted({str(n) for n in pcbnew.FootprintEnumerate(cartella)})
+        except Exception:
+            # Una libreria illeggibile non deve far saltare l'indice intero:
+            # le altre 154 restano utili.
+            continue
+        if nomi:
+            indice[nome_lib] = nomi
+
+    return {"ok": True,
+            "totale": sum(len(v) for v in indice.values()),
+            "librerie": len(indice),
+            "indice": indice}
+
+
 def cmd_crea_scheda(args):
     percorso = args["percorso"]
     larghezza = float(args["larghezza_mm"])
@@ -205,13 +244,23 @@ def cmd_aggiungi_componente(args):
             mancanti.append(numero)
 
     board.Add(fp)
+
+    # Il lato si decide DOPO `board.Add`, e non e' un ordine arbitrario: su un
+    # footprint che non e' ancora in scheda `Flip` dereferenzia una board che
+    # non c'e' e pcbnew muore in access violation (0xC0000005), portandosi via
+    # il lavoratore intero. Dopo l'aggiunta `SetLayerAndFlip` cambia lato e
+    # lascia la posizione dov'e' — che e' quello che serve.
+    if str(args.get("lato", "")).strip().lower().startswith("b"):
+        fp.SetLayerAndFlip(pcbnew.B_Cu)
+
     pcbnew.SaveBoard(percorso, board)
     return {"ok": True, "riferimento": riferimento,
             "footprint": str(fp.GetFPIDAsString()),
             "pad": fp.GetPadCount(), "net_assegnate": assegnati,
             "pad_senza_net": mancanti,
             "x_mm": float(args["x_mm"]), "y_mm": float(args["y_mm"]),
-            "rotazione": rotazione}
+            "rotazione": rotazione,
+            "lato": "bottom" if fp.IsFlipped() else "top"}
 
 
 def cmd_leggi_scheda(args):
@@ -264,6 +313,7 @@ COMANDI = {
     "versione": cmd_versione,
     "elenca_librerie": cmd_elenca_librerie,
     "cerca_footprint": cmd_cerca_footprint,
+    "indice_footprint": cmd_indice_footprint,
     "crea_scheda": cmd_crea_scheda,
     "aggiungi_componente": cmd_aggiungi_componente,
     "leggi_scheda": cmd_leggi_scheda,

@@ -26,7 +26,7 @@ from fastapi.responses import JSONResponse, StreamingResponse
 from core import paths
 from core.logger import get_logger
 from . import bridge, kicad_cli as cli, kicad_parser as parser
-from .orchestrator import HardwareTeamOrchestrator, HARDWARE_ROLES
+from .orchestrator import RUOLO_SCHEDA, HardwareTeamOrchestrator
 
 log = get_logger("kicad_handlers")
 
@@ -88,11 +88,12 @@ def _trova_schede(radice: Path) -> List[Path]:
 async def handle_kicad_status(request: Request):
     """GET /api/kicad/status — Stato dell'integrazione e di kicad-cli."""
     st = bridge.status()
-    roles_list = list(HARDWARE_ROLES.values())
+    # Un ruolo solo: e' l'agente KiCad dell'harness. La scheda lo mostra con il
+    # suo nome vero invece di cinque nomi che descrivevano fasi di un copione.
     return JSONResponse(status_code=200, content={
         "success": True,
         "status": st,
-        "roles": roles_list,
+        "roles": [RUOLO_SCHEDA],
         "default_projects_dir": str(_get_projects_dir()),
     })
 
@@ -411,7 +412,7 @@ async def handle_kicad_agent_chat(request: Request):
 # Modifica manuale — le stesse funzioni che usano gli agenti
 # =============================================================================
 #
-# Queste route non reimplementano niente: chiamano `core.harness.kicad_tools`,
+# Queste route non reimplementano niente: chiamano `tools.py` di questo modulo,
 # cioe' esattamente il codice che esegue la squadra di agenti. E' una scelta,
 # non una scorciatoia — due implementazioni della stessa operazione divergono
 # sempre, e divergono sulle validazioni prima che sul risultato: la via
@@ -435,16 +436,16 @@ def _route_per_tool(nome_tool: str):
             return JSONResponse(status_code=400, content={
                 "success": False, "error": "Il corpo deve essere un oggetto JSON."})
 
-        from core.harness import kicad_tools
+        from . import tools
 
         argomenti = dict(body)
         progetto = argomenti.pop("project", None)
         if progetto:
-            apertura = kicad_tools.kicad_open(str(progetto))
+            apertura = tools.kicad_open(str(progetto))
             if not apertura.get("success"):
                 return JSONResponse(status_code=400, content=apertura)
 
-        esito = kicad_tools.esegui(nome_tool, argomenti)
+        esito = tools.esegui(nome_tool, argomenti)
         if esito is None:
             return JSONResponse(status_code=404, content={
                 "success": False, "error": f"Tool '{nome_tool}' inesistente."})
@@ -469,7 +470,36 @@ ROUTE_MANUALI = (
     ("/api/kicad/via/add", "kicad_add_via"),
     ("/api/kicad/footprint/add", "kicad_add_footprint"),
     ("/api/kicad/footprint/remove", "kicad_remove_footprint"),
+    # pcbnew: un footprint vero, caricato dalla libreria KiCad installata, con i
+    # suoi pad e il suo disegno. E' questo che l'utente intende per «aggiungi un
+    # componente»; `kicad_add_footprint` costruisce invece un pezzo sintetico,
+    # buono per fori di fissaggio e fiducial.
+    ("/api/kicad/part/add", "kicad_add_part"),
+    ("/api/kicad/libraries", "kicad_libraries"),
+    ("/api/kicad/footprint/search", "kicad_search_footprint"),
+    # correzione: le stesse operazioni che fa l'utente trascinando sulla canvas
+    ("/api/kicad/footprint/move", "kicad_move_footprint"),
+    ("/api/kicad/footprint/rename", "kicad_rename_footprint"),
+    ("/api/kicad/pad/net", "kicad_set_pad_net"),
+    ("/api/kicad/track/delete", "kicad_delete_track"),
+    ("/api/kicad/via/delete", "kicad_delete_via"),
+    ("/api/kicad/outline/set", "kicad_set_board_outline"),
     ("/api/kicad/undo", "kicad_undo"),
+    # task #6: undo/redo, zone, netclass, rules, costruttori, bom, sync, 3d, export
+    ("/api/kicad/redo", "kicad_redo"),
+    ("/api/kicad/zone_add", "kicad_zone_add"),
+    ("/api/kicad/netclass_set", "kicad_netclass_set"),
+    ("/api/kicad/rules_set", "kicad_rules_set"),
+    ("/api/kicad/constructor_hole", "kicad_constructor_hole"),
+    ("/api/kicad/constructor_fiducial", "kicad_constructor_fiducial"),
+    ("/api/kicad/constructor_testpoint", "kicad_constructor_testpoint"),
+    ("/api/kicad/constructor_silkscreen", "kicad_constructor_silkscreen"),
+    ("/api/kicad/constructor_outline", "kicad_constructor_outline"),
+    ("/api/kicad/bom_export", "kicad_bom_export"),
+    ("/api/kicad/sync_netlist", "kicad_sync_netlist"),
+    ("/api/kicad/render_3d", "kicad_render_3d"),
+    ("/api/kicad/export_drill", "kicad_export_drill"),
+    ("/api/kicad/export_pickplace", "kicad_export_pickplace"),
 )
 
 
@@ -515,3 +545,20 @@ def register_mcp(mcp_hub) -> None:
         log.info("[sigma_kicad_lab] KiCad Lab MCP Server registrato.")
     except Exception as exc:
         log.warning("[sigma_kicad_lab] KiCad Lab MCP Server non registrato: %s", exc)
+
+
+def register_harness_tools() -> None:
+    """Deposita nell'harness i tool dell'agente, con il ruolo che li concede.
+
+    E' l'hook con cui questo modulo smette di essere nominato dal kernel: gli
+    schemi, la classe di sicurezza di ogni tool e il ruolo `kicad_engineer`
+    arrivano da qui, e il kernel li riceve senza sapere di chi siano. Se il
+    modulo non c'e', i tool semplicemente non esistono — che e' la verita'.
+    """
+    try:
+        from . import tools
+        nomi = tools.registra()
+        log.info("[sigma_kicad_lab] %d tool dell'harness registrati.", len(nomi))
+    except Exception as exc:
+        log.warning("[sigma_kicad_lab] Tool dell'harness non registrati: %s", exc)
+

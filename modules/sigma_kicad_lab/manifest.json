@@ -30,6 +30,11 @@
   "requirements": "requirements.txt",
   "changelog": [
     {
+      "version": "v1.1.0",
+      "date": "2026-09-25",
+      "notes": "Pannello Componenti riscritto: ricerca dall'indice dei footprint (5,6 s -> 1 ms), filtro per libreria, riferimento libero proposto da solo, inserimento ripetuto con passo, recenti, lato sopra/sotto. Ricerca, indice in cache su disco, scrittura atomica e rifiuti del ponte che non tornano piu' come successi."
+    },
+    {
       "version": "v1.0.0",
       "date": "2026-09-20",
       "notes": "Rilascio completo Hardware Studio: canvas 2D/3D interattivo, team di agenti hardware a 5 fasi, DRC/ERC headless e routing IPC-2221."

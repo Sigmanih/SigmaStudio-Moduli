@@ -369,3 +369,371 @@ def restore_backup(pcb_path: Path, backup: str) -> WriteResult:
     prima = _salva(pcb_path, copia.read_text(encoding="utf-8"))
     return WriteResult(True, "restore_backup",
                        {"restored_from": backup}, prima)
+
+
+# --- modifica di cio' che c'e' gia' --------------------------------------------
+#
+# Aggiungere e' una cosa, correggere e' un'altra. Le primitive qui sopra
+# creano nodi; queste riscrivono o tolgono nodi che ci sono. Il modo di
+# trovarli e' lo stesso — si cammina il testo contando le parentesi e
+# rispettando le stringhe — perche' un `(at 10 20)` dentro un pad non e' la
+# posizione del footprint, e un `(segment` dentro una proprieta' non e' rame.
+
+
+def _primo_nodo(testo: str, inizio: int, fine: int,
+                nome: str) -> Optional[Tuple[int, int]]:
+    """L'estensione del primo `(nome ...)` dell'intervallo, o None."""
+    i = inizio
+    dentro_stringa = False
+    while i < fine:
+        c = testo[i]
+        if dentro_stringa:
+            if c == "\\":
+                i += 2
+                continue
+            if c == '"':
+                dentro_stringa = False
+            i += 1
+            continue
+        if c == '"':
+            dentro_stringa = True
+            i += 1
+            continue
+        if _apre(testo, i, nome):
+            return i, _fine_nodo(testo, i)
+        i += 1
+    return None
+
+
+def _apre(testo: str, i: int, nome: str) -> bool:
+    """Se a `i` comincia il nodo `(nome ...)`, con il nome intero."""
+    if testo[i] != "(" or not testo.startswith(nome, i + 1):
+        return False
+    dopo = i + 1 + len(nome)
+    return dopo >= len(testo) or testo[dopo] in " \t\r\n)"
+
+
+def _nodi(testo: str, nome: str) -> List[Tuple[int, int]]:
+    """Tutti i nodi `(nome ...)` del file, stringhe escluse.
+
+    Non scende dentro i nodi trovati: un `(pad ...)` dentro un footprint non e'
+    un pad di primo livello, e trattarlo come tale lo toglierebbe dalla scheda
+    lasciando i suoi due punti di riferimento all'aria.
+    """
+    trovati: List[Tuple[int, int]] = []
+    i = 0
+    dentro_stringa = False
+    while i < len(testo):
+        c = testo[i]
+        if dentro_stringa:
+            if c == "\\":
+                i += 2
+                continue
+            if c == '"':
+                dentro_stringa = False
+            i += 1
+            continue
+        if c == '"':
+            dentro_stringa = True
+            i += 1
+            continue
+        if _apre(testo, i, nome):
+            fine = _fine_nodo(testo, i)
+            trovati.append((i, fine))
+            i = fine
+            continue
+        i += 1
+    return trovati
+
+
+def _togli(testo: str, inizio: int, fine: int) -> str:
+    """Il file senza il nodo [inizio, fine), con la riga rimasta pulita."""
+    return testo[:inizio].rstrip() + "\n" + testo[fine:].lstrip("\n")
+
+
+def _vicino(a: Sequence[float], b: Sequence[float], tolleranza: float) -> bool:
+    return (abs(float(a[0]) - float(b[0])) <= tolleranza
+            and abs(float(a[1]) - float(b[1])) <= tolleranza)
+
+
+def _punto(valore: Sequence[float], nome: str) -> Tuple[float, float]:
+    if len(valore) != 2:
+        raise PcbWriteError(f"{nome} e' una coppia (x, y) in millimetri.")
+    x, y = float(valore[0]), float(valore[1])
+    if x != x or y != y:      # NaN non si confronta con niente, nemmeno con se'
+        raise PcbWriteError(f"{nome} contiene un numero non valido.")
+    return x, y
+
+
+def move_footprint(pcb_path: Path, reference: str, x_mm: float, y_mm: float,
+                   rotation: Optional[float] = None) -> WriteResult:
+    """Sposta, e se serve ruota, un footprint solo.
+
+    La rotazione si omette lasciando quella che c'e': un movimento di trascinamento
+    non deve raddrizzare un pezzo che era ruotato apposta.
+
+    Cambiare lato non si fa qui. Un flip in KiCad non e' una sostituzione di
+    layer nell'`(at)`: i pad si rispecchiano, il testo si specchia, i fori
+    restano. Farlo con una regex produce una scheda che sembra giusta e non lo
+    e' — e questo e' peggio di non poterlo fare.
+    """
+    if not str(reference or "").strip():
+        raise PcbWriteError("Serve il riferimento del footprint da spostare.")
+    x, y = _punto((x_mm, y_mm), "La posizione")
+
+    testo = _leggi(pcb_path)
+    inizio = _inizio_footprint(testo, reference)
+    if inizio is None:
+        raise PcbWriteError(f"Nessun footprint con riferimento '{reference}'.")
+    fine = _fine_nodo(testo, inizio)
+    nodo = _primo_nodo(testo, inizio, fine, "at")
+    if nodo is None:
+        raise PcbWriteError(
+            f"Il footprint '{reference}' non dichiara la sua `(at ...)`: "
+            "spostarlo alla cieca riscriverebbe la prima coordinata trovata, "
+            "che sarebbe quella di un pad."
+        )
+
+    coda = "" if rotation is None else f" {_num(float(rotation) % 360)}"
+    esistente = testo[nodo[0]:nodo[1]]
+    if rotation is None:
+        # L'angolo che c'e' va rimesso: sostituendo tutto il nodo `(at ...)` con
+        # due soli numeri si raddrizza il pezzo, e chi trascina non se ne
+        # accorge finche' non e' troppo tardi per ricordare com'era.
+        m = re.search(r"\(at\s+[-+0-9.eE]+\s+[-+0-9.eE]+\s+([-+0-9.eE]+)\)",
+                      esistente)
+        if m:
+            coda = f" {_num(float(m.group(1)) % 360)}"
+
+    nuovo = testo[:nodo[0]] + f"(at {_num(x)} {_num(y)}{coda})" + testo[nodo[1]:]
+    backup = _salva(pcb_path, nuovo)
+    return WriteResult(True, "move_footprint", {
+        "reference": reference, "x_mm": x, "y_mm": y,
+        "rotation": float(coda.strip()) if coda else None,
+    }, backup)
+
+
+def rename_footprint(pcb_path: Path, reference: str,
+                     new_reference: str = "", value: str = "") -> WriteResult:
+    """Cambia il riferimento e/o il valore di un footprint.
+
+    Il riferimento nuovo dev'essere libero: due `R1` sulla stessa scheda sono un
+    file che KiCad apre e una netlist che nessuno sa piu' leggere.
+    """
+    nuovo_rif = str(new_reference or "").strip()
+    if not nuovo_rif and value == "":
+        raise PcbWriteError("Non c'e' niente da cambiare: serve un riferimento "
+                            "nuovo o un valore.")
+    if '"' in nuovo_rif or "\n" in nuovo_rif:
+        raise PcbWriteError("Un riferimento non contiene virgolette ne' a capo.")
+
+    testo = _leggi(pcb_path)
+    inizio = _inizio_footprint(testo, reference)
+    if inizio is None:
+        raise PcbWriteError(f"Nessun footprint con riferimento '{reference}'.")
+    fine = _fine_nodo(testo, inizio)
+    blocco = testo[inizio:fine]
+
+    if nuovo_rif and nuovo_rif != reference:
+        if _inizio_footprint(testo, nuovo_rif) is not None:
+            raise PcbWriteError(
+                f"Il riferimento '{nuovo_rif}' e' gia' di un altro footprint: "
+                "due pezzi con lo stesso nome non si distinguono piu'."
+            )
+        blocco = re.sub(r'(\(property\s+"Reference"\s+)"(?:[^"\\]|\\.)*"',
+                        lambda m: f'{m.group(1)}"{nuovo_rif}"', blocco, count=1)
+    if value != "":
+        blocco = re.sub(r'(\(property\s+"Value"\s+)"(?:[^"\\]|\\.)*"',
+                        lambda m: f'{m.group(1)}"{value}"', blocco, count=1)
+
+    backup = _salva(pcb_path, testo[:inizio] + blocco + testo[fine:])
+    return WriteResult(True, "rename_footprint", {
+        "reference": reference,
+        "reference_new": nuovo_rif or reference,
+        "value": value or None,
+    }, backup)
+
+
+def delete_track(pcb_path: Path, start: Sequence[float], end: Sequence[float],
+                 layer: str = "", tolerance_mm: float = 0.01) -> WriteResult:
+    """Toglie la pista che unisce due punti, se c'e'.
+
+    Non ci sono identificativi: una pista si riconosce dai suoi estremi, e si
+    accetta anche l'ordine invertito perche' chi clicca non sa da quale capo il
+    file l'ha scritta. Quando non si trova, l'errore dice quante piste ci sono e
+    qual e' la piu' vicina: un «non trovato» senza numeri fa riprovare a caso.
+    """
+    a = _punto(start, "start")
+    b = _punto(end, "end")
+    tolleranza = abs(float(tolerance_mm))
+
+    testo = _leggi(pcb_path)
+    candidati: List[Tuple[int, int, Tuple[float, float], Tuple[float, float], str]] = []
+    for inizio, fine in _nodi(testo, "segment"):
+        blocco = testo[inizio:fine]
+        m = re.search(r"\(start\s+([-+0-9.eE]+)\s+([-+0-9.eE]+)\)\s*"
+                      r"\(end\s+([-+0-9.eE]+)\s+([-+0-9.eE]+)\)", blocco)
+        if not m:
+            continue
+        ml = re.search(r'\(layer\s+"([^"]+)"\)', blocco)
+        candidati.append((inizio, fine,
+                          (float(m.group(1)), float(m.group(2))),
+                          (float(m.group(3)), float(m.group(4))),
+                          ml.group(1) if ml else ""))
+
+    for inizio, fine, s, e, lay in candidati:
+        dritta = _vicino(s, a, tolleranza) and _vicino(e, b, tolleranza)
+        inversa = _vicino(s, b, tolleranza) and _vicino(e, a, tolleranza)
+        if not (dritta or inversa):
+            continue
+        if layer and lay != layer:
+            continue
+        backup = _salva(pcb_path, _togli(testo, inizio, fine))
+        return WriteResult(True, "delete_track", {
+            "start": list(s), "end": list(e), "layer": lay}, backup)
+
+    if not candidati:
+        raise PcbWriteError("La scheda non ha nessuna pista da cancellare.")
+    vicina = min(candidati,
+                 key=lambda c: ((c[2][0] - a[0]) ** 2 + (c[2][1] - a[1]) ** 2) ** 0.5)
+    raise PcbWriteError(
+        f"Nessuna pista fra ({_num(a[0])}, {_num(a[1])}) e ({_num(b[0])}, "
+        f"{_num(b[1])})" + (f" sul layer {layer}" if layer else "")
+        + f". Ce ne sono {len(candidati)} sulla scheda, e la piu' vicina e' "
+        f"({_num(vicina[2][0])}, {_num(vicina[2][1])}) -> "
+        f"({_num(vicina[3][0])}, {_num(vicina[3][1])}) su {vicina[4]}."
+    )
+
+
+def delete_via(pcb_path: Path, at: Sequence[float],
+               tolerance_mm: float = 0.05) -> WriteResult:
+    """Toglie il via che sta in un punto, se c'e'.
+
+    La tolleranza e' piu' larga di quella di una pista: un via si clicca al
+    centro di un cerchio di ottavo di millimetro, e pretendere il decimo di
+    precisione vorrebbe dire che meta' dei clic non trova niente.
+    """
+    punto = _punto(at, "at")
+    tolleranza = abs(float(tolerance_mm))
+
+    testo = _leggi(pcb_path)
+    candidati: List[Tuple[int, int, Tuple[float, float]]] = []
+    for inizio, fine in _nodi(testo, "via"):
+        m = re.search(r"\(at\s+([-+0-9.eE]+)\s+([-+0-9.eE]+)\)",
+                      testo[inizio:fine])
+        if m:
+            candidati.append((inizio, fine,
+                              (float(m.group(1)), float(m.group(2)))))
+
+    for inizio, fine, centro in candidati:
+        if not _vicino(centro, punto, tolleranza):
+            continue
+        backup = _salva(pcb_path, _togli(testo, inizio, fine))
+        return WriteResult(True, "delete_via",
+                           {"at": list(centro)}, backup)
+
+    if not candidati:
+        raise PcbWriteError("La scheda non ha nessun via da cancellare.")
+    vicino = min(candidati,
+                 key=lambda c: ((c[2][0] - punto[0]) ** 2
+                                + (c[2][1] - punto[1]) ** 2) ** 0.5)
+    raise PcbWriteError(
+        f"Nessun via a ({_num(punto[0])}, {_num(punto[1])}). Ce ne sono "
+        f"{len(candidati)} sulla scheda, e il piu' vicino e' a "
+        f"({_num(vicino[2][0])}, {_num(vicino[2][1])})."
+    )
+
+
+def set_board_outline(pcb_path: Path, width_mm: float, height_mm: float,
+                      thickness_mm: float = 0.05) -> WriteResult:
+    """Sostituisce il contorno della scheda con un rettangolo con un angolo in (0, 0).
+
+    Si tolgono prima i segmenti `Edge.Cuts` che ci sono: aggiungere i quattro
+    nuovi sotto i vecchi lascerebbe due contorni, e KiCad rifiuta una scheda
+    con piu' di un contorno perche' non sa quale sia il bordo da tagliare.
+    """
+    larghezza = float(width_mm)
+    altezza = float(height_mm)
+    if larghezza <= 0 or altezza <= 0:
+        raise PcbWriteError("Larghezza e altezza della scheda devono essere positive.")
+
+    testo = _leggi(pcb_path)
+    precedenti = sorted(_nodi(testo, "gr_line") + _nodi(testo, "gr_rect"))
+    tolti = 0
+    # Dal fondo: ogni rimozione accorcia il testo e sposterebbe gli indici che
+    # restano da togliere.
+    for inizio, fine in reversed(precedenti):
+        if '"Edge.Cuts"' not in testo[inizio:fine]:
+            continue
+        testo = _togli(testo, inizio, fine)
+        tolti += 1
+
+    spessore = _num(thickness_mm)
+    vertici = ([((0.0, 0.0), (larghezza, 0.0)),
+                ((larghezza, 0.0), (larghezza, altezza)),
+                ((larghezza, altezza), (0.0, altezza)),
+                ((0.0, altezza), (0.0, 0.0))])
+    nodi = [f'  (gr_line (start {_num(p[0])} {_num(p[1])}) '
+            f'(end {_num(q[0])} {_num(q[1])}) (layer "Edge.Cuts") '
+            f'(stroke (width {spessore}) (type solid)))'
+            for p, q in vertici]
+    backup = _salva(pcb_path, _inserisci(testo, "\n".join(nodi)))
+    return WriteResult(True, "set_board_outline", {
+        "width_mm": larghezza, "height_mm": altezza,
+        "removed_lines": tolti, "added_lines": len(nodi)}, backup)
+
+
+def set_pad_net(pcb_path: Path, reference: str, pad: str, net: str) -> WriteResult:
+    """Assegna una net al pad di un footprint, creando la net se non esiste.
+
+    E' l'unico modo di dire a cosa serve un pad: la net non si deduce dal
+    disegno, e un pad senza net e' un collegamento che il DRC non sa verificare.
+    """
+    nome_net = str(net or "").strip()
+    if not nome_net:
+        raise PcbWriteError("Serve il nome della net da assegnare al pad.")
+    if '"' in nome_net or "\n" in nome_net:
+        raise PcbWriteError("Una net non contiene virgolette ne' a capo.")
+    numero, _ = ensure_net(pcb_path, nome_net)   # puo' riscrivere il file
+
+    testo = _leggi(pcb_path)                     # quindi si rilegge dopo
+    inizio = _inizio_footprint(testo, reference)
+    if inizio is None:
+        raise PcbWriteError(f"Nessun footprint con riferimento '{reference}'.")
+    fine = _fine_nodo(testo, inizio)
+    numero_pad = str(pad).strip()
+
+    trovato: Optional[Tuple[int, int, str]] = None
+    for rel_inizio, rel_fine in _nodi(testo[inizio:fine], "pad"):
+        blocco = testo[inizio + rel_inizio:inizio + rel_fine]
+        m = re.match(r'\(pad\s+"((?:[^"\\]|\\.)*)"', blocco)
+        if m and m.group(1) == numero_pad:
+            trovato = (inizio + rel_inizio, inizio + rel_fine, blocco)
+            break
+    if trovato is None:
+        disponibili = re.findall(r'\(pad\s+"((?:[^"\\]|\\.)*)"',
+                                 testo[inizio:fine])
+        raise PcbWriteError(
+            f"Il footprint '{reference}' non ha un pad '{numero_pad}'. "
+            f"I suoi pad sono: {', '.join(disponibili) or 'nessuno'}."
+        )
+
+    pi, pf, blocco = trovato
+    nuova = f'(net {numero} "{nome_net}")'
+    if re.search(r'\(net\s+\d+\s+"[^"]*"\)', blocco):
+        blocco = re.sub(r'\(net\s+\d+\s+"[^"]*"\)', nuova, blocco, count=1)
+    else:
+        # Dentro il nodo del pad, non dopo: fuori, la net non appartiene a
+        # nessun pad e il file resta valido solo in apparenza.
+        chiusa = blocco.rstrip()
+        if not chiusa.endswith(")"):
+            raise PcbWriteError(
+                f"Il pad '{numero_pad}' di '{reference}' non si chiude: "
+                "il file e' corrotto."
+            )
+        blocco = chiusa[:-1].rstrip() + " " + nuova + ")"
+
+    backup = _salva(pcb_path, testo[:pi] + blocco + testo[pf:])
+    return WriteResult(True, "set_pad_net", {
+        "reference": reference, "pad": numero_pad, "net": nome_net,
+        "net_number": numero}, backup)
