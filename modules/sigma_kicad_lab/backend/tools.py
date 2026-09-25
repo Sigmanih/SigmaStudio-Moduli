@@ -464,11 +464,41 @@ def kicad_undo() -> Dict[str, Any]:
         if not copia:
             return _esito("kicad_undo", False,
                           error="Nessuna scrittura da annullare in questa sessione.")
+        # Sposta la copia corrente nella pila redo prima di sovrascriverla
+        if not hasattr(kicad_redo, "_pila_redo"):
+            kicad_redo._pila_redo = {}
+        pila_redo = kicad_redo._pila_redo.setdefault(chiave, [])
+        pila_redo.append(copia)
         esito = pcb_writer.restore_backup(_pcb(), copia)
         _ultimo_backup.pop(chiave, None)
         return _esito("kicad_undo", True, **esito.to_dict())
     except Exception as exc:
         return _esito("kicad_undo", False, error=str(exc))
+
+
+def kicad_redo() -> Dict[str, Any]:
+    """Riapplica l'ultima operazione annullata con `kicad_undo`.
+
+    La cronologia redo e' una pila separata: ogni `undo` sposta la copia
+    corrente nella pila redo, e ogni `redo` la riporta indietro. Se la pila
+    redo e' vuota, l'operazione fallisce con un messaggio esplicito.
+    """
+    try:
+        from . import pcb_writer
+        chiave = str(_pcb())
+        # La pila redo e' mantenuta a livello di modulo: una lista di backup
+        # in ordine cronologico (ultimo in fondo).
+        if not hasattr(kicad_redo, "_pila_redo"):
+            kicad_redo._pila_redo = {}  # chiave -> list[backup]
+        pila = kicad_redo._pila_redo.get(chiave)
+        if not pila:
+            return _esito("kicad_redo", False,
+                          error="Nessuna operazione da riapplicare in questa sessione.")
+        copia = pila.pop()
+        esito = pcb_writer.restore_backup(_pcb(), copia)
+        return _esito("kicad_redo", True, **esito.to_dict())
+    except Exception as exc:
+        return _esito("kicad_redo", False, error=str(exc))
 
 
 # --- verifica ------------------------------------------------------------------
