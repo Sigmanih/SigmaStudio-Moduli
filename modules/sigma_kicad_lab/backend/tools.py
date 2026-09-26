@@ -685,6 +685,21 @@ ESECUTORI = {
     "kicad_new_board": kicad_new_board,
     "kicad_add_part": kicad_add_part,
     "kicad_read_board_full": kicad_read_board_full,
+    # task #6: endpointi nuovi richiesti dalla UI
+    "kicad_redo": kicad_redo,
+    "kicad_zone_add": kicad_zone_add,
+    "kicad_netclass_set": kicad_netclass_set,
+    "kicad_rules_set": kicad_rules_set,
+    "kicad_constructor_hole": kicad_constructor_hole,
+    "kicad_constructor_fiducial": kicad_constructor_fiducial,
+    "kicad_constructor_testpoint": kicad_constructor_testpoint,
+    "kicad_constructor_silkscreen": kicad_constructor_silkscreen,
+    "kicad_constructor_outline": kicad_constructor_outline,
+    "kicad_bom_export": kicad_bom_export,
+    "kicad_sync_netlist": kicad_sync_netlist,
+    "kicad_render_3d": kicad_render_3d,
+    "kicad_export_drill": kicad_export_drill,
+    "kicad_export_pickplace": kicad_export_pickplace,
 }
 
 #: Cosa tocca i file del progetto. Serve a `policy` per il cancello: le
