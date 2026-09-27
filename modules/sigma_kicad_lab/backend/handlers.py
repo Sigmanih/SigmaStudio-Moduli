@@ -15,13 +15,15 @@ Supporta:
 from __future__ import annotations
 
 import base64
+import io
 import json
 import os
+import zipfile
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from fastapi import Request
-from fastapi.responses import JSONResponse, StreamingResponse
+from fastapi.responses import JSONResponse, StreamingResponse, Response
 
 from core import paths
 from core.logger import get_logger
@@ -294,7 +296,7 @@ async def handle_kicad_placement_apply(request: Request):
 
 
 async def handle_kicad_drc(request: Request):
-    """POST /api/kicad/drc — Esegue DRC con kicad-cli."""
+    """POST /api/kicad/drc — Esegue DRC con kicad-cli e restituisce violazioni con coordinate."""
     try:
         body = await request.json()
     except Exception:
@@ -306,6 +308,11 @@ async def handle_kicad_drc(request: Request):
 
     try:
         report = cli.run_drc(Path(pcb_path))
+        # Arricchisci le violazioni con coordinate parseate per il rendering SVG
+        raw_violations = report.get("violations", [])
+        parsed = cli.parse_drc_violations(raw_violations)
+        report["violations"] = parsed
+        report["total_errors"] = len(parsed)
         return JSONResponse(status_code=200, content={"success": True, "drc": report})
     except Exception as exc:
         return JSONResponse(status_code=500, content={"success": False, "error": str(exc)})
@@ -382,6 +389,39 @@ async def handle_kicad_export_gerbers(request: Request):
         return JSONResponse(status_code=500, content={"success": False, "error": str(exc)})
 
 
+async def handle_kicad_export_gerbers_download(request: Request):
+    """GET /api/kicad/export/gerbers/download?pcb_path=... — Scarica ZIP con Gerber + Drill."""
+    pcb_path_str = request.query_params.get("pcb_path")
+    if not pcb_path_str:
+        return JSONResponse(status_code=400, content={"success": False, "error": "Parametro 'pcb_path' mancante."})
+
+    pcb_p = Path(pcb_path_str)
+    if not pcb_p.is_file():
+        return JSONResponse(status_code=404, content={"success": False, "error": f"File '{pcb_p}' non trovato."})
+
+    try:
+        g_rep = cli.export_gerbers(pcb_p)
+        d_rep = cli.export_drill(pcb_p)
+        out_dir = Path(g_rep.get("output_dir", str(pcb_p.parent / "gerbers")))
+
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+            for f in sorted(out_dir.iterdir()):
+                if f.is_file():
+                    zf.write(f, arcname=f.name)
+        buf.seek(0)
+
+        filename = f"{pcb_p.stem}_gerbers.zip"
+        return Response(
+            content=buf.getvalue(),
+            media_type="application/zip",
+            headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        )
+    except Exception as exc:
+        log.exception("[handle_kicad_export_gerbers_download] Errore: %s", exc)
+        return JSONResponse(status_code=500, content={"success": False, "error": str(exc)})
+
+
 async def handle_kicad_export_bom(request: Request):
     """POST /api/kicad/export/bom — Esporta la distinta componenti BOM."""
     try:
@@ -399,12 +439,37 @@ async def handle_kicad_export_bom(request: Request):
         out_p = Path(b_rep.get("output_path", ""))
         if out_p.is_file():
             content = out_p.read_text(encoding="utf-8", errors="replace")
-        return JSONResponse(status_code=200, content={
-            "success": b_rep.get("success", False),
-            "bom_path": str(out_p),
-            "csv_preview": content[:2000],
-        })
+        return JSONResponse(status_code=200, content={"success": True, "bom": content})
     except Exception as exc:
+        log.exception("[handle_kicad_export_bom] Errore: %s", exc)
+        return JSONResponse(status_code=500, content={"success": False, "error": str(exc)})
+
+
+async def handle_kicad_export_bom_download(request: Request):
+    """GET /api/kicad/export/bom/download — Download diretto del file BOM CSV."""
+    sch_path_str = request.query_params.get("sch_path")
+    if not sch_path_str:
+        return JSONResponse(status_code=400, content={"success": False, "error": "sch_path mancante."})
+
+    sch_p = Path(sch_path_str)
+    if not sch_p.is_file():
+        return JSONResponse(status_code=404, content={"success": False, "error": f"File '{sch_p}' non trovato."})
+
+    try:
+        b_rep = cli.export_bom(sch_p)
+        out_p = Path(b_rep.get("output_path", ""))
+        if not out_p.is_file():
+            return JSONResponse(status_code=500, content={"success": False, "error": "File BOM non generato."})
+
+        content = out_p.read_bytes()
+        filename = f"{sch_p.stem}_bom.csv"
+        return Response(
+            content=content,
+            media_type="text/csv",
+            headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        )
+    except Exception as exc:
+        log.exception("[handle_kicad_export_bom_download] Errore: %s", exc)
         return JSONResponse(status_code=500, content={"success": False, "error": str(exc)})
 
 

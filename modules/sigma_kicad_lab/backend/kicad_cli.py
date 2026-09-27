@@ -120,6 +120,65 @@ def kicad_version() -> Dict[str, Any]:
 # DRC — Design Rule Check
 # =============================================================================
 
+import re as _re
+
+
+def parse_drc_violations(violations_raw: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Trasforma le violazioni grezze del report JSON DRC in oggetti con coordinate.
+
+    Ogni violazione KiCad ha la forma:
+      {"type": "clearance", "severity": "error",
+       "description": "Clearance 0.15mm < 0.20mm ...",
+       "net1": "GND", "net2": "VCC",
+       "position": {"x": 12.5, "y": 34.0},
+       "pad1": {...}, "pad2": {...}}
+
+    Restituisce una lista di:
+      {"type", "severity", "message", "net1", "net2", "x", "y"}
+    dove x/y sono float in mm (o None se non disponibili).
+    """
+    parsed: List[Dict[str, Any]] = []
+    for v in violations_raw:
+        if not isinstance(v, dict):
+            continue
+        pos = v.get("position") or v.get("pos") or {}
+        x = pos.get("x") if isinstance(pos, dict) else None
+        y = pos.get("y") if isinstance(pos, dict) else None
+        # Fallback: alcune versioni mettono x/y a livello superiore
+        if x is None:
+            x = v.get("x")
+        if y is None:
+            y = v.get("y")
+        parsed.append({
+            "type": v.get("type", "unknown"),
+            "severity": v.get("severity", "error"),
+            "message": v.get("description", v.get("message", "Violazione DRC")),
+            "net1": v.get("net1", ""),
+            "net2": v.get("net2", ""),
+            "x": float(x) if x is not None else None,
+            "y": float(y) if y is not None else None,
+        })
+    return parsed
+
+
+def parse_erc_violations(violations_raw: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Trasforma le violazioni ERC in oggetti normalizzati (senza coordinate, l'ERC e' logico)."""
+    parsed: List[Dict[str, Any]] = []
+    for v in violations_raw:
+        if not isinstance(v, dict):
+            continue
+        parsed.append({
+            "type": v.get("type", "unknown"),
+            "severity": v.get("severity", "error"),
+            "message": v.get("description", v.get("message", "Violazione ERC")),
+            "net1": v.get("net1", ""),
+            "net2": v.get("net2", ""),
+            "x": None,
+            "y": None,
+        })
+    return parsed
+
+
 def run_drc(pcb_path: Path, output_path: Path = None) -> Dict[str, Any]:
     """Esegue il DRC su un file .kicad_pcb e restituisce il report JSON.
 
