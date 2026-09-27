@@ -86,6 +86,8 @@ export default function PcbLab({ openTab }) {
   const [newProjectName, setNewProjectName] = useState('');
   const [newBoardWidth, setNewBoardWidth] = useState(80);
   const [newBoardHeight, setNewBoardHeight] = useState(60);
+  const [newTemplate, setNewTemplate] = useState('vuota');
+  const [newMcu, setNewMcu] = useState('RP2040');
 
   // --- Stato Backend KiCad & Anteprima SVG ---
   const [kicadStatus, setKicadStatus] = useState(null);
@@ -229,6 +231,8 @@ export default function PcbLab({ openTab }) {
           name: newProjectName.trim(),
           width_mm: parseFloat(newBoardWidth) || 80,
           height_mm: parseFloat(newBoardHeight) || 60,
+          template: newTemplate,
+          mcu: newMcu,
         }),
       });
       if (res.ok) {
@@ -1777,6 +1781,57 @@ export default function PcbLab({ openTab }) {
                   }}
                 />
               </div>
+
+              <div style={{ marginBottom: '14px' }}>
+                <label style={{ display: 'block', fontSize: '0.76rem', color: '#94a3b8', marginBottom: '4px' }}>
+                  Template
+                </label>
+                <select
+                  value={newTemplate}
+                  onChange={(e) => setNewTemplate(e.target.value)}
+                  style={{
+                    width: '100%',
+                    padding: '8px 12px',
+                    borderRadius: '6px',
+                    background: isLight ? '#f1f5f9' : 'rgba(255,255,255,0.06)',
+                    border: `1px solid ${isLight ? '#cbd5e1' : 'rgba(255,255,255,0.1)'}`,
+                    color: isLight ? '#0f172a' : '#f8fafc',
+                    fontSize: '0.8rem',
+                    outline: 'none',
+                    boxSizing: 'border-box',
+                  }}
+                >
+                  <option value="vuota">Scheda Vuota (LxH personalizzata)</option>
+                  <option value="ldo_3v3">Regolatore LDO 3.3V + Condensatori</option>
+                  <option value="breakout_mcu">Breakout MCU (RP2040 / ESP32)</option>
+                </select>
+              </div>
+
+              {newTemplate === 'breakout_mcu' && (
+                <div style={{ marginBottom: '14px' }}>
+                  <label style={{ display: 'block', fontSize: '0.76rem', color: '#94a3b8', marginBottom: '4px' }}>
+                    Microcontrollore
+                  </label>
+                  <select
+                    value={newMcu}
+                    onChange={(e) => setNewMcu(e.target.value)}
+                    style={{
+                      width: '100%',
+                      padding: '8px 12px',
+                      borderRadius: '6px',
+                      background: isLight ? '#f1f5f9' : 'rgba(255,255,255,0.06)',
+                      border: `1px solid ${isLight ? '#cbd5e1' : 'rgba(255,255,255,0.1)'}`,
+                      color: isLight ? '#0f172a' : '#f8fafc',
+                      fontSize: '0.8rem',
+                      outline: 'none',
+                      boxSizing: 'border-box',
+                    }}
+                  >
+                    <option value="RP2040">Raspberry Pi RP2040</option>
+                    <option value="ESP32">Espressif ESP32</option>
+                  </select>
+                </div>
+              )}
 
               <div style={{ display: 'flex', gap: '12px', marginBottom: '20px' }}>
                 <div style={{ flex: 1 }}>

@@ -140,13 +140,25 @@ async def handle_kicad_create_project(request: Request):
     name = str(body.get("name") or "new_pcb").strip()
     width = float(body.get("width_mm") or 80.0)
     height = float(body.get("height_mm") or 60.0)
+    template = str(body.get("template") or "vuota").strip().lower()
+    mcu = str(body.get("mcu") or "RP2040").strip()
     target_dir = body.get("dir")
     if target_dir:
         p_dir = Path(target_dir)
     else:
         p_dir = _get_projects_dir() / name
 
-    created = parser.create_empty_project(p_dir, name, width_mm=width, height_mm=height)
+    try:
+        created = parser.create_project_from_template(
+            p_dir, name,
+            template=template,
+            width_mm=width,
+            height_mm=height,
+            mcu=mcu,
+        )
+    except Exception as exc:
+        return JSONResponse(status_code=500, content={"success": False, "error": str(exc)})
+
     return JSONResponse(status_code=200, content={"success": True, "project": created})
 
 

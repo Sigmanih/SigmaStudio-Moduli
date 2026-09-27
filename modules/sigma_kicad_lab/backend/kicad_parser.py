@@ -924,46 +924,44 @@ def board_to_svg(info: KiCadBoardInfo) -> str:
     return "\n".join(parts)
 
 
-def create_empty_project(project_dir: Path, project_name: str,
-                         width_mm: float = 80.0, height_mm: float = 60.0,
-                         layers: int = 2) -> Dict[str, str]:
-    """Crea una terna di file KiCad puliti (.kicad_pro, .kicad_sch, .kicad_pcb)."""
-    import json
-    project_dir = Path(project_dir)
-    project_dir.mkdir(parents=True, exist_ok=True)
 
-    clean_name = re.sub(r"[^a-zA-Z0-9_-]", "_", project_name.strip()) or "project"
-    pro_path = project_dir / f"{clean_name}.kicad_pro"
-    sch_path = project_dir / f"{clean_name}.kicad_sch"
-    pcb_path = project_dir / f"{clean_name}.kicad_pcb"
 
-    pro_content = {
-        "meta": {"filename": f"{clean_name}.kicad_pro", "version": 1},
-        "project": {"name": clean_name},
-        "schematic": {"annotate_start_num": 1},
-        "board": {"design_settings": {}},
-    }
-    pro_path.write_text(json.dumps(pro_content, indent=2), encoding="utf-8")
 
-    sch_content = f"""(kicad_sch
-  (version 20231120)
-  (generator "eeschema")
-  (generator_version "10.0")
-  (uuid "00000000-0000-0000-0000-000000000001")
-  (paper "A4")
-  (title_block
-    (title "{clean_name}")
-    (company "Sigma Studio Hardware")
-  )
-)
-"""
-    sch_path.write_text(sch_content, encoding="utf-8")
 
-    # Calcola contorno scheda Edge.Cuts centrato su (100, 100)
+def _fori_m3(width_mm: float, height_mm: float) -> List[str]:
+    """Genera i fori di montaggio M3 a 5mm dai bordi (4 angoli)."""
     ox, oy = 100.0, 100.0
     x2, y2 = ox + width_mm, oy + height_mm
+    m = 5.0  # distanza dal bordo
+    r = 1.5  # raggio foro M3 (diametro 3mm)
+    posizioni = [
+        (ox + m, oy + m),
+        (x2 - m, oy + m),
+        (x2 - m, y2 - m),
+        (ox + m, y2 - m),
+    ]
+    righe = []
+    for i, (px, py) in enumerate(posizioni, 1):
+        righe.append(
+            '  (footprint "MountingHole:Mounting_Hole_3.2mm_M3"'
+            '    (layer "F.Cu")'
+            f'    (uuid "00000000-0000-0000-0000-{i:010d}")'
+            f'    (at {px:.4f} {py:.4f})'
+            '    (descr "Foro di montaggio M3")'
+            '    (pad "" np_thru_hole circle (at 0 0) (size 3.2 3.2) (drill 3.2) (layers "*.Cu" "*.Mask"))'
+            '  )'
+        )
+    return righe
 
-    pcb_content = f"""(kicad_pcb
+
+def _genera_pcb_base(clean_name: str, width_mm: float, height_mm: float,
+                     extra_footprints: List[str] = None) -> str:
+    """Genera il contenuto .kicad_pcb con contorno Edge.Cuts e fori M3."""
+    ox, oy = 100.0, 100.0
+    x2, y2 = ox + width_mm, oy + height_mm
+    fori = _fori_m3(width_mm, height_mm)
+    fp_block = "\n".join(extra_footprints or [])
+    return f"""(kicad_pcb
   (version 20240108)
   (generator "pcbnew")
   (generator_version "10.0")
@@ -988,14 +986,173 @@ def create_empty_project(project_dir: Path, project_name: str,
   (gr_line (start {x2:.4f} {oy:.4f}) (end {x2:.4f} {y2:.4f}) (layer "Edge.Cuts") (stroke (width 0.15) (type solid)))
   (gr_line (start {x2:.4f} {y2:.4f}) (end {ox:.4f} {y2:.4f}) (layer "Edge.Cuts") (stroke (width 0.15) (type solid)))
   (gr_line (start {ox:.4f} {y2:.4f}) (end {ox:.4f} {oy:.4f}) (layer "Edge.Cuts") (stroke (width 0.15) (type solid)))
+{fp_block}
 )
 """
+
+
+def _genera_sch_base(clean_name: str, extra_symbols: List[str] = None) -> str:
+    """Genera il contenuto .kicad_sch con titolo e simboli opzionali."""
+    sym_block = "\n".join(extra_symbols or [])
+    return f"""(kicad_sch
+  (version 20231120)
+  (generator "eeschema")
+  (generator_version "10.0")
+  (uuid "00000000-0000-0000-0000-000000000001")
+  (paper "A4")
+  (title_block
+    (title "{clean_name}")
+    (company "Sigma Studio Hardware")
+  )
+{sym_block}
+)
+"""
+
+
+def create_project_from_template(project_dir: Path, project_name: str,
+                                 template: str = "vuota",
+                                 width_mm: float = 80.0,
+                                 height_mm: float = 60.0,
+                                 mcu: str = "RP2040") -> Dict[str, str]:
+    """Crea un progetto KiCad da uno dei tre template.
+
+    Template disponibili:
+      - "vuota": scheda vuota con contorno e fori M3.
+      - "ldo_3v3": regolatore LDO 3.3V (AMS1117) con condensatori e connettori pin.
+      - "breakout_mcu": breakout board microcontrollore (RP2040 o ESP32).
+    """
+    import json
+    project_dir = Path(project_dir)
+    project_dir.mkdir(parents=True, exist_ok=True)
+
+    clean_name = re.sub(r"[^a-zA-Z0-9_-]", "_", project_name.strip()) or "project"
+    pro_path = project_dir / f"{clean_name}.kicad_pro"
+    sch_path = project_dir / f"{clean_name}.kicad_sch"
+    pcb_path = project_dir / f"{clean_name}.kicad_pcb"
+
+    # --- .kicad_pro ---
+    pro_content = {
+        "meta": {"filename": f"{clean_name}.kicad_pro", "version": 1},
+        "project": {"name": clean_name},
+        "schematic": {"annotate_start_num": 1},
+        "board": {"design_settings": {}},
+    }
+    pro_path.write_text(json.dumps(pro_content, indent=2), encoding="utf-8")
+
+    # --- Template specifici ---
+    extra_fp: List[str] = []
+    extra_sym: List[str] = []
+
+    if template == "ldo_3v3":
+        # LDO AMS1117 SOT-223 + C_in 10uF + C_out 10uF + connettori pin 2x1
+        cx, cy = 150.0, 150.0
+        extra_fp = [
+            f'  (footprint "Regulator_Linear:TO-223-3"\n'
+            f'    (layer "F.Cu")\n'
+            f'    (uuid "00000000-0000-0000-0000-000000000101")\n'
+            f'    (at {cx:.4f} {cy:.4f})\n'
+            f'    (descr "LDO AMS1117 3.3V")\n'
+            f'    (pad "1" smd rect (at -2.3 0) (size 1.5 2.0) (layers "F.Cu" "F.Paste" "F.Mask"))\n'
+            f'    (pad "2" smd rect (at 0 0) (size 1.5 2.0) (layers "F.Cu" "F.Paste" "F.Mask"))\n'
+            f'    (pad "3" smd rect (at 2.3 0) (size 1.5 2.0) (layers "F.Cu" "F.Paste" "F.Mask"))\n'
+            f'  )',
+            f'  (footprint "Capacitor_SMD:C_0805_2012Metric"\n'
+            f'    (layer "F.Cu")\n'
+            f'    (uuid "00000000-0000-0000-0000-000000000102")\n'
+            f'    (at {cx - 15:.4f} {cy:.4f})\n'
+            f'    (descr "C_in 10uF")\n'
+            f'    (pad "1" smd rect (at -0.95 0) (size 0.5 1.6) (layers "F.Cu" "F.Paste" "F.Mask"))\n'
+            f'    (pad "2" smd rect (at 0.95 0) (size 0.5 1.6) (layers "F.Cu" "F.Paste" "F.Mask"))\n'
+            f'  )',
+            f'  (footprint "Capacitor_SMD:C_0805_2012Metric"\n'
+            f'    (layer "F.Cu")\n'
+            f'    (uuid "00000000-0000-0000-0000-000000000103")\n'
+            f'    (at {cx + 15:.4f} {cy:.4f})\n'
+            f'    (descr "C_out 10uF")\n'
+            f'    (pad "1" smd rect (at -0.95 0) (size 0.5 1.6) (layers "F.Cu" "F.Paste" "F.Mask"))\n'
+            f'    (pad "2" smd rect (at 0.95 0) (size 0.5 1.6) (layers "F.Cu" "F.Paste" "F.Mask"))\n'
+            f'  )',
+            f'  (footprint "Pin_Headers:Pin_Header_Straight_2x01"\n'
+            f'    (layer "F.Cu")\n'
+            f'    (uuid "00000000-0000-0000-0000-000000000104")\n'
+            f'    (at {cx:.4f} {cy + 25:.4f})\n'
+            f'    (descr "Connettore Vin")\n'
+            f'    (pad "1" thru_hole circle (at 0 0) (size 1.6 1.6) (drill 0.8) (layers "*.Cu" "*.Mask"))\n'
+            f'    (pad "2" thru_hole circle (at 2.54 0) (size 1.6 1.6) (drill 0.8) (layers "*.Cu" "*.Mask"))\n'
+            f'  )',
+        ]
+        extra_sym = [
+            '  (symbol (lib_id "Regulator_Linear:AMS1117-3.3") (at 100 100) (unit 1) (uuid "00000000-0000-0000-0000-000000000201"))',
+            '  (symbol (lib_id "Device:C") (at 80 100) (unit 1) (uuid "00000000-0000-0000-0000-000000000202"))',
+            '  (symbol (lib_id "Device:C") (at 120 100) (unit 1) (uuid "00000000-0000-0000-0000-000000000203"))',
+            '  (symbol (lib_id "Connector:Conn_01x02") (at 100 130) (unit 1) (uuid "00000000-0000-0000-0000-000000000204"))',
+        ]
+
+    elif template == "breakout_mcu":
+        mcu_clean = re.sub(r"[^a-zA-Z0-9]", "", mcu) or "RP2040"
+        cx, cy = 150.0, 150.0
+        # Footprint MCU (QFN/SOP generico) + connettori pin 2x8
+        extra_fp = [
+            f'  (footprint "Package_QFN:QFN-48_7x7mm_P0.5mm"\n'
+            f'    (layer "F.Cu")\n'
+            f'    (uuid "00000000-0000-0000-0000-000000000301")\n'
+            f'    (at {cx:.4f} {cy:.4f})\n'
+            f'    (descr "MCU {mcu_clean}")\n'
+            f'    (pad "1" smd rect (at -3.5 -3.5) (size 0.5 1.0) (layers "F.Cu" "F.Paste" "F.Mask"))\n'
+            f'    (pad "2" smd rect (at -3.5 -2.5) (size 0.5 1.0) (layers "F.Cu" "F.Paste" "F.Mask"))\n'
+            f'    (pad "3" smd rect (at -3.5 -1.5) (size 0.5 1.0) (layers "F.Cu" "F.Paste" "F.Mask"))\n'
+            f'    (pad "4" smd rect (at -3.5 -0.5) (size 0.5 1.0) (layers "F.Cu" "F.Paste" "F.Mask"))\n'
+            f'    (pad "5" smd rect (at -3.5 0.5) (size 0.5 1.0) (layers "F.Cu" "F.Paste" "F.Mask"))\n'
+            f'    (pad "6" smd rect (at -3.5 1.5) (size 0.5 1.0) (layers "F.Cu" "F.Paste" "F.Mask"))\n'
+            f'    (pad "7" smd rect (at -3.5 2.5) (size 0.5 1.0) (layers "F.Cu" "F.Paste" "F.Mask"))\n'
+            f'    (pad "8" smd rect (at -3.5 3.5) (size 0.5 1.0) (layers "F.Cu" "F.Paste" "F.Mask"))\n'
+            f'  )',
+            f'  (footprint "Pin_Headers:Pin_Header_Straight_2x08"\n'
+            f'    (layer "F.Cu")\n'
+            f'    (uuid "00000000-0000-0000-0000-000000000302")\n'
+            f'    (at {cx - 15:.4f} {cy + 20:.4f})\n'
+            f'    (descr "Connettore pin sinistro")\n'
+            f'    (pad "1" thru_hole circle (at 0 0) (size 1.6 1.6) (drill 0.8) (layers "*.Cu" "*.Mask"))\n'
+            f'    (pad "2" thru_hole circle (at 0 2.54) (size 1.6 1.6) (drill 0.8) (layers "*.Cu" "*.Mask"))\n'
+            f'    (pad "3" thru_hole circle (at 0 5.08) (size 1.6 1.6) (drill 0.8) (layers "*.Cu" "*.Mask"))\n'
+            f'    (pad "4" thru_hole circle (at 0 7.62) (size 1.6 1.6) (drill 0.8) (layers "*.Cu" "*.Mask"))\n'
+            f'    (pad "5" thru_hole circle (at 0 10.16) (size 1.6 1.6) (drill 0.8) (layers "*.Cu" "*.Mask"))\n'
+            f'    (pad "6" thru_hole circle (at 0 12.7) (size 1.6 1.6) (drill 0.8) (layers "*.Cu" "*.Mask"))\n'
+            f'    (pad "7" thru_hole circle (at 0 15.24) (size 1.6 1.6) (drill 0.8) (layers "*.Cu" "*.Mask"))\n'
+            f'    (pad "8" thru_hole circle (at 0 17.78) (size 1.6 1.6) (drill 0.8) (layers "*.Cu" "*.Mask"))\n'
+            f'  )',
+            f'  (footprint "Pin_Headers:Pin_Header_Straight_2x08"\n'
+            f'    (layer "F.Cu")\n'
+            f'    (uuid "00000000-0000-0000-0000-000000000303")\n'
+            f'    (at {cx + 15:.4f} {cy + 20:.4f})\n'
+            f'    (descr "Connettore pin destro")\n'
+            f'    (pad "1" thru_hole circle (at 0 0) (size 1.6 1.6) (drill 0.8) (layers "*.Cu" "*.Mask"))\n'
+            f'    (pad "2" thru_hole circle (at 0 2.54) (size 1.6 1.6) (drill 0.8) (layers "*.Cu" "*.Mask"))\n'
+            f'    (pad "3" thru_hole circle (at 0 5.08) (size 1.6 1.6) (drill 0.8) (layers "*.Cu" "*.Mask"))\n'
+            f'    (pad "4" thru_hole circle (at 0 7.62) (size 1.6 1.6) (drill 0.8) (layers "*.Cu" "*.Mask"))\n'
+            f'    (pad "5" thru_hole circle (at 0 10.16) (size 1.6 1.6) (drill 0.8) (layers "*.Cu" "*.Mask"))\n'
+            f'    (pad "6" thru_hole circle (at 0 12.7) (size 1.6 1.6) (drill 0.8) (layers "*.Cu" "*.Mask"))\n'
+            f'    (pad "7" thru_hole circle (at 0 15.24) (size 1.6 1.6) (drill 0.8) (layers "*.Cu" "*.Mask"))\n'
+            f'    (pad "8" thru_hole circle (at 0 17.78) (size 1.6 1.6) (drill 0.8) (layers "*.Cu" "*.Mask"))\n'
+            f'  )',
+        ]
+        extra_sym = [
+            f'  (symbol (lib_id "MCU:{mcu_clean}") (at 100 100) (unit 1) (uuid "00000000-0000-0000-0000-000000000401"))',
+            '  (symbol (lib_id "Connector:Conn_02x08") (at 80 130) (unit 1) (uuid "00000000-0000-0000-0000-000000000402"))',
+        ]
+
+    # --- Genera .kicad_pcb con contorno + fori M3 + footprint extra ---
+    pcb_content = _genera_pcb_base(clean_name, width_mm, height_mm, extra_fp)
     pcb_path.write_text(pcb_content, encoding="utf-8")
+
+    # --- Genera .kicad_sch con simboli extra ---
+    sch_content = _genera_sch_base(clean_name, extra_sym)
+    sch_path.write_text(sch_content, encoding="utf-8")
 
     return {
         "project_name": clean_name,
+        "template": template,
         "pro_path": str(pro_path),
         "sch_path": str(sch_path),
         "pcb_path": str(pcb_path),
     }
-
