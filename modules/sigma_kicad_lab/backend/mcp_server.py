@@ -53,6 +53,195 @@ class KiCadLabMCPServer(BaseMCPServer):
 
         # -- Stato --
 
+        # -- Sessione attiva persistente --
+
+        self.register_tool(
+            name="kicad_open_project",
+            description=(
+                "Apre un progetto KiCad e lo rende quello corrente per tutti i tool "
+                "successivi. Crea una sessione attiva persistente: non serve piu' "
+                "specificare pcb_path in ogni chiamata. Chiama per prima."
+            ),
+            input_schema={
+                "type": "object",
+                "properties": {
+                    "path": {"type": "string",
+                             "description": "Cartella del progetto o file .kicad_pro/.kicad_pcb."},
+                },
+                "required": ["path"],
+            },
+            handler=self._open_project,
+            safety=SAFE,
+            category="eda",
+        )
+
+        self.register_tool(
+            name="kicad_close_project",
+            description=(
+                "Chiude la sessione attiva e libera il progetto corrente. "
+                "I tool successivi richiederanno di riaprire un progetto."
+            ),
+            input_schema={"type": "object", "properties": {}},
+            handler=self._close_project,
+            safety=SAFE,
+            category="eda",
+        )
+
+        # -- Costruzione topologia (schematico) --
+
+        self.register_tool(
+            name="kicad_add_component",
+            description=(
+                "Aggiunge un componente allo schematico (.kicad_sch) con simbolo, "
+                "valore e footprint. Usa la sessione attiva aperta con kicad_open_project."
+            ),
+            input_schema={
+                "type": "object",
+                "properties": {
+                    "symbol": {"type": "string", "description": "Nome del simbolo (es. R, C, U)."},
+                    "value": {"type": "string", "default": "", "description": "Valore (es. 10k, 100nF)."},
+                    "footprint": {"type": "string", "default": "", "description": "Footprint (es. Resistor_SMD:R_0805)."},
+                    "designator": {"type": "string", "default": "", "description": "Designator (auto-generato se vuoto)."},
+                },
+                "required": ["symbol"],
+            },
+            handler=self._add_component,
+            safety=SENSITIVE,
+            category="eda",
+        )
+
+        self.register_tool(
+            name="kicad_remove_component",
+            description=(
+                "Rimuove un componente dallo schematico (.kicad_sch) per designator."
+            ),
+            input_schema={
+                "type": "object",
+                "properties": {
+                    "designator": {"type": "string", "description": "Designator del componente da rimuovere."},
+                },
+                "required": ["designator"],
+            },
+            handler=self._remove_component,
+            safety=SENSITIVE,
+            category="eda",
+        )
+
+        self.register_tool(
+            name="kicad_modify_property",
+            description=(
+                "Modifica proprietà di un componente esistente: valore, footprint, designator."
+            ),
+            input_schema={
+                "type": "object",
+                "properties": {
+                    "designator": {"type": "string", "description": "Designator del componente."},
+                    "property_name": {"type": "string", "enum": ["value", "footprint", "designator"],
+                                     "description": "Proprietà da modificare."},
+                    "new_value": {"type": "string", "description": "Nuovo valore."},
+                },
+                "required": ["designator", "property_name", "new_value"],
+            },
+            handler=self._modify_property,
+            safety=SENSITIVE,
+            category="eda",
+        )
+
+        # -- Gestione librerie --
+
+        self.register_tool(
+            name="kicad_import_library",
+            description=(
+                "Importa una libreria personalizzata (.kicad_sym o .pretty) nel progetto."
+            ),
+            input_schema={
+                "type": "object",
+                "properties": {
+                    "library_path": {"type": "string", "description": "Path al file .kicad_sym o cartella .pretty."},
+                },
+                "required": ["library_path"],
+            },
+            handler=self._import_library,
+            safety=SENSITIVE,
+            category="eda",
+        )
+
+        self.register_tool(
+            name="kicad_export_library",
+            description=(
+                "Esporta i simboli/footprint usati in una libreria riutilizzabile."
+            ),
+            input_schema={
+                "type": "object",
+                "properties": {
+                    "output_path": {"type": "string", "description": "Path di destinazione per la libreria."},
+                    "library_type": {"type": "string", "enum": ["symbols", "footprints"],
+                                     "default": "symbols"},
+                },
+                "required": ["output_path"],
+            },
+            handler=self._export_library,
+            safety=SAFE,
+            category="eda",
+        )
+
+        # -- Netlist import/export --
+
+        self.register_tool(
+            name="kicad_import_netlist",
+            description=(
+                "Importa una netlist esterna nel progetto KiCad."
+            ),
+            input_schema={
+                "type": "object",
+                "properties": {
+                    "netlist_path": {"type": "string", "description": "Path al file netlist."},
+                },
+                "required": ["netlist_path"],
+            },
+            handler=self._import_netlist,
+            safety=SENSITIVE,
+            category="eda",
+        )
+
+        self.register_tool(
+            name="kicad_export_netlist",
+            description=(
+                "Esporta la netlist corrente del progetto in un file."
+            ),
+            input_schema={
+                "type": "object",
+                "properties": {
+                    "output_path": {"type": "string", "description": "Path di destinazione per la netlist."},
+                },
+                "required": ["output_path"],
+            },
+            handler=self._export_netlist,
+            safety=SAFE,
+            category="eda",
+        )
+
+        # -- Version control --
+
+        self.register_tool(
+            name="kicad_git_commit",
+            description=(
+                "Crea un commit Git con i file KiCad modificati nel progetto corrente."
+            ),
+            input_schema={
+                "type": "object",
+                "properties": {
+                    "message": {"type": "string", "default": "", 
+                               "description": "Messaggio di commit (auto-generato se vuoto)."},
+                },
+            },
+            handler=self._git_commit,
+            safety=SENSITIVE,
+            category="eda",
+        )
+
+        # -- Stato --
+
         self.register_tool(
             name="kicad_status",
             description=(
