@@ -87,6 +87,12 @@ export default function PcbLab({ openTab }) {
   const [newBoardWidth, setNewBoardWidth] = useState(80);
   const [newBoardHeight, setNewBoardHeight] = useState(60);
 
+  // --- Stato Backend KiCad & Anteprima SVG ---
+  const [kicadStatus, setKicadStatus] = useState(null);
+  const [statusLoading, setStatusLoading] = useState(false);
+  const [previewSvg, setPreviewSvg] = useState('');
+  const [previewLoading, setPreviewLoading] = useState(false);
+
   // Caricamento elenco progetti al mount
   const fetchProjects = useCallback(async () => {
     try {
@@ -133,6 +139,51 @@ export default function PcbLab({ openTab }) {
       fetchBoardData(activeProject.pcb_path);
     }
   }, [activeProject, fetchBoardData]);
+
+  // Interroga lo status del backend KiCad all'apertura della tab
+  const fetchKicadStatus = useCallback(async () => {
+    setStatusLoading(true);
+    try {
+      const res = await fetch('/api/kicad/status');
+      if (res.ok) {
+        const data = await res.json();
+        setKicadStatus(data);
+      }
+    } catch (err) {
+      console.warn('Impossibile recuperare status KiCad:', err);
+    } finally {
+      setStatusLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchKicadStatus();
+  }, [fetchKicadStatus]);
+
+  // Carica l'anteprima SVG della scheda attiva
+  const fetchPreviewSvg = useCallback(async (pcbPath) => {
+    if (!pcbPath) return;
+    setPreviewLoading(true);
+    try {
+      const res = await fetch(`/api/kicad/preview?pcb_path=${encodeURIComponent(pcbPath)}`);
+      if (res.ok) {
+        const data = await res.json();
+        if (data.svg) {
+          setPreviewSvg(data.svg);
+        }
+      }
+    } catch (err) {
+      console.warn('Impossibile caricare anteprima SVG:', err);
+    } finally {
+      setPreviewLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (activeProject && activeProject.pcb_path) {
+      fetchPreviewSvg(activeProject.pcb_path);
+    }
+  }, [activeProject, fetchPreviewSvg]);
 
   // Gestione creazione nuovo progetto
   const handleCreateProject = async (e) => {
