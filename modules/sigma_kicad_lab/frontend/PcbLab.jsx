@@ -93,6 +93,38 @@ export default function PcbLab({ openTab }) {
   const [previewSvg, setPreviewSvg] = useState('');
   const [previewLoading, setPreviewLoading] = useState(false);
 
+  // Statistiche derivate dalla scheda attiva (boardData) e dallo status del backend
+  const boardStats = useMemo(() => {
+    if (!boardData) return null;
+    const footprints = Array.isArray(boardData.footprints) ? boardData.footprints : [];
+    const pads = Array.isArray(boardData.pads) ? boardData.pads : [];
+    const tracks = Array.isArray(boardData.tracks) ? boardData.tracks : [];
+    const vias = Array.isArray(boardData.vias) ? boardData.vias : [];
+    const nets = Array.isArray(boardData.nets) ? boardData.nets : [];
+    const outline = boardData.outline || boardData.board_outline || null;
+    let widthMm = 0;
+    let heightMm = 0;
+    if (outline && typeof outline === 'object') {
+      if (typeof outline.width_mm === 'number') widthMm = outline.width_mm;
+      if (typeof outline.height_mm === 'number') heightMm = outline.height_mm;
+      if (!widthMm && Array.isArray(outline.points) && outline.points.length >= 2) {
+        const xs = outline.points.map((p) => (typeof p.x === 'number' ? p.x : parseFloat(p[0]) || 0));
+        const ys = outline.points.map((p) => (typeof p.y === 'number' ? p.y : parseFloat(p[1]) || 0));
+        widthMm = Math.max(...xs) - Math.min(...xs);
+        heightMm = Math.max(...ys) - Math.min(...ys);
+      }
+    }
+    return {
+      footprints: footprints.length,
+      pads: pads.length,
+      tracks: tracks.length,
+      vias: vias.length,
+      nets: nets.length,
+      widthMm,
+      heightMm,
+    };
+  }, [boardData]);
+
   // Caricamento elenco progetti al mount
   const fetchProjects = useCallback(async () => {
     try {
