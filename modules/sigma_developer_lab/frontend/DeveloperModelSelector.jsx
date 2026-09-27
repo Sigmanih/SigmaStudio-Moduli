@@ -219,15 +219,16 @@ export default function DeveloperModelSelector({
 
   // Selected Model Object with full details
   const activeModelObj = useMemo(() => {
-    if (!selectedModel || selectedModel === 'sigmaengine') {
-      return allModels[0] || {
-        id: 'sigmaengine',
-        name: 'SigmaEngine Auto Coder',
-        shortName: 'SigmaEngine Auto Coder',
+    if (!selectedModel) {
+      const firstFav = favoriteModels.length > 0 ? allModels.find(m => favoriteModels.includes(m.id) || favoriteModels.includes(m.name)) : null;
+      return firstFav || allModels[0] || {
+        id: 'default',
+        name: 'Nessun modello selezionato',
+        shortName: 'Default',
         family: 'qwen',
-        params: 'Auto Coder',
-        quant: 'FlashAttn-2',
-        isResident: true
+        params: 'LLM',
+        quant: 'FP16',
+        isResident: false
       };
     }
     const found = allModels.find(m => m.id === selectedModel || m.name === selectedModel);

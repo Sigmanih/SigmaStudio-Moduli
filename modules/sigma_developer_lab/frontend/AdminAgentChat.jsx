@@ -3366,6 +3366,13 @@ ${event.diff || ''}`,
                               </div>
                             )}
 
+                            {/* Dettagli finestra/righe per lettura file */}
+                            {(t.params?.offset || t.params?.start_line || t.params?.limit) && (
+                              <div style={{ fontFamily: 'monospace', color: isLight ? '#57606a' : '#8b949e', fontSize: '0.66rem' }}>
+                                📑 Righe: <strong>da riga {t.params.offset || t.params.start_line || 1} {t.params.limit ? `(${t.params.limit} righe max)` : ''}</strong>
+                              </div>
+                            )}
+
                             {/* Una ricerca senza il termine cercato e' una
                               scheda che dice "ho cercato" e non dice cosa. */}
                             {(t.params?.query || t.params?.pattern) && (
@@ -3374,15 +3381,20 @@ ${event.diff || ''}`,
                               </div>
                             )}
 
-                            {t.result?.message && (
+                            {/* Messaggio o Errore dell'azione */}
+                            {(t.result?.error || t.error || t.result?.message) && (
                               <div style={{
-                                color: t.result.success !== false ? (isLight ? '#24292f' : '#e6edf3') : '#ef4444',
+                                color: (isSuccess && !t.result?.error && !t.error) ? (isLight ? '#24292f' : '#e6edf3') : '#ef4444',
                                 fontSize: '0.68rem',
                                 lineHeight: 1.4,
-                                marginTop: '2px',
-                                fontWeight: 500
+                                marginTop: '4px',
+                                padding: (isSuccess && !t.result?.error && !t.error) ? '0' : '5px 8px',
+                                borderRadius: '4px',
+                                background: (isSuccess && !t.result?.error && !t.error) ? 'transparent' : (isLight ? '#fff1f0' : 'rgba(239, 68, 68, 0.1)'),
+                                border: (isSuccess && !t.result?.error && !t.error) ? 'none' : '1px solid rgba(239, 68, 68, 0.25)',
+                                fontWeight: (isSuccess && !t.result?.error && !t.error) ? 500 : 600
                               }}>
-                                {t.result.message}
+                                {t.result?.error || t.error || t.result?.message}
                               </div>
                             )}
 
