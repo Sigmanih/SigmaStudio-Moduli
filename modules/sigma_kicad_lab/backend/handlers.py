@@ -181,22 +181,63 @@ async def handle_kicad_schematic(request: Request):
 
     try:
         sch_info = parser.read_schematic(sch_p)
+
+        # Costruisci la mappa net -> set di riferimenti collegati.
+        # Le connessioni arrivano come {net: [refs]} o {net: [(ref, pin), ...]};
+        # normalizziamo in una lista di stringhe "REF" o "REF.PIN".
+        net_refs = {}
+        for net, refs in (sch_info.connections or {}).items():
+            normalizzati = []
+            for r in refs or []:
+                if isinstance(r, (list, tuple)) and len(r) >= 1:
+                    normalizzati.append(f"{r[0]}.{r[1]}" if len(r) > 1 else str(r[0]))
+                else:
+                    normalizzati.append(str(r))
+            net_refs[str(net)] = normalizzati
+
+        # Per ogni componente, determina i net a cui e' collegato e lo stato di
+        # instradamento: 'collegato' se almeno un pin e' su una net con >= 2 refs,
+        # 'non_collegato' se la net ha un solo riferimento (stubbata) o non esiste.
+        componenti = []
+        for c in sch_info.components:
+            ref = getattr(c, "reference", None)
+            footprint = getattr(c, "footprint", None) or getattr(c, "fp", None) or ""
+            # Cerca i net che contengono questo riferimento (es. "U1" o "U1.1").
+            net_componente = []
+            for net, refs in net_refs.items():
+                if any(r == ref or r.startswith(ref + ".") for r in refs):
+                    net_componente.append(net)
+            # Stato di instradamento: se almeno una net ha >= 2 riferimenti totali.
+            collegato = any(len(net_refs[n]) >= 2 for n in net_componente)
+            componenti.append({
+                "reference": ref,
+                "value": getattr(c, "value", None) or "",
+                "lib_id": getattr(c, "lib_id", None) or "",
+                "footprint": footprint,
+                "x": getattr(c, "x", 0),
+                "y": getattr(c, "y", 0),
+                "nets": net_componente,
+                "routing_status": "collegato" if collegato else "non_collegato",
+            })
+
+        # Elenco net con stato di instradamento.
+        nets = []
+        for net, refs in net_refs.items():
+            nets.append({
+                "name": net,
+                "refs": refs,
+                "count": len(refs),
+                "routing_status": "collegato" if len(refs) >= 2 else "non_collegato",
+            })
+
         return JSONResponse(status_code=200, content={
             "success": True,
-            "components": [
-                {
-                    "reference": c.reference,
-                    "value": c.value,
-                    "lib_id": c.lib_id,
-                    "x": c.x,
-                    "y": c.y,
-                }
-                for c in sch_info.components
-            ],
-            "connections_count": len(sch_info.connections),
-            "nets": list(sch_info.connections.keys()),
+            "components": componenti,
+            "nets": nets,
+            "connections_count": len(net_refs),
         })
     except Exception as exc:
+        log.exception("[handle_kicad_schematic] Errore: %s", exc)
         return JSONResponse(status_code=500, content={"success": False, "error": str(exc)})
 
 
@@ -612,6 +653,8 @@ ROUTES = (
     ("/api/kicad/render", handle_kicad_render, ["POST"]),
     ("/api/kicad/export/gerbers", handle_kicad_export_gerbers, ["POST"]),
     ("/api/kicad/export/bom", handle_kicad_export_bom, ["POST"]),
+    ("/api/kicad/export/gerbers/download", handle_kicad_export_gerbers_download, ["GET"]),
+    ("/api/kicad/export/bom/download", handle_kicad_export_bom_download, ["GET"]),
     ("/api/kicad/agent/chat", handle_kicad_agent_chat, ["POST"]),
 ) + tuple(
     (percorso, _route_per_tool(tool), ["POST"])

@@ -55,3 +55,37 @@ export async function leggiScheda(pcbPath) {
   );
   return dati.board || null;
 }
+
+/**
+ * Download diretto di un file binario dal server (Gerber ZIP, BOM CSV).
+ * Crea un URL.createObjectURL e innesca il download nel browser.
+ */
+async function scaricaFile(percorso, nomeFile) {
+  const res = await fetch(percorso);
+  if (!res.ok) {
+    let msg = `HTTP ${res.status}`;
+    try { const d = await res.json(); msg = d.error || d.detail || msg; } catch {}
+    throw new PcbApiError(msg);
+  }
+  const blob = await res.blob();
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = nomeFile || 'download';
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
+/** Scarica il ZIP con Gerber RS-274X + forature Excellon. */
+export async function scaricaGerbers(pcbPath) {
+  const nome = `${pcbPath.split(/[\\/]/).pop().replace(/\.kicad_pcb$/, '')}_gerbers.zip`;
+  await scaricaFile(`/api/kicad/export/gerbers/download?pcb_path=${encodeURIComponent(pcbPath)}`, nome);
+}
+
+/** Scarica il BOM CSV formattato per SMT/LCSC. */
+export async function scaricaBom(schPath) {
+  const nome = `${schPath.split(/[\\/]/).pop().replace(/\.kicad_sch$/, '')}_bom.csv`;
+  await scaricaFile(`/api/kicad/export/bom/download?sch_path=${encodeURIComponent(schPath)}`, nome);
+}

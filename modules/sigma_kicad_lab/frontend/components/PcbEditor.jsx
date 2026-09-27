@@ -22,7 +22,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   MousePointer2, Route, CircleDot, Trash2, Undo2, RotateCw, Tag,
-  RefreshCw, Boxes,
+  RefreshCw, Boxes, AlertTriangle,
 } from 'lucide-react';
 import { leggiScheda, postTool } from '../lib/pcbApi';
 import { coloreNet, normalizzaScheda, snap, vistaScheda } from '../lib/pcbModel';
@@ -72,6 +72,10 @@ export default function PcbEditor({ progetto, isLight, onChanged }) {
   //: passa di qui — lo inserisce `ComponentLibrary`, che ha i suoi campi e un
   //: elenco da cui scegliere invece di un nome da ricordare.
   const [nuovoPezzo, setNuovoPezzo] = useState({ reference: '', valore: '' });
+
+  //: Le violazioni DRC da sovrapporre alla canvas. Ogni voce ha x, y, messaggio.
+  const [violazioni, setViolazioni] = useState([]);
+  const [tooltipDrc, setTooltipDrc] = useState(null); // {x, y, testo}
 
   const svgRef = useRef(null);
   const trascinamentoRef = useRef(null);
@@ -300,6 +304,33 @@ export default function PcbEditor({ progetto, isLight, onChanged }) {
     setInizioPista(null);
     void esegui('Ultima scrittura annullata', '/api/kicad/undo', {});
   }, [esegui]);
+
+  // --- DRC: esecuzione e sovrapposizione violazioni --------------------------
+
+  const eseguiDrc = useCallback(async () => {
+    if (!pcbPath) return;
+    setBusy(true);
+    setErrore(null);
+    try {
+      const dati = await postTool('/api/kicad/drc', { project: pcbPath });
+      const viol = Array.isArray(dati.violations) ? dati.violations : [];
+      // Filtra solo quelle con coordinate valide per il rendering SVG.
+      setViolazioni(viol.filter((v) => typeof v.x === 'number' && typeof v.y === 'number'));
+      setEsito(`DRC: ${viol.length} violazioni`);
+    } catch (err) {
+      setErrore(err.message || String(err));
+      setViolazioni([]);
+    } finally {
+      setBusy(false);
+    }
+  }, [pcbPath]);
+
+  const suClicViolazione = useCallback((evento, v) => {
+    evento.stopPropagation();
+    setTooltipDrc({ x: v.x, y: v.y, testo: v.messaggio || v.rule || 'Violazione DRC' });
+  }, []);
+
+  const chiudiTooltip = useCallback(() => setTooltipDrc(null), []);
 
   const cambiaContorno = useCallback((larghezza, altezza) => {
     void esegui(
@@ -592,6 +623,15 @@ export default function PcbEditor({ progetto, isLight, onChanged }) {
           <button type="button" onClick={annulla} disabled={busy} style={pulsante(isLight)}>
             <Undo2 size={13} /> Annulla l&apos;ultima scrittura
           </button>
+          <button type="button" onClick={() => void eseguiDrc()} disabled={busy}
+                  style={{ ...pulsante(isLight), borderColor: 'rgba(239,68,68,0.5)', color: '#ef4444' }}>
+            <AlertTriangle size={13} /> Esegui DRC
+          </button>
+          {violazioni.length > 0 && (
+            <div style={{ fontSize: '0.68rem', color: '#f87171' }}>
+              {violazioni.length} violazioni — clicca un marker per il dettaglio
+            </div>
+          )}
         </div>
 
         {errore && (
@@ -718,6 +758,31 @@ export default function PcbEditor({ progetto, isLight, onChanged }) {
           {inizioPista && (
             <circle cx={inizioPista.x} cy={inizioPista.y} r={0.35}
                     fill="#38bdf8" pointerEvents="none" />
+          )}
+
+          {/* --- marker DRC: cerchi rossi pulsanti con tooltip al click --- */}
+          {violazioni.map((v, i) => (
+            <g key={`drc-${i}`} onClick={(e) => suClicViolazione(e, v)}
+               style={{ cursor: 'pointer' }}>
+              <circle cx={v.x} cy={v.y} r={0.8}
+                      fill="rgba(239,68,68,0.25)" stroke="#ef4444" strokeWidth={0.15}
+                      className="drc-marker-pulse" />
+              <circle cx={v.x} cy={v.y} r={0.35}
+                      fill="#ef4444" stroke="#fff" strokeWidth={0.08} />
+            </g>
+          ))}
+
+          {tooltipDrc && (
+            <g pointerEvents="none">
+              <rect x={tooltipDrc.x + 1} y={tooltipDrc.y - 3}
+                    width={Math.min(tooltipDrc.testo.length * 0.65, 28)} height={2.5}
+                    rx={0.3}
+                    fill="rgba(15,23,42,0.92)" stroke="#ef4444" strokeWidth={0.08} />
+              <text x={tooltipDrc.x + 1.3} y={tooltipDrc.y - 1.2}
+                    fontSize={0.75} fill="#fecaca">
+                {tooltipDrc.testo.length > 40 ? tooltipDrc.testo.slice(0, 38) + '…' : tooltipDrc.testo}
+              </text>
+            </g>
           )}
         </svg>
 
