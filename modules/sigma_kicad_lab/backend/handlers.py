@@ -198,6 +198,44 @@ async def handle_kicad_schematic(request: Request):
         return JSONResponse(status_code=500, content={"success": False, "error": str(exc)})
 
 
+async def handle_kicad_board_read(request: Request):
+    """GET /api/kicad/board/read?pcb_path=... — Lettura dati scheda in formato JSON per il canvas."""
+    pcb_path_str = request.query_params.get("pcb_path")
+    if not pcb_path_str:
+        return JSONResponse(status_code=400, content={"success": False, "error": "Parametro 'pcb_path' mancante."})
+
+    pcb_p = Path(pcb_path_str)
+    if not pcb_p.is_file():
+        return JSONResponse(status_code=404, content={"success": False, "error": f"File '{pcb_p}' non trovato."})
+
+    try:
+        board_info = parser.read_pcb(pcb_p)
+        data = parser.board_to_dict(board_info)
+        return JSONResponse(status_code=200, content={"success": True, "board": data, "path": str(pcb_p)})
+    except Exception as exc:
+        log.exception("[handle_kicad_board_read] Errore lettura PCB: %s", exc)
+        return JSONResponse(status_code=500, content={"success": False, "error": str(exc)})
+
+
+async def handle_kicad_preview(request: Request):
+    """GET /api/kicad/preview?pcb_path=... — Anteprima SVG della scheda (outline, footprint, pad)."""
+    pcb_path_str = request.query_params.get("pcb_path")
+    if not pcb_path_str:
+        return JSONResponse(status_code=400, content={"success": False, "error": "Parametro 'pcb_path' mancante."})
+
+    pcb_p = Path(pcb_path_str)
+    if not pcb_p.is_file():
+        return JSONResponse(status_code=404, content={"success": False, "error": f"File '{pcb_p}' non trovato."})
+
+    try:
+        board_info = parser.read_pcb(pcb_p)
+        svg_str = parser.board_to_svg(board_info)
+        return JSONResponse(status_code=200, content={"success": True, "svg": svg_str, "path": str(pcb_p)})
+    except Exception as exc:
+        log.exception("[handle_kicad_preview] Errore generazione SVG: %s", exc)
+        return JSONResponse(status_code=500, content={"success": False, "error": str(exc)})
+
+
 async def handle_kicad_placement_optimize(request: Request):
     """POST /api/kicad/placement/optimize — Esegue simulated annealing su .kicad_pcb."""
     try:
@@ -485,21 +523,12 @@ ROUTE_MANUALI = (
     ("/api/kicad/via/delete", "kicad_delete_via"),
     ("/api/kicad/outline/set", "kicad_set_board_outline"),
     ("/api/kicad/undo", "kicad_undo"),
-    # task #6: undo/redo, zone, netclass, rules, costruttori, bom, sync, 3d, export
+    # task #6, l'annullamento bidirezionale. Le altre rotte chieste dalla stessa
+    # UI (zone, netclass, rules, costruttori, bom, sync netlist, render 3d,
+    # export drill e pick&place) si registrano quando arriva l'esecutore:
+    # dichiararle prima significa registrare endpoint che rispondono 404 a ogni
+    # clic, cioe' un modulo che sembra rotto proprio nel momento in cui lo si usa.
     ("/api/kicad/redo", "kicad_redo"),
-    ("/api/kicad/zone_add", "kicad_zone_add"),
-    ("/api/kicad/netclass_set", "kicad_netclass_set"),
-    ("/api/kicad/rules_set", "kicad_rules_set"),
-    ("/api/kicad/constructor_hole", "kicad_constructor_hole"),
-    ("/api/kicad/constructor_fiducial", "kicad_constructor_fiducial"),
-    ("/api/kicad/constructor_testpoint", "kicad_constructor_testpoint"),
-    ("/api/kicad/constructor_silkscreen", "kicad_constructor_silkscreen"),
-    ("/api/kicad/constructor_outline", "kicad_constructor_outline"),
-    ("/api/kicad/bom_export", "kicad_bom_export"),
-    ("/api/kicad/sync_netlist", "kicad_sync_netlist"),
-    ("/api/kicad/render_3d", "kicad_render_3d"),
-    ("/api/kicad/export_drill", "kicad_export_drill"),
-    ("/api/kicad/export_pickplace", "kicad_export_pickplace"),
 )
 
 
@@ -508,6 +537,8 @@ ROUTES = (
     ("/api/kicad/projects", handle_kicad_projects, ["GET"]),
     ("/api/kicad/projects/create", handle_kicad_create_project, ["POST"]),
     ("/api/kicad/board", handle_kicad_board, ["GET"]),
+    ("/api/kicad/board/read", handle_kicad_board_read, ["GET"]),
+    ("/api/kicad/preview", handle_kicad_preview, ["GET"]),
     ("/api/kicad/schematic", handle_kicad_schematic, ["GET"]),
     ("/api/kicad/placement/optimize", handle_kicad_placement_optimize, ["POST"]),
     ("/api/kicad/placement/apply", handle_kicad_placement_apply, ["POST"]),

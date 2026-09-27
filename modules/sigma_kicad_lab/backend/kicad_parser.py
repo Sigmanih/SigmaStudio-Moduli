@@ -848,6 +848,82 @@ def board_to_dict(info: KiCadBoardInfo) -> Dict[str, Any]:
     }
 
 
+def board_to_svg(info: KiCadBoardInfo) -> str:
+    """Genera un'anteprima SVG della scheda PCB da KiCadBoardInfo.
+
+    Disegna outline (Edge.Cuts), footprint come rettangoli con riferimento,
+    pad come cerchi, tracce come linee e vias come anelli.
+    Le coordinate sono in mm, con padding di 5 mm attorno alla board.
+    """
+    pad_mm = 5.0
+    ox = info.origin_x - pad_mm
+    oy = info.origin_y - pad_mm
+    w = info.width_mm + 2 * pad_mm
+    h = info.height_mm + 2 * pad_mm
+
+    # Scala: 1 mm = 4 px per un SVG leggibile
+    scale = 4.0
+    sw = int(w * scale)
+    sh = int(h * scale)
+
+    def sx(mm_x: float) -> float:
+        return (mm_x - ox) * scale
+
+    def sy(mm_y: float) -> float:
+        return (mm_y - oy) * scale
+
+    parts: List[str] = []
+    parts.append(f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {sw} {sh}" '
+                 f'width="{sw}" height="{sh}">')
+    parts.append('  <rect width="100%" height="100%" fill="#0f172a"/>')
+
+    # Outline della board (rettangolo)
+    bx, by = sx(info.origin_x), sy(info.origin_y)
+    bw, bh = info.width_mm * scale, info.height_mm * scale
+    parts.append(f'  <rect x="{bx:.1f}" y="{by:.1f}" width="{bw:.1f}" height="{bh:.1f}" '
+                 f'fill="#1e293b" stroke="#475569" stroke-width="2" rx="2"/>')
+
+    # Tracce (linee)
+    for t in info.tracks:
+        x1, y1 = sx(t.start_x), sy(t.start_y)
+        x2, y2 = sx(t.end_x), sy(t.end_y)
+        tw = max(0.5, t.width_mm * scale * 0.3)
+        color = "#38bdf8" if t.layer == "F.Cu" else "#fb923c"
+        parts.append(f'  <line x1="{x1:.1f}" y1="{y1:.1f}" x2="{x2:.1f}" y2="{y2:.1f}" '
+                     f'stroke="{color}" stroke-width="{tw:.1f}" opacity="0.6"/>')
+
+    # Vias (anelli)
+    for v in info.vias:
+        vx, vy = sx(v.x), sy(v.y)
+        vr = max(2, v.size_mm * scale * 0.5)
+        parts.append(f'  <circle cx="{vx:.1f}" cy="{vy:.1f}" r="{vr:.1f}" '
+                     f'fill="none" stroke="#a78bfa" stroke-width="1.5"/>')
+
+    # Footprint (rettangoli + riferimento + pad)
+    for fp in info.footprints:
+        cx, cy = sx(fp.x), sy(fp.y)
+        fw = max(4, fp.width_mm * scale)
+        fh = max(4, fp.height_mm * scale)
+        fill = "#1e3a5f" if fp.layer == "F.Cu" else "#3d2b1f"
+        stroke = "#60a5fa" if fp.layer == "F.Cu" else "#fb923c"
+        parts.append(f'  <rect x="{cx - fw/2:.1f}" y="{cy - fh/2:.1f}" width="{fw:.1f}" '
+                     f'height="{fh:.1f}" fill="{fill}" stroke="{stroke}" stroke-width="1" rx="1"/>')
+        # Riferimento (U1, R3...)
+        parts.append(f'  <text x="{cx:.1f}" y="{cy + 2:.1f}" text-anchor="middle" '
+                     f'fill="#e2e8f0" font-size="{max(6, fw*0.3):.0f}" font-family="monospace">'
+                     f'{fp.reference}</text>')
+
+        # Pad (cerchi)
+        for p in fp.pads:
+            px, py = sx(p.x), sy(p.y)
+            pr = max(1.5, 0.8 * scale * 0.5)
+            parts.append(f'  <circle cx="{px:.1f}" cy="{py:.1f}" r="{pr:.1f}" '
+                         f'fill="#94a3b8" stroke="#cbd5e1" stroke-width="0.5"/>')
+
+    parts.append('</svg>')
+    return "\n".join(parts)
+
+
 def create_empty_project(project_dir: Path, project_name: str,
                          width_mm: float = 80.0, height_mm: float = 60.0,
                          layers: int = 2) -> Dict[str, str]:

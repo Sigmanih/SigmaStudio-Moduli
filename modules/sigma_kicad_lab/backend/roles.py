@@ -34,7 +34,7 @@ ROLE_KICAD_ENGINEER = DevRole(
         "kicad_move_footprint", "kicad_rename_footprint",
         "kicad_delete_track", "kicad_delete_via",
         "kicad_set_board_outline", "kicad_set_pad_net",
-        "kicad_undo",
+        "kicad_undo", "kicad_redo",
         # pcbnew bridge: creazione e ispezione diretta via API pcbnew
         "kicad_pcbnew_status", "kicad_libraries", "kicad_search_footprint",
         "kicad_new_board", "kicad_add_part", "kicad_read_board_full",

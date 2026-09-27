@@ -60,6 +60,10 @@ SCHEMI = [
     _f("kicad_remove_footprint", "Toglie un footprint dalla scheda. Il rame che lo raggiungeva resta.",
        {"reference": STRINGA}, ["reference"]),
     _f("kicad_undo", "Annulla l'ultima scrittura sul PCB, dalla copia fatta prima di applicarla.", {}, []),
+    _f("kicad_redo",
+       "Riapplica l'ultima scrittura annullata con `kicad_undo`. L'annullamento si "
+       "fa per passi, e senza il passo che torna avanti un errore si corregge una "
+       "volta sola.", {}, []),
     _f("kicad_drc", "Design Rule Check di KiCad sul PCB: la prova che il rame sta in piedi. Obbligatorio prima di complete_goal.", {}, []),
     _f("kicad_erc", "Electrical Rule Check sullo schematico.", {}, []),
     _f("kicad_export_gerbers", "Gerber e file di foratura: il pacchetto che si manda in fabbrica.",

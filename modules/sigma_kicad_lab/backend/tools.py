@@ -685,21 +685,17 @@ ESECUTORI = {
     "kicad_new_board": kicad_new_board,
     "kicad_add_part": kicad_add_part,
     "kicad_read_board_full": kicad_read_board_full,
-    # task #6: endpointi nuovi richiesti dalla UI
+    # task #6, la parte conclusa: l'annullamento bidirezionale.
+    #
+    # Gli altri endpoint chiesti dalla stessa UI (zone, netclass, rules,
+    # costruttori, bom, sync netlist, render 3d, export drill e pick&place)
+    # restano fuori di qui finche' non hanno una funzione che li esegue: il
+    # ponte pcbnew non offre ancora quelle primitive. Un nome citato in questo
+    # dizionario senza un `def` che lo definisca non e' un tool mancante, e'
+    # un `NameError` a livello di modulo: il modulo non si importa piu' e le
+    # prove che lo importano non si raccolgono nemmeno. Il controllo che lo
+    # impedisce sta in `tests/test_kicad_editor_contract.py`.
     "kicad_redo": kicad_redo,
-    "kicad_zone_add": kicad_zone_add,
-    "kicad_netclass_set": kicad_netclass_set,
-    "kicad_rules_set": kicad_rules_set,
-    "kicad_constructor_hole": kicad_constructor_hole,
-    "kicad_constructor_fiducial": kicad_constructor_fiducial,
-    "kicad_constructor_testpoint": kicad_constructor_testpoint,
-    "kicad_constructor_silkscreen": kicad_constructor_silkscreen,
-    "kicad_constructor_outline": kicad_constructor_outline,
-    "kicad_bom_export": kicad_bom_export,
-    "kicad_sync_netlist": kicad_sync_netlist,
-    "kicad_render_3d": kicad_render_3d,
-    "kicad_export_drill": kicad_export_drill,
-    "kicad_export_pickplace": kicad_export_pickplace,
 }
 
 #: Cosa tocca i file del progetto. Serve a `policy` per il cancello: le
@@ -710,7 +706,7 @@ WRITE_TOOLS = {
     "kicad_add_via", "kicad_add_footprint", "kicad_remove_footprint",
     "kicad_move_footprint", "kicad_rename_footprint", "kicad_delete_track",
     "kicad_delete_via", "kicad_set_board_outline", "kicad_set_pad_net",
-    "kicad_undo", "kicad_export_gerbers", "kicad_export_bom", "kicad_render",
+    "kicad_undo", "kicad_redo", "kicad_export_gerbers", "kicad_export_bom", "kicad_render",
     # pcbnew bridge: questi due scrivono file di progetto
     "kicad_new_board", "kicad_add_part",
 }
