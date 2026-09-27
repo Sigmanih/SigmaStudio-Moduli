@@ -84,6 +84,14 @@ class DockerMCPServer(BaseMCPServer):
             version="1.0.0",
             description="Gestione container Docker, esecuzione comandi isolati (cargo, build, test) e status monitoring.",
         )
+        for t in self.get_tools():
+            self.register_tool(
+                name=t["name"],
+                description=t["description"],
+                input_schema=t["inputSchema"],
+                handler=lambda args, tool_name=t["name"]: self.call_tool(tool_name, args),
+                safety=t.get("safety", SAFE),
+            )
 
     def get_tools(self) -> List[Dict[str, Any]]:
         return [
@@ -233,13 +241,16 @@ class DockerMCPServer(BaseMCPServer):
     def _tool_exec(self, args: Dict[str, Any]) -> Dict[str, Any]:
         container = str(args.get("container", "")).strip()
         command = str(args.get("command", "")).strip()
-        workdir = str(args.get("workdir", "/workspace")).strip()
+        workdir = str(args.get("workdir", "")).strip()
         timeout = int(args.get("timeout", 120))
 
         if not container or not command:
             return {"success": False, "error": "Parametri 'container' e 'command' obbligatori."}
 
-        cmd = ["exec", "-w", workdir, container, "sh", "-c", command]
+        cmd = ["exec"]
+        if workdir:
+            cmd.extend(["-w", workdir])
+        cmd.extend([container, "sh", "-c", command])
         res = _run_docker_cli(cmd, timeout=timeout)
         res["container"] = container
         res["command"] = command

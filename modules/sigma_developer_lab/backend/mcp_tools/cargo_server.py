@@ -143,6 +143,14 @@ class RustCargoMCPServer(BaseMCPServer):
             version="1.0.0",
             description="Compilazione e collaudo progetti Rust (cargo build, test, check, clippy) su host o container Docker.",
         )
+        for t in self.get_tools():
+            self.register_tool(
+                name=t["name"],
+                description=t["description"],
+                input_schema=t["inputSchema"],
+                handler=lambda args, tool_name=t["name"]: self.call_tool(tool_name, args),
+                safety=t.get("safety", SENSITIVE),
+            )
 
     def get_tools(self) -> List[Dict[str, Any]]:
         return [

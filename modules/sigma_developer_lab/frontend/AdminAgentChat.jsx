@@ -1,9 +1,9 @@
 import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react';
 import { createPortal } from 'react-dom';
-import { 
-  Send, Bot, User, Sparkles, Brain, Check, Copy, RefreshCw, 
-  Terminal, FileCode, Trash2, ArrowRight, ShieldCheck, Zap, 
-  ChevronDown, ChevronUp, SplitSquareVertical, Layers, Folder, 
+import {
+  Send, Bot, User, Sparkles, Brain, Check, Copy, RefreshCw,
+  Terminal, FileCode, Trash2, ArrowRight, ShieldCheck, Zap,
+  ChevronDown, ChevronUp, SplitSquareVertical, Layers, Folder,
   Plus, Edit2, Clock, Search, X, MessageSquare,
   Paperclip, Mic, MicOff, FileText, Upload,
   ListTodo, CheckCircle2, Circle, CircleDot, RotateCw, Award, Play, Pause, Square,
@@ -15,6 +15,8 @@ import ReviewProposal from './ReviewProposal';
 import DockerViewerModal from './DockerViewerModal';
 import ActivityBar from './ActivityBar';
 import { renderMarkdownLatex } from '../../utils/markdownLatex';
+import { normalizzaTestoAgente } from '../../utils/testoAgente';
+import GoalCompletionCard from '../../components/Chat/ui/GoalCompletionCard';
 import 'katex/dist/katex.min.css';
 import Prism from 'prismjs';
 import 'prismjs/components/prism-python';
@@ -36,7 +38,7 @@ try {
     securityLevel: 'loose',
     flowchart: { useMaxWidth: true, htmlLabels: true }
   });
-} catch (e) {}
+} catch (e) { }
 
 const STORAGE_TASKS_KEY = 'sigma_dev_tasks_v2';
 const STORAGE_ACTIVE_TASK_KEY = 'sigma_dev_active_task_id_v2';
@@ -117,6 +119,11 @@ const formatTimeAgo = (isoString) => {
   }
 };
 
+// Il testo dell agente arriva a volte dentro un corpo JSON (il riepilogo di
+// `complete_goal` e' il caso piu' frequente): `normalizzaTestoAgente` lo
+// riporta alla luce prima del markdown, e si prova da solo con
+// `node src/utils/testoAgente.prova.mjs`.
+
 const cleanMessageText = (text) => {
   if (!text) return '';
   let cleaned = text;
@@ -153,7 +160,10 @@ function RichMessageContent({ content, isUser, onOpenFile, isLight, noBorder }) 
 
   const html = useMemo(() => {
     if (!content) return '';
-    return renderMarkdownLatex(content);
+    // Prima si riporta alla luce il testo sepolto in un corpo JSON, poi si
+    // rende il markdown: l'ordine conta, perche' dentro una stringa JSON un
+    // `##` non e' un titolo e un `\n` non e' un a capo.
+    return renderMarkdownLatex(normalizzaTestoAgente(content));
   }, [content]);
 
   useEffect(() => {
@@ -172,7 +182,7 @@ function RichMessageContent({ content, isUser, onOpenFile, isLight, noBorder }) 
         const wrapper = document.createElement('div');
         wrapper.className = 'mermaid-wrapper';
         wrapper.style.cssText = 'width:100%;margin:8px 0;overflow-x:auto;background:#0d1117;border:1px solid rgba(0,210,255,0.25);border-radius:6px;padding:8px;display:flex;justify-content:center;box-shadow:0 2px 8px rgba(0,0,0,0.3);';
-        
+
         try {
           const id = `mermaid-admin-${Date.now()}-${i}`;
           const { svg } = await mermaid.render(id, raw);
@@ -230,8 +240,8 @@ function RichMessageContent({ content, isUser, onOpenFile, isLight, noBorder }) 
         background: noBorder
           ? 'transparent'
           : (isUser
-              ? (isLight ? 'rgba(0, 242, 254, 0.1)' : 'rgba(0, 242, 254, 0.08)')
-              : (isLight ? '#ffffff' : '#161b22')),
+            ? (isLight ? 'rgba(0, 242, 254, 0.1)' : 'rgba(0, 242, 254, 0.08)')
+            : (isLight ? '#ffffff' : '#161b22')),
         border: noBorder ? 'none' : (isLight ? '1px solid #d0d7de' : '1px solid rgba(255,255,255,0.08)'),
         color: isLight ? '#24292f' : '#e6edf3',
         wordBreak: 'break-word',
@@ -242,73 +252,13 @@ function RichMessageContent({ content, isUser, onOpenFile, isLight, noBorder }) 
   );
 }
 
-function GoalCompletionCard({ title, summary, isLight, onOpenFile }) {
-  return (
-    <div style={{
-      margin: '4px 0',
-      borderRadius: '5px',
-      background: isLight 
-        ? 'rgba(16, 185, 129, 0.03)' 
-        : 'rgba(16, 185, 129, 0.05)',
-      border: '1px solid rgba(16, 185, 129, 0.22)',
-      overflow: 'hidden'
-    }}>
-      {/* Header compatto a singola riga */}
-      <div style={{
-        padding: '3px 8px',
-        background: isLight ? 'rgba(16, 185, 129, 0.07)' : 'rgba(16, 185, 129, 0.12)',
-        borderBottom: '1px solid rgba(16, 185, 129, 0.15)',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'space-between',
-        gap: '6px'
-      }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '5px', minWidth: 0 }}>
-          <Award size={13} color="#10b981" style={{ flexShrink: 0 }} />
-          <span style={{
-            fontSize: '0.68rem',
-            fontWeight: 700,
-            color: isLight ? '#047857' : '#34d399',
-            overflow: 'hidden',
-            textOverflow: 'ellipsis',
-            whiteSpace: 'nowrap'
-          }}>
-            🎯 Obiettivo Completato{title ? `: ${title}` : ''}
-          </span>
-        </div>
-
-        <span style={{
-          display: 'inline-flex',
-          alignItems: 'center',
-          gap: '3px',
-          padding: '1px 5px',
-          borderRadius: '3px',
-          background: 'rgba(16, 185, 129, 0.15)',
-          border: '1px solid rgba(16, 185, 129, 0.25)',
-          color: '#10b981',
-          fontSize: '0.55rem',
-          fontWeight: 700,
-          flexShrink: 0
-        }}>
-          <ShieldCheck size={10} />
-          OK
-        </span>
-      </div>
-
-      {/* Content Summary compatto senza doppia card o doppi bordi */}
-      {summary && (
-        <div style={{ padding: '4px 6px' }}>
-          <RichMessageContent
-            content={summary}
-            isUser={false}
-            onOpenFile={onOpenFile}
-            isLight={isLight}
-            noBorder
-          />
-        </div>
-      )}
-    </div>
-  );
+/** La bolla dell'assistente puo' portare gia' la scheda dell'obiettivo: in quel
+ *  caso la card del tool non ripete il riepilogo. */
+function eBollaObiettivo(testo) {
+  const t = String(testo || '').trim();
+  if (!t) return false;
+  return /^(?:🏆\s*)?##\s*Obiettivo\s+completato/i.test(t)
+    || /^\s*Obiettivo\s+completato\s*[:—–\-]/i.test(t);
 }
 
 const sanitizeTasksForLocalStorage = (tasksList) => {
@@ -339,6 +289,10 @@ const sanitizeTasksForLocalStorage = (tasksList) => {
         result: tool.result ? {
           success: tool.result.success,
           message: tool.result.message,
+          // La scheda di chiusura deve rileggere riepilogo e criteri dopo un reload.
+          summary: typeof tool.result.summary === 'string' ? tool.result.summary.slice(0, 20000) : undefined,
+          criteria: Array.isArray(tool.result.criteria) ? tool.result.criteria.slice(0, 40) : undefined,
+          is_completed: tool.result.is_completed,
           diff: typeof tool.result.diff === 'string' ? tool.result.diff.slice(0, 10000) : undefined,
           path: tool.result.path,
           tasks: tool.result.tasks
@@ -380,7 +334,7 @@ export default function AdminAgentChat({
     try {
       const savedActive = localStorage.getItem(STORAGE_ACTIVE_TASK_KEY);
       if (savedActive) return savedActive;
-    } catch (e) {}
+    } catch (e) { }
     return tasks[0]?.id || '';
   });
 
@@ -553,7 +507,7 @@ export default function AdminAgentChat({
     setContextTokens(tokens);
     try {
       localStorage.setItem('sigma_dev_context_tokens', String(tokens));
-    } catch {}
+    } catch { }
   };
 
   // Keep a ref to always have the latest tasks state in async callbacks
@@ -590,7 +544,7 @@ export default function AdminAgentChat({
     if (abortControllerRef.current) {
       try {
         abortControllerRef.current.abort();
-      } catch (err) {}
+      } catch (err) { }
       abortControllerRef.current = null;
     }
     setIsStreaming(false);
@@ -606,7 +560,7 @@ export default function AdminAgentChat({
     if (abortControllerRef.current) {
       try {
         abortControllerRef.current.abort();
-      } catch (err) {}
+      } catch (err) { }
       abortControllerRef.current = null;
     }
     // 2. Stop Auto-Loop timer and permanently disable autoLoop
@@ -984,7 +938,7 @@ export default function AdminAgentChat({
   const toggleVoiceInput = () => {
     if (isListening) {
       if (recognitionRef.current) {
-        try { recognitionRef.current.stop(); } catch (e) {}
+        try { recognitionRef.current.stop(); } catch (e) { }
       }
       setIsListening(false);
       return;
@@ -1048,7 +1002,7 @@ export default function AdminAgentChat({
     if (isStreaming) {
       if (isAuto) return;
       if (abortControllerRef.current) {
-        try { abortControllerRef.current.abort(); } catch (err) {}
+        try { abortControllerRef.current.abort(); } catch (err) { }
         abortControllerRef.current = null;
       }
       setIsStreaming(false);
@@ -1060,7 +1014,7 @@ export default function AdminAgentChat({
     const currentAttachments = [...attachedFiles];
     setAttachedFiles([]);
     if (isListening && recognitionRef.current) {
-      try { recognitionRef.current.stop(); } catch (e) {}
+      try { recognitionRef.current.stop(); } catch (e) { }
       setIsListening(false);
     }
 
@@ -1080,12 +1034,12 @@ export default function AdminAgentChat({
 
     // Auto-update task title from first user prompt if still generic
     const isGenericTitle = currentTask.title.startsWith('Nuovo Task') || currentTask.title.startsWith('Task #');
-    const newTitle = isGenericTitle 
-      ? (userPrompt ? (userPrompt.slice(0, 36) + (userPrompt.length > 36 ? '...' : '')) : `Allegati (${currentAttachments.length})`) 
+    const newTitle = isGenericTitle
+      ? (userPrompt ? (userPrompt.slice(0, 36) + (userPrompt.length > 36 ? '...' : '')) : `Allegati (${currentAttachments.length})`)
       : currentTask.title;
 
     const activeSubTask = (currentTask.pipeline || []).find(p => p.status === 'in_progress') ||
-                          (currentTask.pipeline || []).find(p => p.status === 'pending');
+      (currentTask.pipeline || []).find(p => p.status === 'pending');
     const taskTitleMatch = userPrompt.match(/Procedi con il task pianificato(?:\s*#\d+)?:\s*"([^"]+)"/);
     const activeTaskTitle = taskTitleMatch ? taskTitleMatch[1] : (activeSubTask?.title || '');
 
@@ -1095,8 +1049,8 @@ export default function AdminAgentChat({
       textToSend.startsWith('Continua l\'implementazione:')
     ));
 
-    const userMsgObj = { 
-      role: 'user', 
+    const userMsgObj = {
+      role: 'user',
       content: userPrompt || `Analizza i file allegati: ${currentAttachments.map(a => a.name).join(', ')}`,
       attachments: currentAttachments.length > 0 ? currentAttachments : undefined,
       timestamp: new Date().toISOString(),
@@ -1117,7 +1071,7 @@ export default function AdminAgentChat({
           updatedAt: new Date().toISOString(),
           messages: [
             ...newMessages,
-            { role: 'assistant', content: '', thought: '', tools: [], isStreaming: true, taskTitle: activeTaskTitle, timestamp: new Date().toISOString() }
+            { role: 'assistant', content: '', thought: '', tools: [], isStreaming: true, model: selectedModel, taskTitle: activeTaskTitle, timestamp: new Date().toISOString() }
           ]
         };
       }
@@ -1133,7 +1087,7 @@ export default function AdminAgentChat({
     setAgentStatus(`⏳ Inizializzazione e caricamento pesi modello (${selectedModel})...`);
 
     if (abortControllerRef.current) {
-      try { abortControllerRef.current.abort(); } catch (e) {}
+      try { abortControllerRef.current.abort(); } catch (e) { }
     }
     const controller = new AbortController();
     abortControllerRef.current = controller;
@@ -1144,8 +1098,8 @@ export default function AdminAgentChat({
         headers: { 'Content-Type': 'application/json' },
         signal: controller.signal,
         body: JSON.stringify({
-          messages: newMessages.map(m => ({ 
-            role: m.role, 
+          messages: newMessages.map(m => ({
+            role: m.role,
             content: m.content,
             attachments: m.attachments
           })),
@@ -1402,7 +1356,7 @@ ${event.diff || ''}`,
             // Una riga di diario: un fatto, non un evento tecnico.
             if (event.type === 'diario') {
               setDiario(prev => [...prev.slice(-199),
-                                 { text: event.text, at: event.at || Date.now() / 1000 }]);
+              { text: event.text, at: event.at || Date.now() / 1000 }]);
               continue;
             }
 
@@ -1423,12 +1377,12 @@ ${event.diff || ''}`,
               const hasPending = event.tasks.some(p => p.status !== 'done' && p.status !== 'completed');
               setTasks(prev => prev.map(t => {
                 if (t.id === currentTaskId) {
-                  return { 
-                    ...t, 
-                    pipeline: event.tasks, 
+                  return {
+                    ...t,
+                    pipeline: event.tasks,
                     // Se ci sono task ancora in sospeso, l'obiettivo non è concluso
                     isGoalCompleted: hasPending ? false : t.isGoalCompleted,
-                    updatedAt: new Date().toISOString() 
+                    updatedAt: new Date().toISOString()
                   };
                 }
                 return t;
@@ -1459,13 +1413,14 @@ ${event.diff || ''}`,
                       msgs[activeMsgIndex].isStreaming = false;
                     }
                     const activeSubTask2 = (t.pipeline || []).find(p => p.status === 'in_progress') ||
-                                           (t.pipeline || []).find(p => p.status === 'pending');
+                      (t.pipeline || []).find(p => p.status === 'pending');
                     msgs.push({
                       role: 'assistant',
                       content: '',
                       thought: '',
                       tools: [],
                       isStreaming: true,
+                      model: selectedModel,
                       taskTitle: msgs[activeMsgIndex]?.taskTitle || activeSubTask2?.title || '',
                       timestamp: new Date().toISOString()
                     });
@@ -1539,7 +1494,7 @@ ${event.diff || ''}`,
                 } else if (event.type === 'tool_start') {
                   cur.tools = [...(cur.tools || []), { tool: event.tool, params: event.params, status: 'running' }];
                 } else if (event.type === 'tool_result') {
-                  cur.tools = (cur.tools || []).map(toolItem => 
+                  cur.tools = (cur.tools || []).map(toolItem =>
                     toolItem.tool === event.tool ? { ...toolItem, result: event.result, status: 'done' } : toolItem
                   );
                 }
@@ -1840,7 +1795,7 @@ ${event.diff || ''}`,
               gap: '4px',
               whiteSpace: 'nowrap'
             }}
-            title="Ogni modifica a un file viene mostrata con il suo diff e resta solo se la approvi"
+              title="Ogni modifica a un file viene mostrata con il suo diff e resta solo se la approvi"
             >
               <input
                 type="checkbox"
@@ -1863,7 +1818,7 @@ ${event.diff || ''}`,
               gap: '4px',
               whiteSpace: 'nowrap'
             }}
-            title="L'agente lavora in una copia git isolata del progetto, con un checkpoint per turno. A obiettivo raggiunto le modifiche passano all'albero principale, altrimenti restano su un branch dedicato"
+              title="L'agente lavora in una copia git isolata del progetto, con un checkpoint per turno. A obiettivo raggiunto le modifiche passano all'albero principale, altrimenti restano su un branch dedicato"
             >
               <input
                 type="checkbox"
@@ -1886,7 +1841,7 @@ ${event.diff || ''}`,
               gap: '4px',
               whiteSpace: 'nowrap'
             }}
-            title="A fine run mostra il diff di tutto il lavoro e chiede una sola approvazione prima di trasferirlo. Accende anche l'isolamento, che è la sua precondizione"
+              title="A fine run mostra il diff di tutto il lavoro e chiede una sola approvazione prima di trasferirlo. Accende anche l'isolamento, che è la sua precondizione"
             >
               <input
                 type="checkbox"
@@ -1935,11 +1890,11 @@ ${event.diff || ''}`,
               ? '1px solid rgba(56, 189, 248, 0.4)'
               : `1px solid ${borderCol}`,
           }}
-          title={
-            sandboxConfig.docker_available
-              ? `Docker: ${sandboxConfig.docker_detail}. Modalità corrente: ${sandboxConfig.mode}. Clicca per commutare tra Host e Container isolato.`
-              : `Docker non disponibile: ${sandboxConfig.docker_detail}`
-          }
+            title={
+              sandboxConfig.docker_available
+                ? `Docker: ${sandboxConfig.docker_detail}. Modalità corrente: ${sandboxConfig.mode}. Clicca per commutare tra Host e Container isolato.`
+                : `Docker non disponibile: ${sandboxConfig.docker_detail}`
+            }
           >
             <span style={{
               fontSize: '0.66rem',
@@ -2054,7 +2009,7 @@ ${event.diff || ''}`,
             border: autoLoop ? '1px solid rgba(0, 242, 254, 0.4)' : `1px solid ${borderCol}`,
             whiteSpace: 'nowrap'
           }}
-          title="Esegue automaticamente la catena dei task della pipeline fino al completamento"
+            title="Esegue automaticamente la catena dei task della pipeline fino al completamento"
           >
             <input
               type="checkbox"
@@ -2106,7 +2061,7 @@ ${event.diff || ''}`,
       overflow: 'hidden'
     }}>
       {/* Master Header: renderizzata nella barra superiore sopra la colonna centrale + destra */}
-      {headerPortalNode 
+      {headerPortalNode
         ? createPortal(renderMasterHeader(), headerPortalNode)
         : renderMasterHeader()}
 
@@ -2457,14 +2412,20 @@ ${event.diff || ''}`,
         {(() => {
           const borderCol = isLight ? '#d0d7de' : 'rgba(255,255,255,0.08)';
           const tabItems = [
-            { id: 'piano', label: '📋 Piano', icon: ListTodo, color: '#00f2fe',
+            {
+              id: 'piano', label: '📋 Piano', icon: ListTodo, color: '#00f2fe',
               badge: pipeline && pipeline.length > 0
                 ? `${pipeline.filter(p => p.status === 'done').length}/${pipeline.length}`
-                : null },
-            { id: 'monitor', label: '📊 Monitor', icon: Activity, color: '#3fb950',
-              badge: ledgerState ? `${(ledgerState.files || []).filter(f => f.edits > 0 || f.writes > 0).length} mod` : null },
-            { id: 'attivita', label: '⚡ Attività', icon: Activity, color: '#a371f7',
-              badge: null },
+                : null
+            },
+            {
+              id: 'monitor', label: '📊 Monitor', icon: Activity, color: '#3fb950',
+              badge: ledgerState ? `${(ledgerState.files || []).filter(f => f.edits > 0 || f.writes > 0).length} mod` : null
+            },
+            {
+              id: 'attivita', label: '⚡ Attività', icon: Activity, color: '#a371f7',
+              badge: null
+            },
           ];
 
           return (
@@ -2539,8 +2500,8 @@ ${event.diff || ''}`,
                       background: isGoalCompleted
                         ? (isLight ? 'rgba(63, 185, 80, 0.12)' : 'rgba(63, 185, 80, 0.08)')
                         : (pipeline && pipeline.length > 0
-                            ? (isLight ? 'rgba(0, 242, 254, 0.08)' : 'rgba(0, 242, 254, 0.05)')
-                            : 'transparent'),
+                          ? (isLight ? 'rgba(0, 242, 254, 0.08)' : 'rgba(0, 242, 254, 0.05)')
+                          : 'transparent'),
                       display: 'flex',
                       alignItems: 'center',
                       justifyContent: 'space-between',
@@ -2643,7 +2604,7 @@ ${event.diff || ''}`,
                                 <div style={{ marginTop: '1px' }}>
                                   {isDone ? <CheckCircle2 size={12} color="#3fb950" />
                                     : inProgress ? <CircleDot size={12} color="#00f2fe" />
-                                    : <Circle size={12} color="#8b949e" />}
+                                      : <Circle size={12} color="#8b949e" />}
                                 </div>
                                 <div style={{ display: 'flex', flexDirection: 'column', gap: '1px', flex: 1, minWidth: 0 }}>
                                   <span style={{
@@ -2697,17 +2658,21 @@ ${event.diff || ''}`,
                         }}>
                           <input type="text" placeholder="Titolo sotto-task..."
                             value={newPipelineInput} onChange={e => setNewPipelineInput(e.target.value)}
-                            style={{ padding: '3px 6px', borderRadius: '4px', border: '1px solid #00f2fe',
+                            style={{
+                              padding: '3px 6px', borderRadius: '4px', border: '1px solid #00f2fe',
                               background: isLight ? '#fff' : '#07090e', color: isLight ? '#000' : '#fff',
-                              fontSize: '0.64rem', outline: 'none' }}
+                              fontSize: '0.64rem', outline: 'none'
+                            }}
                             autoFocus
                           />
                           <input type="text" placeholder="Dettagli opzionali..."
                             value={newPipelineDesc} onChange={e => setNewPipelineDesc(e.target.value)}
-                            style={{ padding: '3px 6px', borderRadius: '4px',
+                            style={{
+                              padding: '3px 6px', borderRadius: '4px',
                               border: isLight ? '1px solid #d0d7de' : '1px solid rgba(255,255,255,0.1)',
                               background: isLight ? '#fff' : '#07090e', color: isLight ? '#000' : '#fff',
-                              fontSize: '0.60rem', outline: 'none' }}
+                              fontSize: '0.60rem', outline: 'none'
+                            }}
                           />
                           <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '5px' }}>
                             <button type="button"
@@ -2716,18 +2681,22 @@ ${event.diff || ''}`,
                               Annulla
                             </button>
                             <button type="submit" disabled={!newPipelineInput.trim()}
-                              style={{ padding: '2px 6px', borderRadius: '4px', background: '#00f2fe',
-                                border: 'none', color: '#000', fontSize: '0.60rem', fontWeight: 700, cursor: 'pointer' }}>
+                              style={{
+                                padding: '2px 6px', borderRadius: '4px', background: '#00f2fe',
+                                border: 'none', color: '#000', fontSize: '0.60rem', fontWeight: 700, cursor: 'pointer'
+                              }}>
                               Salva
                             </button>
                           </div>
                         </form>
                       ) : (
                         <button type="button" onClick={() => setShowNewTaskInline(true)}
-                          style={{ background: 'none', border: 'none', color: '#00f2fe',
+                          style={{
+                            background: 'none', border: 'none', color: '#00f2fe',
                             fontSize: '0.60rem', fontWeight: 700, cursor: 'pointer',
                             display: 'inline-flex', alignItems: 'center', gap: '3px',
-                            padding: '3px 0', marginTop: '2px' }}>
+                            padding: '3px 0', marginTop: '2px'
+                          }}>
                           <Plus size={10} /> Aggiungi sotto-task
                         </button>
                       )}
@@ -2764,46 +2733,120 @@ ${event.diff || ''}`,
       {/* Sticky Active Execution Bar quando l'agente sta lavorando */}
       {isStreaming && (
         <div style={{
-          padding: '4px 10px',
-          background: isLight ? 'rgba(0, 242, 254, 0.1)' : 'rgba(0, 242, 254, 0.08)',
-          borderBottom: '1px solid rgba(0, 242, 254, 0.22)',
+          padding: '6px 12px',
+          background: isLight ? 'rgba(0, 112, 243, 0.08)' : 'rgba(0, 242, 254, 0.08)',
+          borderBottom: isLight ? '1px solid rgba(0, 112, 243, 0.25)' : '1px solid rgba(0, 242, 254, 0.25)',
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'space-between',
+          gap: '8px',
+          flexWrap: 'wrap',
           fontSize: '0.66rem',
           fontWeight: 700,
           color: isLight ? '#0070f3' : '#00f2fe'
         }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-            <RefreshCw size={12} className="spin" />
-            <span>
-              {agentStatus || (() => {
-                const runningTask = pipeline.find(p => p.status === 'in_progress') || pipeline.find(p => p.status !== 'done');
-                return runningTask ? `In esecuzione task: "${runningTask.title}"` : "L'agente sta elaborando la risposta...";
-              })()}
-            </span>
+          {/* Left: Spinner + Agent status & current action */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', minWidth: 0, flex: 1 }}>
+            <RefreshCw size={13} className="spin" style={{ flexShrink: 0 }} />
+            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', overflow: 'hidden' }}>
+              <span style={{ fontWeight: 800, whiteSpace: 'nowrap' }}>
+                Autocoder:
+              </span>
+              <span style={{
+                color: isLight ? '#24292f' : '#f0f6fc',
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                whiteSpace: 'nowrap'
+              }}>
+                {agentStatus || (() => {
+                  const runningTask = pipeline.find(p => p.status === 'in_progress') || pipeline.find(p => p.status !== 'done');
+                  return runningTask ? `Task in corso: "${runningTask.title}"` : "Elaborazione in corso...";
+                })()}
+              </span>
+            </div>
           </div>
-          <button
-            type="button"
-            onClick={stopAutoLoop}
-            style={{
-              padding: '2px 8px',
-              borderRadius: '4px',
-              background: '#ef4444',
-              color: '#fff',
-              border: 'none',
-              fontSize: '0.60rem',
-              fontWeight: 800,
-              cursor: 'pointer'
-            }}
-          >
-            Ferma Loop
-          </button>
+
+          {/* Right: Disclosed Model & Engine + Live Speed + Stop Button */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexShrink: 0 }}>
+            {/* Model Badge */}
+            <span
+              title={`Modello attualmente in uso: ${selectedModel}`}
+              style={{
+                fontSize: '0.58rem',
+                fontWeight: 800,
+                padding: '2px 6px',
+                borderRadius: '4px',
+                background: 'rgba(0, 242, 254, 0.15)',
+                border: '1px solid rgba(0, 242, 254, 0.35)',
+                color: '#00f2fe',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '3px'
+              }}
+            >
+              <Cpu size={10} color="#00f2fe" />
+              <span>{String(selectedModel || 'sigmaengine').replace(/--/g, '/').split('/').pop().replace(/\.gguf$/i, '')}</span>
+            </span>
+
+            {/* Engine Badge */}
+            <span
+              title="Backend nativo di esecuzione"
+              style={{
+                fontSize: '0.58rem',
+                fontWeight: 800,
+                padding: '2px 6px',
+                borderRadius: '4px',
+                background: 'rgba(63, 185, 80, 0.15)',
+                border: '1px solid rgba(63, 185, 80, 0.35)',
+                color: '#3fb950',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '3px'
+              }}
+            >
+              <Zap size={10} color="#3fb950" />
+              <span>SigmaEngine O(1)</span>
+            </span>
+
+            {/* Live TPS if active */}
+            {contextMetrics?.tps != null && contextMetrics.tps > 0 && (
+              <span
+                style={{
+                  fontSize: '0.58rem',
+                  fontWeight: 800,
+                  padding: '2px 6px',
+                  borderRadius: '4px',
+                  background: 'rgba(210, 153, 34, 0.15)',
+                  border: '1px solid rgba(210, 153, 34, 0.35)',
+                  color: '#d29922'
+                }}
+              >
+                ⚡ {contextMetrics.tps} t/s
+              </span>
+            )}
+
+            <button
+              type="button"
+              onClick={stopAutoLoop}
+              style={{
+                padding: '3px 8px',
+                borderRadius: '4px',
+                background: '#ef4444',
+                color: '#fff',
+                border: 'none',
+                fontSize: '0.60rem',
+                fontWeight: 800,
+                cursor: 'pointer'
+              }}
+            >
+              Ferma Loop
+            </button>
+          </div>
         </div>
       )}
 
       {/* Messages List */}
-      <div 
+      <div
         ref={messagesContainerRef}
         onWheel={handleWheel}
         onScroll={handleScrollMessages}
@@ -2856,635 +2899,658 @@ ${event.diff || ''}`,
           const showTaskBadge = msg.role === 'assistant' && relatedTaskTitle && (!isConsecutiveAssistant || !isSameTask);
 
           return (
-          <div
-            key={msg.originalIndex ?? idx}
-            style={{
-              display: 'flex',
-              flexDirection: 'column',
-              gap: isConsecutiveAssistant ? '3px' : '5px',
-              paddingLeft: isConsecutiveAssistant ? '10px' : 0,
-              borderLeft: isConsecutiveAssistant 
-                ? (isLight ? '2px solid rgba(0, 112, 243, 0.2)' : '2px solid rgba(0, 242, 254, 0.2)') 
-                : 'none',
-              marginLeft: isConsecutiveAssistant ? '4px' : 0,
-              marginTop: isConsecutiveAssistant ? '2px' : (idx > 0 ? '8px' : '2px'),
-              marginBottom: isConsecutiveAssistant ? '3px' : '6px'
-            }}
-          >
-            {showAgentHeader && (
-              <div style={{
+            <div
+              key={msg.originalIndex ?? idx}
+              style={{
                 display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'space-between',
-                fontSize: '0.68rem',
-                fontWeight: 700,
-                color: msg.role === 'user' 
-                  ? (isAutoLoopPrompt(msg) ? (isLight ? '#6366f1' : '#a78bfa') : '#00f2fe') 
-                  : (isLight ? '#57606a' : '#8b949e')
-              }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                  {msg.role === 'user' ? (
-                    isAutoLoopPrompt(msg) ? (
-                      <Cpu size={12} style={{ color: isLight ? '#6366f1' : '#a78bfa' }} />
-                    ) : (
-                      <User size={12} />
-                    )
-                  ) : (
-                    <Bot size={12} />
-                  )}
-                  <span>{msg.role === 'user' ? (isAutoLoopPrompt(msg) ? 'Sistema' : 'Tu') : 'Admin AI Agent'}</span>
-                  {msg.role === 'user' && isAutoLoopPrompt(msg) && (
-                    <span style={{
-                      fontSize: '0.58rem',
-                      padding: '1px 5px',
-                      borderRadius: '4px',
-                      background: isLight ? 'rgba(99, 102, 241, 0.1)' : 'rgba(167, 139, 250, 0.15)',
-                      color: isLight ? '#4f46e5' : '#c4b5fd',
-                      fontWeight: 600,
-                      marginLeft: '2px'
-                    }}>
-                      Auto
-                    </span>
-                  )}
-                </div>
-                <span style={{
-                  fontSize: '0.60rem',
-                  fontWeight: 500,
-                  color: isLight ? '#8c959f' : '#6e7681',
-                  fontFamily: 'monospace'
+                flexDirection: 'column',
+                gap: isConsecutiveAssistant ? '3px' : '5px',
+                paddingLeft: isConsecutiveAssistant ? '10px' : 0,
+                borderLeft: isConsecutiveAssistant
+                  ? (isLight ? '2px solid rgba(0, 112, 243, 0.2)' : '2px solid rgba(0, 242, 254, 0.2)')
+                  : 'none',
+                marginLeft: isConsecutiveAssistant ? '4px' : 0,
+                marginTop: isConsecutiveAssistant ? '2px' : (idx > 0 ? '8px' : '2px'),
+                marginBottom: isConsecutiveAssistant ? '3px' : '6px'
+              }}
+            >
+              {showAgentHeader && (
+                <div style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  fontSize: '0.68rem',
+                  fontWeight: 700,
+                  color: msg.role === 'user'
+                    ? (isAutoLoopPrompt(msg) ? (isLight ? '#6366f1' : '#a78bfa') : '#00f2fe')
+                    : (isLight ? '#57606a' : '#8b949e')
                 }}>
-                  {formatMessageTimestamp(msg.timestamp || new Date().toISOString())}
-                </span>
-              </div>
-            )}
-
-            {/* Badge Identificativo Sotto-Task Corrente (mostrato solo al cambio di task) */}
-            {showTaskBadge && (
-              <div style={{
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: '5px',
-                padding: '2px 8px',
-                borderRadius: '4px',
-                background: isLight ? 'rgba(0, 242, 254, 0.1)' : 'rgba(0, 242, 254, 0.08)',
-                border: '1px solid rgba(0, 242, 254, 0.25)',
-                color: isLight ? '#0070f3' : '#00f2fe',
-                fontSize: '0.64rem',
-                fontWeight: 700,
-                width: 'fit-content',
-                marginTop: '1px',
-                marginBottom: '2px'
-              }}>
-                <CircleDot size={11} color="#00f2fe" />
-                <span>Task in corso: {relatedTaskTitle}</span>
-              </div>
-            )}
-
-            {/* Collapsible Thinking Bubble */}
-            {msg.thought && (
-              <div style={{
-                borderRadius: '8px',
-                background: isLight ? 'rgba(0,0,0,0.03)' : 'rgba(255,255,255,0.03)',
-                border: isLight ? '1px solid rgba(0,0,0,0.06)' : '1px solid rgba(255,255,255,0.06)',
-                overflow: 'hidden'
-              }}>
-                <div
-                  onClick={() => toggleThought(idx)}
-                  style={{
-                    padding: '4px 8px',
-                    fontSize: '0.66rem',
-                    fontWeight: 700,
-                    color: '#8b949e',
-                    cursor: 'pointer',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'space-between',
-                    userSelect: 'none'
-                  }}
-                >
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                    <Brain size={12} color="#00f2fe" />
-                    <span>Catena di Ragionamento ({msg.thought.length} caratteri)</span>
-                  </div>
-                  {expandedThoughts[idx] ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
-                </div>
-
-                {expandedThoughts[idx] && (
-                  <div style={{
-                    padding: '6px 10px',
-                    fontSize: '0.7rem',
-                    fontFamily: 'Consolas, monospace',
-                    color: isLight ? '#57606a' : '#8b949e',
-                    borderTop: isLight ? '1px solid rgba(0,0,0,0.06)' : '1px solid rgba(255,255,255,0.06)',
-                    whiteSpace: 'pre-wrap',
-                    lineHeight: 1.4
-                  }}>
-                    {msg.thought}
-                  </div>
-                )}
-              </div>
-            )}
-
-            {/* Message Bubble Content */}
-            {(() => {
-              const contentText = msg.role === 'user' ? msg.content : cleanMessageText(msg.content);
-              const showLoadingBanner = msg.isStreaming && msg.role === 'assistant' && !contentText && (!msg.thought || !msg.thought.trim());
-
-              if (!contentText && (!msg.attachments || msg.attachments.length === 0) && !showLoadingBanner) {
-                // Se non c'è testo ma il turno ha registrato token ed è privo di tool visualizzati,
-                // mostriamo un messaggio sobrio indicante l'azione o lo stato
-                if (msg.role === 'assistant' && (!msg.tools || msg.tools.length === 0) && msg.metrics?.tokens > 0 && !msg.isStreaming) {
-                  return (
-                    <div style={{
-                      padding: '4px 8px',
-                      borderRadius: '5px',
-                      background: isLight ? '#f6f8fa' : '#161b22',
-                      border: isLight ? '1px solid #d0d7de' : '1px solid rgba(255,255,255,0.06)',
-                      color: isLight ? '#57606a' : '#8b949e',
-                      fontSize: '0.66rem',
-                      fontStyle: 'italic'
-                    }}>
-                      {msg.content?.trim() || "Analisi interna completata: passaggio alla fase successiva."}
-                    </div>
-                  );
-                }
-                return null;
-              }
-              return (
-                <div>
-                  {/* Model Loading / Inference Alert Card */}
-                  {showLoadingBanner && (
-                    <div style={{
-                      display: 'inline-flex',
-                      alignItems: 'center',
-                      gap: '8px',
-                      padding: '8px 12px',
-                      borderRadius: '8px',
-                      background: isLight ? 'rgba(0, 242, 254, 0.12)' : 'rgba(0, 242, 254, 0.08)',
-                      border: '1px solid rgba(0, 242, 254, 0.35)',
-                      color: isLight ? '#0070f3' : '#00f2fe',
-                      fontSize: '0.74rem',
-                      fontWeight: 600,
-                      boxShadow: '0 2px 8px rgba(0, 242, 254, 0.15)',
-                      marginBottom: '4px'
-                    }}>
-                      <RefreshCw size={13} className="spin" />
-                      <span>{agentStatus || `⏳ Inizializzazione e caricamento pesi modello (${selectedModel})...`}</span>
-                    </div>
-                  )}
-
-                  {msg.attachments && msg.attachments.length > 0 && (
-                    <div style={{
-                      display: 'flex',
-                      flexWrap: 'wrap',
-                      gap: '5px',
-                      marginBottom: contentText ? '6px' : 0
-                    }}>
-                      {msg.attachments.map((att, attIdx) => (
-                        <div
-                          key={attIdx}
-                          onClick={() => onOpenFile && onOpenFile(att.name || att.path)}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    {msg.role === 'user' ? (
+                      isAutoLoopPrompt(msg) ? (
+                        <Cpu size={12} style={{ color: isLight ? '#6366f1' : '#a78bfa' }} />
+                      ) : (
+                        <User size={12} />
+                      )
+                    ) : (
+                      <Bot size={12} />
+                    )}
+                    <span>{msg.role === 'user' ? (isAutoLoopPrompt(msg) ? 'Sistema' : 'Tu') : 'Admin AI Agent'}</span>
+                    {msg.role !== 'user' && (
+                      <div style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', marginLeft: '4px' }}>
+                        <span
+                          title={`Modello usato: ${msg.model || selectedModel}`}
                           style={{
-                            display: 'inline-flex',
-                            alignItems: 'center',
-                            gap: '4px',
-                            padding: '3px 8px',
-                            borderRadius: '6px',
-                            fontSize: '0.66rem',
-                            fontWeight: 600,
-                            background: isLight ? 'rgba(0, 242, 254, 0.15)' : 'rgba(0, 242, 254, 0.1)',
+                            fontSize: '0.56rem',
+                            fontWeight: 800,
+                            padding: '1px 5px',
+                            borderRadius: '4px',
+                            background: 'rgba(0, 242, 254, 0.12)',
                             border: '1px solid rgba(0, 242, 254, 0.3)',
-                            color: isLight ? '#0366d6' : '#00f2fe',
-                            cursor: onOpenFile ? 'pointer' : 'default'
+                            color: '#00f2fe'
                           }}
-                          title={att.name || att.path}
                         >
-                          <FileText size={11} />
-                          <span style={{ maxWidth: '180px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                            {att.name || att.path}
-                          </span>
-                          {att.size && (
-                            <span style={{ opacity: 0.65, fontSize: '0.60rem' }}>
-                              ({(att.size / 1024).toFixed(1)} KB)
-                            </span>
-                          )}
-                        </div>
-                      ))}
+                          ⚡ {String(msg.model || selectedModel).replace(/--/g, '/').split('/').pop().replace(/\.gguf$/i, '')}
+                        </span>
+                        <span
+                          title="Backend di inferenza SigmaEngine Rust O(1)"
+                          style={{
+                            fontSize: '0.54rem',
+                            fontWeight: 700,
+                            padding: '1px 5px',
+                            borderRadius: '4px',
+                            background: 'rgba(63, 185, 80, 0.12)',
+                            border: '1px solid rgba(63, 185, 80, 0.25)',
+                            color: '#3fb950'
+                          }}
+                        >
+                          🦀 SigmaEngine O(1)
+                        </span>
+                      </div>
+                    )}
+                    {msg.role === 'user' && isAutoLoopPrompt(msg) && (
+                      <span style={{
+                        fontSize: '0.58rem',
+                        padding: '1px 5px',
+                        borderRadius: '4px',
+                        background: isLight ? 'rgba(99, 102, 241, 0.1)' : 'rgba(167, 139, 250, 0.15)',
+                        color: isLight ? '#4f46e5' : '#c4b5fd',
+                        fontWeight: 600,
+                        marginLeft: '2px'
+                      }}>
+                        Auto
+                      </span>
+                    )}
+                  </div>
+                  <span style={{
+                    fontSize: '0.60rem',
+                    fontWeight: 500,
+                    color: isLight ? '#8c959f' : '#6e7681',
+                    fontFamily: 'monospace'
+                  }}>
+                    {formatMessageTimestamp(msg.timestamp || new Date().toISOString())}
+                  </span>
+                </div>
+              )}
+
+              {/* Badge Identificativo Sotto-Task Corrente (mostrato solo al cambio di task) */}
+              {showTaskBadge && (
+                <div style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '5px',
+                  padding: '2px 8px',
+                  borderRadius: '4px',
+                  background: isLight ? 'rgba(0, 242, 254, 0.1)' : 'rgba(0, 242, 254, 0.08)',
+                  border: '1px solid rgba(0, 242, 254, 0.25)',
+                  color: isLight ? '#0070f3' : '#00f2fe',
+                  fontSize: '0.64rem',
+                  fontWeight: 700,
+                  width: 'fit-content',
+                  marginTop: '1px',
+                  marginBottom: '2px'
+                }}>
+                  <CircleDot size={11} color="#00f2fe" />
+                  <span>Task in corso: {relatedTaskTitle}</span>
+                </div>
+              )}
+
+              {/* Collapsible Thinking Bubble */}
+              {msg.thought && (
+                <div style={{
+                  borderRadius: '8px',
+                  background: isLight ? 'rgba(0,0,0,0.03)' : 'rgba(255,255,255,0.03)',
+                  border: isLight ? '1px solid rgba(0,0,0,0.06)' : '1px solid rgba(255,255,255,0.06)',
+                  overflow: 'hidden'
+                }}>
+                  <div
+                    onClick={() => toggleThought(idx)}
+                    style={{
+                      padding: '4px 8px',
+                      fontSize: '0.66rem',
+                      fontWeight: 700,
+                      color: '#8b949e',
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      userSelect: 'none'
+                    }}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                      <Brain size={12} color="#00f2fe" />
+                      <span>Catena di Ragionamento ({msg.thought.length} caratteri)</span>
                     </div>
-                  )}
-                  {contentText && (() => {
-                    const isGoalCompletion = msg.role === 'assistant' && (
-                      /^(?:🏆\s*)?##\s*Obiettivo\s+completato/i.test(contentText) ||
-                      /^\s*Obiettivo\s+completato\s*[:—–\-]/i.test(contentText)
-                    );
+                    {expandedThoughts[idx] ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
+                  </div>
 
-                    if (isGoalCompletion) {
-                      let goalTitle = '';
-                      let goalBody = contentText;
-                      const titleMatch = contentText.match(/^(?:🏆\s*)?##\s*Obiettivo\s+completato(?:\s*[:—–\-]\s*([^\n]+))?/i) ||
-                                         contentText.match(/^\s*Obiettivo\s+completato(?:\s*[:—–\-]\s*([^\n]+))?/i);
-                      if (titleMatch) {
-                        goalTitle = (titleMatch[1] || '').trim();
-                        goalBody = contentText.replace(titleMatch[0], '').trim();
-                      }
-                      return (
-                        <GoalCompletionCard
-                          title={goalTitle || 'Obiettivo di Sviluppo Raggiunto'}
-                          summary={goalBody}
-                          isLight={isLight}
-                          onOpenFile={onOpenFile}
-                        />
-                      );
-                    }
-
-                    return (
-                      <RichMessageContent
-                        content={contentText}
-                        isUser={msg.role === 'user'}
-                        onOpenFile={onOpenFile}
-                        isLight={isLight}
-                      />
-                    );
-                  })()}
-
-                  {/* Card Notifica Eccezione / Errore Runtime Esplicito */}
-                  {msg.isError && (
+                  {expandedThoughts[idx] && (
                     <div style={{
-                      marginTop: '8px',
-                      padding: '10px 14px',
-                      borderRadius: '8px',
-                      background: isLight ? 'rgba(239, 68, 68, 0.08)' : 'rgba(239, 68, 68, 0.12)',
-                      border: '1px solid rgba(239, 68, 68, 0.45)',
-                      boxShadow: '0 2px 10px rgba(239, 68, 68, 0.15)',
-                      fontSize: '0.72rem'
+                      padding: '6px 10px',
+                      fontSize: '0.7rem',
+                      fontFamily: 'Consolas, monospace',
+                      color: isLight ? '#57606a' : '#8b949e',
+                      borderTop: isLight ? '1px solid rgba(0,0,0,0.06)' : '1px solid rgba(255,255,255,0.06)',
+                      whiteSpace: 'pre-wrap',
+                      lineHeight: 1.4
                     }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontWeight: 800, color: '#ef4444', marginBottom: '4px' }}>
-                        <AlertTriangle size={15} color="#ef4444" />
-                        <span>{msg.errorType ? `Eccezione / Errore Rilevato: ${msg.errorType}` : 'Errore durante l\'elaborazione'}</span>
-                      </div>
-                      <div style={{ color: isLight ? '#991b1b' : '#fca5a5', lineHeight: 1.45, fontWeight: 500 }}>
-                        {msg.errorMessage || 'Si è verificato un errore nel flusso di esecuzione.'}
-                      </div>
-                      {msg.traceback && (
-                        <details style={{ marginTop: '8px', fontSize: '0.66rem' }}>
-                          <summary style={{ cursor: 'pointer', fontWeight: 700, color: '#ef4444' }}>
-                            Visualizza Dettagli Tecnici & Traceback
-                          </summary>
-                          <pre style={{
-                            margin: '6px 0 0 0',
-                            padding: '8px',
-                            background: isLight ? '#f8fafc' : '#090d13',
-                            border: '1px solid rgba(239, 68, 68, 0.2)',
-                            borderRadius: '6px',
-                            overflowX: 'auto',
-                            fontFamily: 'Consolas, monospace',
-                            whiteSpace: 'pre-wrap',
-                            color: isLight ? '#334155' : '#94a3b8',
-                            lineHeight: 1.35
-                          }}>
-                            {msg.traceback}
-                          </pre>
-                        </details>
-                      )}
-                    </div>
-                  )}
-
-                  {/* Card Notifica Rifiuto Completamento Obiettivo (Gate Reason) */}
-                  {msg.gateRejected && (
-                    <div style={{
-                      marginTop: '8px',
-                      padding: '8px 12px',
-                      borderRadius: '8px',
-                      background: isLight ? 'rgba(245, 158, 11, 0.1)' : 'rgba(245, 158, 11, 0.12)',
-                      border: '1px solid rgba(245, 158, 11, 0.4)',
-                      fontSize: '0.70rem',
-                      color: isLight ? '#b45309' : '#fcd34d'
-                    }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontWeight: 800, marginBottom: '2px' }}>
-                        <AlertCircle size={14} color="#f59e0b" />
-                        <span>Completamento respinto dal sistema di verifica</span>
-                      </div>
-                      <div style={{ lineHeight: 1.4 }}>
-                        {msg.gateReason}
-                      </div>
+                      {msg.thought}
                     </div>
                   )}
                 </div>
-              );
-            })()}
+              )}
 
+              {/* Message Bubble Content */}
+              {(() => {
+                const contentText = msg.role === 'user' ? msg.content : cleanMessageText(msg.content);
+                const showLoadingBanner = msg.isStreaming && msg.role === 'assistant' && !contentText && (!msg.thought || !msg.thought.trim());
 
-            {/* Tool Execution Badges & Sealed Action Alert Cards */}
-            {msg.tools && msg.tools.length > 0 && (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', marginTop: '4px' }}>
-                {msg.tools.map((t, tIdx) => {
-                  const isDone = t.status === 'done';
-                  const isSuccess = t.result ? t.result.success !== false : true;
-                  const hasDiff = !!t.result?.diff;
-                  const toolKey = `${idx}_${tIdx}_${t.tool}`;
-                  const isExpanded = expandedTools[toolKey] ?? true;
-
-                  return (
-                    <div
-                      key={tIdx}
-                      style={{
-                        borderRadius: '6px',
-                        background: isLight ? '#ffffff' : '#0d1117',
-                        border: isLight 
-                          ? '1px solid #e1e4e8' 
-                          : (isDone ? (isSuccess ? '1px solid rgba(63, 185, 80, 0.22)' : '1px solid rgba(239, 68, 68, 0.22)') : '1px solid rgba(0, 242, 254, 0.3)'),
-                        overflow: 'hidden',
-                        fontSize: '0.67rem',
-                        marginBottom: '2px'
-                      }}
-                    >
-                      {/* Action Header Alert Banner (compatto e snello) */}
-                      <div 
-                        onClick={() => toggleTool(toolKey)}
-                        style={{
-                          padding: '3px 8px',
-                          background: isDone 
-                            ? (isSuccess 
-                                ? (isLight ? 'rgba(63, 185, 80, 0.06)' : 'rgba(63, 185, 80, 0.06)')
-                                : (isLight ? 'rgba(239, 68, 68, 0.06)' : 'rgba(239, 68, 68, 0.06)'))
-                            : (isLight ? 'rgba(0, 242, 254, 0.06)' : 'rgba(0, 242, 254, 0.06)'),
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'space-between',
-                          borderBottom: isExpanded ? (isLight ? '1px solid rgba(0,0,0,0.05)' : '1px solid rgba(255,255,255,0.05)') : 'none',
-                          cursor: 'pointer',
-                          userSelect: 'none'
-                        }}
-                      >
-                        <span style={{ 
-                          fontWeight: 700, 
-                          color: isDone ? (isSuccess ? '#3fb950' : '#ef4444') : '#00f2fe', 
-                          display: 'flex', 
-                          alignItems: 'center', 
-                          gap: '5px',
-                          fontFamily: 'Consolas, monospace'
-                        }}>
-                          {t.tool === 'terminal' && <Terminal size={12} />}
-                          {t.tool === 'read_file' && <FileCode size={12} />}
-                          {t.tool === 'write_file' && <SplitSquareVertical size={12} />}
-                          {t.tool === 'edit_file' && <Edit2 size={12} />}
-                          {t.tool === 'glob' && <Search size={12} />}
-                          {t.tool === 'delete' && <Trash2 size={12} />}
-                          {t.tool === 'list_dir' && <Layers size={12} />}
-                          {(t.tool === 'search_code' || t.tool === 'grep') && <Search size={12} />}
-                          {(t.tool === 'pipeline' || t.tool === 'tasks' || t.tool === 'set_tasks') && <ListTodo size={12} />}
-                          {(t.tool === 'complete_goal' || t.tool === 'finish_task') && <Award size={12} />}
-                          <span>
-                            {t.tool === 'edit_file' ? 'MODIFICA MIRATA FILE' :
-                             t.tool === 'glob' ? 'RICERCA FILE PER PATTERN' :
-                             t.tool === 'write_file' ? 'MODIFICA / SCRITTURA FILE' :
-                             t.tool === 'terminal' ? 'ESECUZIONE TERMINALE' :
-                             t.tool === 'delete' ? 'ELIMINAZIONE FILE / CARTELLA' :
-                             t.tool === 'read_file' ? 'LETTURA FILE' :
-                             t.tool === 'list_dir' ? 'ESPLORAZIONE DIRECTORY' :
-                             (t.tool === 'search_code' || t.tool === 'grep') ? 'RICERCA NEL CODICE' :
-                             (t.tool === 'pipeline' || t.tool === 'tasks' || t.tool === 'set_tasks') ? 'AGGIORNAMENTO PIPELINE TASK' :
-                             (t.tool === 'complete_goal' || t.tool === 'finish_task') ? 'OBIETTIVO COMPLETATO' :
-                             `AZIONE: ${t.tool.toUpperCase()}`}
-                          </span>
-                        </span>
-
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
-                          <span style={{
-                            fontSize: '0.58rem',
-                            padding: '1px 6px',
-                            borderRadius: '4px',
-                            background: isDone 
-                              ? (isSuccess ? 'rgba(63, 185, 80, 0.15)' : 'rgba(239, 68, 68, 0.15)')
-                              : 'rgba(0, 242, 254, 0.15)',
-                            color: isDone ? (isSuccess ? '#3fb950' : '#ef4444') : '#00f2fe',
-                            fontWeight: 700,
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: '3px'
-                          }}>
-                            {isDone ? (isSuccess ? '✓ OK' : '✕ Errore') : '⏳ In corso'}
-                          </span>
-                          {isExpanded ? <ChevronUp size={11} color="#8b949e" /> : <ChevronDown size={11} color="#8b949e" />}
-                        </div>
+                if (!contentText && (!msg.attachments || msg.attachments.length === 0) && !showLoadingBanner) {
+                  // Se non c'è testo ma il turno ha registrato token ed è privo di tool visualizzati,
+                  // mostriamo un messaggio sobrio indicante l'azione o lo stato
+                  if (msg.role === 'assistant' && (!msg.tools || msg.tools.length === 0) && msg.metrics?.tokens > 0 && !msg.isStreaming) {
+                    return (
+                      <div style={{
+                        padding: '4px 8px',
+                        borderRadius: '5px',
+                        background: isLight ? '#f6f8fa' : '#161b22',
+                        border: isLight ? '1px solid #d0d7de' : '1px solid rgba(255,255,255,0.06)',
+                        color: isLight ? '#57606a' : '#8b949e',
+                        fontSize: '0.66rem',
+                        fontStyle: 'italic'
+                      }}>
+                        {msg.content?.trim() || "Analisi interna completata: passaggio alla fase successiva."}
                       </div>
+                    );
+                  }
+                  return null;
+                }
+                return (
+                  <div>
+                    {/* Model Loading / Inference Alert Card */}
+                    {showLoadingBanner && (
+                      <div style={{
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: '8px',
+                        padding: '8px 12px',
+                        borderRadius: '8px',
+                        background: isLight ? 'rgba(0, 242, 254, 0.12)' : 'rgba(0, 242, 254, 0.08)',
+                        border: '1px solid rgba(0, 242, 254, 0.35)',
+                        color: isLight ? '#0070f3' : '#00f2fe',
+                        fontSize: '0.74rem',
+                        fontWeight: 600,
+                        boxShadow: '0 2px 8px rgba(0, 242, 254, 0.15)',
+                        marginBottom: '4px'
+                      }}>
+                        <RefreshCw size={13} className="spin" />
+                        <span>{agentStatus || `⏳ Inizializzazione e caricamento pesi modello (${selectedModel})...`}</span>
+                      </div>
+                    )}
 
-                      {/* Action Details Body */}
-                      {isExpanded && (
-                        <div style={{ padding: '8px 10px', display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                          {t.params?.command && (
-                            <div style={{
-                              fontFamily: '"JetBrains Mono", Consolas, monospace',
-                              color: '#3fb950',
-                              fontSize: '0.68rem',
-                              background: isLight ? '#f6f8fa' : '#161b22',
-                              padding: '4px 8px',
-                              borderRadius: '5px',
-                              border: isLight ? '1px solid #d0d7de' : '1px solid rgba(255,255,255,0.06)'
-                            }}>
-                              $ {t.params.command}
-                            </div>
-                          )}
-
-                          {t.params?.path && (
-                            <div style={{ fontFamily: 'monospace', color: isLight ? '#57606a' : '#8b949e', fontSize: '0.66rem' }}>
-                              📂 Percorso: <strong>{t.params.path}</strong>
-                            </div>
-                          )}
-
-                          {/* Una ricerca senza il termine cercato e' una
-                              scheda che dice "ho cercato" e non dice cosa. */}
-                          {(t.params?.query || t.params?.pattern) && (
-                            <div style={{ fontFamily: 'monospace', color: isLight ? '#57606a' : '#8b949e', fontSize: '0.66rem' }}>
-                              🔎 Cerca: <strong>{t.params.query || t.params.pattern}</strong>
-                            </div>
-                          )}
-
-                          {t.result?.message && (
-                            <div style={{ 
-                              color: t.result.success !== false ? (isLight ? '#24292f' : '#e6edf3') : '#ef4444', 
-                              fontSize: '0.68rem', 
-                              lineHeight: 1.4,
-                              marginTop: '2px', 
-                              fontWeight: 500 
-                            }}>
-                              {t.result.message}
-                            </div>
-                          )}
-
-                          {/* Pipeline Task Preview inside Tool Card */}
-                          {(t.tool === 'pipeline' || t.tool === 'tasks' || t.tool === 'set_tasks') && Array.isArray(t.result?.tasks) && (
-                            <div style={{ display: 'flex', flexDirection: 'column', gap: '3px', marginTop: '4px' }}>
-                              {t.result.tasks.map((taskItem, tIdx2) => (
-                                <div key={tIdx2} style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.66rem' }}>
-                                  {taskItem.status === 'done' ? (
-                                    <CheckCircle2 size={12} color="#3fb950" />
-                                  ) : taskItem.status === 'in_progress' ? (
-                                    <CircleDot size={12} color="#00f2fe" />
-                                  ) : (
-                                    <Circle size={12} color="#8b949e" />
-                                  )}
-                                  <span style={{
-                                    color: taskItem.status === 'done' ? '#8b949e' : (taskItem.status === 'in_progress' ? '#00f2fe' : (isLight ? '#24292f' : '#e6edf3')),
-                                    textDecoration: taskItem.status === 'done' ? 'line-through' : 'none'
-                                  }}>
-                                    {taskItem.title}
-                                  </span>
-                                </div>
-                              ))}
-                            </div>
-                          )}
-
-                          {/* Complete Goal preview status compatto (nessuna duplicazione della GoalCompletionCard) */}
-                          {(t.tool === 'complete_goal' || t.tool === 'finish_task') && (
-                            <div style={{
+                    {msg.attachments && msg.attachments.length > 0 && (
+                      <div style={{
+                        display: 'flex',
+                        flexWrap: 'wrap',
+                        gap: '5px',
+                        marginBottom: contentText ? '6px' : 0
+                      }}>
+                        {msg.attachments.map((att, attIdx) => (
+                          <div
+                            key={attIdx}
+                            onClick={() => onOpenFile && onOpenFile(att.name || att.path)}
+                            style={{
                               display: 'inline-flex',
                               alignItems: 'center',
-                              gap: '5px',
-                              padding: '2px 6px',
-                              borderRadius: '4px',
-                              background: 'rgba(16, 185, 129, 0.1)',
-                              color: '#10b981',
-                              fontSize: '0.64rem',
-                              fontWeight: 700,
-                              width: 'fit-content'
-                            }}>
-                              <CheckCircle2 size={12} color="#10b981" />
-                              <span>Obiettivo verificato e completato</span>
-                            </div>
-                          )}
+                              gap: '4px',
+                              padding: '3px 8px',
+                              borderRadius: '6px',
+                              fontSize: '0.66rem',
+                              fontWeight: 600,
+                              background: isLight ? 'rgba(0, 242, 254, 0.15)' : 'rgba(0, 242, 254, 0.1)',
+                              border: '1px solid rgba(0, 242, 254, 0.3)',
+                              color: isLight ? '#0366d6' : '#00f2fe',
+                              cursor: onOpenFile ? 'pointer' : 'default'
+                            }}
+                            title={att.name || att.path}
+                          >
+                            <FileText size={11} />
+                            <span style={{ maxWidth: '180px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                              {att.name || att.path}
+                            </span>
+                            {att.size && (
+                              <span style={{ opacity: 0.65, fontSize: '0.60rem' }}>
+                                ({(att.size / 1024).toFixed(1)} KB)
+                              </span>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    {contentText && (() => {
+                      const isGoalCompletion = msg.role === 'assistant' && eBollaObiettivo(contentText);
 
-                          {/* Diff Preview & Apply button */}
-                          {hasDiff && (
-                            <div style={{ marginTop: '6px', borderTop: isLight ? '1px solid #d0d7de' : '1px solid rgba(255,255,255,0.08)', paddingTop: '6px' }}>
-                              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '4px' }}>
-                                <span style={{ fontSize: '0.64rem', fontWeight: 700, color: '#00f2fe' }}>
-                                  ⚡ Modifiche Proposte nel File
-                                </span>
-                                <button
-                                  type="button"
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    onApplyDiff?.(t.result.diff, t.result.path, t.result.content);
-                                  }}
-                                  style={{
-                                    padding: '3px 10px',
-                                    borderRadius: '5px',
-                                    background: '#3fb950',
-                                    border: 'none',
-                                    color: '#fff',
-                                    fontSize: '0.64rem',
-                                    fontWeight: 800,
-                                    cursor: 'pointer'
-                                  }}
-                                >
-                                  Visualizza / Applica Diff
-                                </button>
-                              </div>
-                              <pre style={{
-                                margin: 0,
-                                padding: '6px 8px',
-                                maxHeight: '120px',
-                                overflowY: 'auto',
-                                background: '#07090e',
-                                borderRadius: '4px',
-                                fontSize: '0.64rem',
-                                fontFamily: 'Consolas, monospace',
-                                lineHeight: 1.35
+                      if (isGoalCompletion) {
+                        let goalTitle = '';
+                        let goalBody = contentText;
+                        const titleMatch = contentText.match(/^(?:🏆\s*)?##\s*Obiettivo\s+completato(?:\s*[:—–\-]\s*([^\n]+))?/i) ||
+                          contentText.match(/^\s*Obiettivo\s+completato(?:\s*[:—–\-]\s*([^\n]+))?/i);
+                        if (titleMatch) {
+                          goalTitle = (titleMatch[1] || '').trim();
+                          goalBody = contentText.replace(titleMatch[0], '').trim();
+                        }
+                        return (
+                          <GoalCompletionCard
+                            title={goalTitle || 'Obiettivo di Sviluppo Raggiunto'}
+                            summary={goalBody}
+                            isLight={isLight}
+                            onOpenFile={onOpenFile}
+                          />
+                        );
+                      }
+
+                      return (
+                        <RichMessageContent
+                          content={contentText}
+                          isUser={msg.role === 'user'}
+                          onOpenFile={onOpenFile}
+                          isLight={isLight}
+                        />
+                      );
+                    })()}
+
+                    {/* Card Notifica Eccezione / Errore Runtime Esplicito */}
+                    {msg.isError && (
+                      <div style={{
+                        marginTop: '8px',
+                        padding: '10px 14px',
+                        borderRadius: '8px',
+                        background: isLight ? 'rgba(239, 68, 68, 0.08)' : 'rgba(239, 68, 68, 0.12)',
+                        border: '1px solid rgba(239, 68, 68, 0.45)',
+                        boxShadow: '0 2px 10px rgba(239, 68, 68, 0.15)',
+                        fontSize: '0.72rem'
+                      }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontWeight: 800, color: '#ef4444', marginBottom: '4px' }}>
+                          <AlertTriangle size={15} color="#ef4444" />
+                          <span>{msg.errorType ? `Eccezione / Errore Rilevato: ${msg.errorType}` : 'Errore durante l\'elaborazione'}</span>
+                        </div>
+                        <div style={{ color: isLight ? '#991b1b' : '#fca5a5', lineHeight: 1.45, fontWeight: 500 }}>
+                          {msg.errorMessage || 'Si è verificato un errore nel flusso di esecuzione.'}
+                        </div>
+                        {msg.traceback && (
+                          <details style={{ marginTop: '8px', fontSize: '0.66rem' }}>
+                            <summary style={{ cursor: 'pointer', fontWeight: 700, color: '#ef4444' }}>
+                              Visualizza Dettagli Tecnici & Traceback
+                            </summary>
+                            <pre style={{
+                              margin: '6px 0 0 0',
+                              padding: '8px',
+                              background: isLight ? '#f8fafc' : '#090d13',
+                              border: '1px solid rgba(239, 68, 68, 0.2)',
+                              borderRadius: '6px',
+                              overflowX: 'auto',
+                              fontFamily: 'Consolas, monospace',
+                              whiteSpace: 'pre-wrap',
+                              color: isLight ? '#334155' : '#94a3b8',
+                              lineHeight: 1.35
+                            }}>
+                              {msg.traceback}
+                            </pre>
+                          </details>
+                        )}
+                      </div>
+                    )}
+
+                    {/* Card Notifica Rifiuto Completamento Obiettivo (Gate Reason) */}
+                    {msg.gateRejected && (
+                      <div style={{
+                        marginTop: '8px',
+                        padding: '8px 12px',
+                        borderRadius: '8px',
+                        background: isLight ? 'rgba(245, 158, 11, 0.1)' : 'rgba(245, 158, 11, 0.12)',
+                        border: '1px solid rgba(245, 158, 11, 0.4)',
+                        fontSize: '0.70rem',
+                        color: isLight ? '#b45309' : '#fcd34d'
+                      }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontWeight: 800, marginBottom: '2px' }}>
+                          <AlertCircle size={14} color="#f59e0b" />
+                          <span>Completamento respinto dal sistema di verifica</span>
+                        </div>
+                        <div style={{ lineHeight: 1.4 }}>
+                          {msg.gateReason}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
+
+
+              {/* Tool Execution Badges & Sealed Action Alert Cards */}
+              {msg.tools && msg.tools.length > 0 && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', marginTop: '4px' }}>
+                  {msg.tools.map((t, tIdx) => {
+                    const isDone = t.status === 'done';
+                    const isSuccess = t.result ? t.result.success !== false : true;
+                    const hasDiff = !!t.result?.diff;
+                    const toolKey = `${idx}_${tIdx}_${t.tool}`;
+                    const isExpanded = expandedTools[toolKey] ?? true;
+                    // Se la bolla ha gia' reso la scheda, il tool non ripete il riepilogo.
+                    const bollaObiettivo = msg.role === 'assistant' && eBollaObiettivo(cleanMessageText(msg.content));
+
+                    return (
+                      <div
+                        key={tIdx}
+                        style={{
+                          borderRadius: '6px',
+                          background: isLight ? '#ffffff' : '#0d1117',
+                          border: isLight
+                            ? '1px solid #e1e4e8'
+                            : (isDone ? (isSuccess ? '1px solid rgba(63, 185, 80, 0.22)' : '1px solid rgba(239, 68, 68, 0.22)') : '1px solid rgba(0, 242, 254, 0.3)'),
+                          overflow: 'hidden',
+                          fontSize: '0.67rem',
+                          marginBottom: '2px'
+                        }}
+                      >
+                        {/* Action Header Alert Banner (compatto e snello) */}
+                        <div
+                          onClick={() => toggleTool(toolKey)}
+                          style={{
+                            padding: '3px 8px',
+                            background: isDone
+                              ? (isSuccess
+                                ? (isLight ? 'rgba(63, 185, 80, 0.06)' : 'rgba(63, 185, 80, 0.06)')
+                                : (isLight ? 'rgba(239, 68, 68, 0.06)' : 'rgba(239, 68, 68, 0.06)'))
+                              : (isLight ? 'rgba(0, 242, 254, 0.06)' : 'rgba(0, 242, 254, 0.06)'),
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'space-between',
+                            borderBottom: isExpanded ? (isLight ? '1px solid rgba(0,0,0,0.05)' : '1px solid rgba(255,255,255,0.05)') : 'none',
+                            cursor: 'pointer',
+                            userSelect: 'none'
+                          }}
+                        >
+                          <span style={{
+                            fontWeight: 700,
+                            color: isDone ? (isSuccess ? '#3fb950' : '#ef4444') : '#00f2fe',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '5px',
+                            fontFamily: 'Consolas, monospace'
+                          }}>
+                            {t.tool === 'terminal' && <Terminal size={12} />}
+                            {t.tool === 'read_file' && <FileCode size={12} />}
+                            {t.tool === 'write_file' && <SplitSquareVertical size={12} />}
+                            {t.tool === 'edit_file' && <Edit2 size={12} />}
+                            {t.tool === 'glob' && <Search size={12} />}
+                            {t.tool === 'delete' && <Trash2 size={12} />}
+                            {t.tool === 'list_dir' && <Layers size={12} />}
+                            {(t.tool === 'search_code' || t.tool === 'grep') && <Search size={12} />}
+                            {(t.tool === 'pipeline' || t.tool === 'tasks' || t.tool === 'set_tasks') && <ListTodo size={12} />}
+                            {(t.tool === 'complete_goal' || t.tool === 'finish_task') && <Award size={12} />}
+                            <span>
+                              {t.tool === 'edit_file' ? 'MODIFICA MIRATA FILE' :
+                                t.tool === 'glob' ? 'RICERCA FILE PER PATTERN' :
+                                  t.tool === 'write_file' ? 'MODIFICA / SCRITTURA FILE' :
+                                    t.tool === 'terminal' ? 'ESECUZIONE TERMINALE' :
+                                      t.tool === 'delete' ? 'ELIMINAZIONE FILE / CARTELLA' :
+                                        t.tool === 'read_file' ? 'LETTURA FILE' :
+                                          t.tool === 'list_dir' ? 'ESPLORAZIONE DIRECTORY' :
+                                            (t.tool === 'search_code' || t.tool === 'grep') ? 'RICERCA NEL CODICE' :
+                                              (t.tool === 'pipeline' || t.tool === 'tasks' || t.tool === 'set_tasks') ? 'AGGIORNAMENTO PIPELINE TASK' :
+                                                (t.tool === 'complete_goal' || t.tool === 'finish_task') ? 'OBIETTIVO COMPLETATO' :
+                                                  `AZIONE: ${t.tool.toUpperCase()}`}
+                            </span>
+                          </span>
+
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
+                            <span style={{
+                              fontSize: '0.58rem',
+                              padding: '1px 6px',
+                              borderRadius: '4px',
+                              background: isDone
+                                ? (isSuccess ? 'rgba(63, 185, 80, 0.15)' : 'rgba(239, 68, 68, 0.15)')
+                                : 'rgba(0, 242, 254, 0.15)',
+                              color: isDone ? (isSuccess ? '#3fb950' : '#ef4444') : '#00f2fe',
+                              fontWeight: 700,
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: '3px'
+                            }}>
+                              {isDone ? (isSuccess ? '✓ OK' : '✕ Errore') : '⏳ In corso'}
+                            </span>
+                            {isExpanded ? <ChevronUp size={11} color="#8b949e" /> : <ChevronDown size={11} color="#8b949e" />}
+                          </div>
+                        </div>
+
+                        {/* Action Details Body */}
+                        {isExpanded && (
+                          <div style={{ padding: '8px 10px', display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                            {t.params?.command && (
+                              <div style={{
+                                fontFamily: '"JetBrains Mono", Consolas, monospace',
+                                color: '#3fb950',
+                                fontSize: '0.68rem',
+                                background: isLight ? '#f6f8fa' : '#161b22',
+                                padding: '4px 8px',
+                                borderRadius: '5px',
+                                border: isLight ? '1px solid #d0d7de' : '1px solid rgba(255,255,255,0.06)'
                               }}>
-                                {t.result.diff.split('\n').slice(0, 15).map((line, dIdx) => (
-                                  <div key={dIdx} style={{
-                                    color: line.startsWith('+') ? '#3fb950' : (line.startsWith('-') ? '#ef4444' : '#8b949e')
-                                  }}>
-                                    {line}
+                                $ {t.params.command}
+                              </div>
+                            )}
+
+                            {t.params?.path && (
+                              <div style={{ fontFamily: 'monospace', color: isLight ? '#57606a' : '#8b949e', fontSize: '0.66rem' }}>
+                                📂 Percorso: <strong>{t.params.path}</strong>
+                              </div>
+                            )}
+
+                            {/* Una ricerca senza il termine cercato e' una
+                              scheda che dice "ho cercato" e non dice cosa. */}
+                            {(t.params?.query || t.params?.pattern) && (
+                              <div style={{ fontFamily: 'monospace', color: isLight ? '#57606a' : '#8b949e', fontSize: '0.66rem' }}>
+                                🔎 Cerca: <strong>{t.params.query || t.params.pattern}</strong>
+                              </div>
+                            )}
+
+                            {t.result?.message && (
+                              <div style={{
+                                color: t.result.success !== false ? (isLight ? '#24292f' : '#e6edf3') : '#ef4444',
+                                fontSize: '0.68rem',
+                                lineHeight: 1.4,
+                                marginTop: '2px',
+                                fontWeight: 500
+                              }}>
+                                {t.result.message}
+                              </div>
+                            )}
+
+                            {/* Pipeline Task Preview inside Tool Card */}
+                            {(t.tool === 'pipeline' || t.tool === 'tasks' || t.tool === 'set_tasks') && Array.isArray(t.result?.tasks) && (
+                              <div style={{ display: 'flex', flexDirection: 'column', gap: '3px', marginTop: '4px' }}>
+                                {t.result.tasks.map((taskItem, tIdx2) => (
+                                  <div key={tIdx2} style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.66rem' }}>
+                                    {taskItem.status === 'done' ? (
+                                      <CheckCircle2 size={12} color="#3fb950" />
+                                    ) : taskItem.status === 'in_progress' ? (
+                                      <CircleDot size={12} color="#00f2fe" />
+                                    ) : (
+                                      <Circle size={12} color="#8b949e" />
+                                    )}
+                                    <span style={{
+                                      color: taskItem.status === 'done' ? '#8b949e' : (taskItem.status === 'in_progress' ? '#00f2fe' : (isLight ? '#24292f' : '#e6edf3')),
+                                      textDecoration: taskItem.status === 'done' ? 'line-through' : 'none'
+                                    }}>
+                                      {taskItem.title}
+                                    </span>
                                   </div>
                                 ))}
-                              </pre>
-                            </div>
-                          )}
-                        </div>
+                              </div>
+                            )}
+
+                            {/* La chiusura dell'obiettivo si legge come una scheda:
+                              riepilogo, criteri e prove, non una pastiglia. */}
+                            {(t.tool === 'complete_goal' || t.tool === 'finish_task' || t.tool === 'task_complete') && t.result && (
+                              <GoalCompletionCard
+                                result={t.result}
+                                isLight={isLight}
+                                onOpenFile={onOpenFile}
+                                mostraRiepilogo={!bollaObiettivo}
+                              />
+                            )}
+
+                            {/* Diff Preview & Apply button */}
+                            {hasDiff && (
+                              <div style={{ marginTop: '6px', borderTop: isLight ? '1px solid #d0d7de' : '1px solid rgba(255,255,255,0.08)', paddingTop: '6px' }}>
+                                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '4px' }}>
+                                  <span style={{ fontSize: '0.64rem', fontWeight: 700, color: '#00f2fe' }}>
+                                    ⚡ Modifiche Proposte nel File
+                                  </span>
+                                  <button
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      onApplyDiff?.(t.result.diff, t.result.path, t.result.content);
+                                    }}
+                                    style={{
+                                      padding: '3px 10px',
+                                      borderRadius: '5px',
+                                      background: '#3fb950',
+                                      border: 'none',
+                                      color: '#fff',
+                                      fontSize: '0.64rem',
+                                      fontWeight: 800,
+                                      cursor: 'pointer'
+                                    }}
+                                  >
+                                    Visualizza / Applica Diff
+                                  </button>
+                                </div>
+                                <pre style={{
+                                  margin: 0,
+                                  padding: '6px 8px',
+                                  maxHeight: '120px',
+                                  overflowY: 'auto',
+                                  background: '#07090e',
+                                  borderRadius: '4px',
+                                  fontSize: '0.64rem',
+                                  fontFamily: 'Consolas, monospace',
+                                  lineHeight: 1.35
+                                }}>
+                                  {t.result.diff.split('\n').slice(0, 15).map((line, dIdx) => (
+                                    <div key={dIdx} style={{
+                                      color: line.startsWith('+') ? '#3fb950' : (line.startsWith('-') ? '#ef4444' : '#8b949e')
+                                    }}>
+                                      {line}
+                                    </div>
+                                  ))}
+                                </pre>
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+              {/* Generation Metrics Bar (t/s, TTFT, Tokens, Duration, Datastamp posizionate sotto le azioni) */}
+              {msg.metrics && msg.role === 'assistant' && (
+                <div style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '8px',
+                  fontSize: '0.62rem',
+                  padding: '3px 4px',
+                  color: isLight ? '#57606a' : '#8b949e',
+                  flexWrap: 'wrap',
+                  marginTop: '2px',
+                  marginBottom: isConsecutiveAssistant ? '2px' : '4px'
+                }}>
+                  {msg.metrics.tps > 0 && (
+                    <span style={{
+                      color: msg.metrics.isLive ? '#00f2fe' : '#3fb950',
+                      fontWeight: 800,
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '4px'
+                    }}>
+                      ⚡ {msg.metrics.tps} t/s
+                      {msg.metrics.isLive && (
+                        <span style={{
+                          display: 'inline-block',
+                          width: '6px',
+                          height: '6px',
+                          borderRadius: '50%',
+                          background: '#00f2fe',
+                          boxShadow: '0 0 6px #00f2fe'
+                        }} />
                       )}
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-            {/* Generation Metrics Bar (t/s, TTFT, Tokens, Duration, Datastamp posizionate sotto le azioni) */}
-            {msg.metrics && msg.role === 'assistant' && (
-              <div style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: '8px',
-                fontSize: '0.62rem',
-                padding: '3px 4px',
-                color: isLight ? '#57606a' : '#8b949e',
-                flexWrap: 'wrap',
-                marginTop: '2px',
-                marginBottom: isConsecutiveAssistant ? '2px' : '4px'
-              }}>
-                {msg.metrics.tps > 0 && (
-                  <span style={{ 
-                    color: msg.metrics.isLive ? '#00f2fe' : '#3fb950', 
-                    fontWeight: 800,
-                    display: 'inline-flex',
-                    alignItems: 'center',
-                    gap: '4px'
-                  }}>
-                    ⚡ {msg.metrics.tps} t/s
-                    {msg.metrics.isLive && (
-                      <span style={{ 
-                        display: 'inline-block', 
-                        width: '6px', 
-                        height: '6px', 
-                        borderRadius: '50%', 
-                        background: '#00f2fe',
-                        boxShadow: '0 0 6px #00f2fe'
-                      }} />
-                    )}
+                    </span>
+                  )}
+                  {msg.metrics.speculative_speedup > 1.0 && (
+                    <span style={{
+                      color: '#34d399',
+                      fontWeight: 700,
+                      background: 'rgba(16, 185, 129, 0.1)',
+                      padding: '1px 5px',
+                      borderRadius: '4px',
+                      border: '1px solid rgba(16, 185, 129, 0.25)',
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '3px'
+                    }}>
+                      🚀 {msg.metrics.speculative_speedup}x Speculative{msg.metrics.speculative_acceptance_rate ? ` (${msg.metrics.speculative_acceptance_rate}%)` : ''}
+                    </span>
+                  )}
+                  {msg.metrics.grammar_constrained && (
+                    <span style={{
+                      color: '#00f2fe',
+                      fontWeight: 700,
+                      background: 'rgba(0, 242, 254, 0.08)',
+                      padding: '1px 5px',
+                      borderRadius: '4px',
+                      border: '1px solid rgba(0, 242, 254, 0.22)'
+                    }}>
+                      JSON-FSM ✓
+                    </span>
+                  )}
+                  {msg.metrics.ttft_ms > 0 && (
+                    <span>⏱️ TTFT {msg.metrics.ttft_ms}ms</span>
+                  )}
+                  {msg.metrics.tokens > 0 && (
+                    <span>• {msg.metrics.tokens} tokens</span>
+                  )}
+                  {msg.metrics.duration_s > 0 && (
+                    <span>• {msg.metrics.duration_s}s</span>
+                  )}
+                  <span style={{ marginLeft: 'auto', opacity: 0.75 }}>
+                    🕒 {formatMessageTimestamp(msg.timestamp || new Date().toISOString())}
                   </span>
-                )}
-                {msg.metrics.speculative_speedup > 1.0 && (
-                  <span style={{
-                    color: '#34d399',
-                    fontWeight: 700,
-                    background: 'rgba(16, 185, 129, 0.1)',
-                    padding: '1px 5px',
-                    borderRadius: '4px',
-                    border: '1px solid rgba(16, 185, 129, 0.25)',
-                    display: 'inline-flex',
-                    alignItems: 'center',
-                    gap: '3px'
-                  }}>
-                    🚀 {msg.metrics.speculative_speedup}x Speculative{msg.metrics.speculative_acceptance_rate ? ` (${msg.metrics.speculative_acceptance_rate}%)` : ''}
-                  </span>
-                )}
-                {msg.metrics.grammar_constrained && (
-                  <span style={{
-                    color: '#00f2fe',
-                    fontWeight: 700,
-                    background: 'rgba(0, 242, 254, 0.08)',
-                    padding: '1px 5px',
-                    borderRadius: '4px',
-                    border: '1px solid rgba(0, 242, 254, 0.22)'
-                  }}>
-                    JSON-FSM ✓
-                  </span>
-                )}
-                {msg.metrics.ttft_ms > 0 && (
-                  <span>⏱️ TTFT {msg.metrics.ttft_ms}ms</span>
-                )}
-                {msg.metrics.tokens > 0 && (
-                  <span>• {msg.metrics.tokens} tokens</span>
-                )}
-                {msg.metrics.duration_s > 0 && (
-                  <span>• {msg.metrics.duration_s}s</span>
-                )}
-                <span style={{ marginLeft: 'auto', opacity: 0.75 }}>
-                  🕒 {formatMessageTimestamp(msg.timestamp || new Date().toISOString())}
-                </span>
-              </div>
-            )}
-          </div>
+                </div>
+              )}
+            </div>
           );
         })}
         <div ref={chatEndRef} />
@@ -3628,7 +3694,7 @@ ${event.diff || ''}`,
       )}
 
       {/* Input Bar */}
-      <form 
+      <form
         onSubmit={(e) => {
           e.preventDefault();
           handleSendMessage();
@@ -3642,7 +3708,7 @@ ${event.diff || ''}`,
           display: 'flex',
           alignItems: 'center',
           gap: '6px',
-          background: isDragOver 
+          background: isDragOver
             ? (isLight ? 'rgba(0, 242, 254, 0.1)' : 'rgba(0, 242, 254, 0.08)')
             : (isLight ? '#f6f8fa' : '#0a0e14'),
           transition: 'background 0.2s ease'
@@ -3686,11 +3752,11 @@ ${event.diff || ''}`,
           style={{
             padding: '6px 8px',
             borderRadius: '8px',
-            background: isListening 
-              ? 'rgba(239, 68, 68, 0.25)' 
+            background: isListening
+              ? 'rgba(239, 68, 68, 0.25)'
               : (isLight ? '#ffffff' : '#161b22'),
-            border: isListening 
-              ? '1px solid rgba(239, 68, 68, 0.5)' 
+            border: isListening
+              ? '1px solid rgba(239, 68, 68, 0.5)'
               : (isLight ? '1px solid #d0d7de' : '1px solid rgba(255,255,255,0.12)'),
             color: isListening ? '#ef4444' : (isLight ? '#57606a' : '#8b949e'),
             cursor: 'pointer',
@@ -3708,13 +3774,13 @@ ${event.diff || ''}`,
           value={input}
           onChange={e => setInput(e.target.value)}
           placeholder={
-            isListening 
-              ? "🎤 Ascolto in corso..." 
-              : isStreaming 
-              ? "Scrivi un'istruzione per intervenire nel loop (premi Invio per inviare)..." 
-              : loopCountdown !== null 
-              ? `Loop in corso (${loopCountdown}s)... Scrivi un'istruzione per indirizzare l'agente...` 
-              : "Chiedi all'AI Developer Agent... (puoi allegare o trascinare file)"
+            isListening
+              ? "🎤 Ascolto in corso..."
+              : isStreaming
+                ? "Scrivi un'istruzione per intervenire nel loop (premi Invio per inviare)..."
+                : loopCountdown !== null
+                  ? `Loop in corso (${loopCountdown}s)... Scrivi un'istruzione per indirizzare l'agente...`
+                  : "Chiedi all'AI Developer Agent... (puoi allegare o trascinare file)"
           }
           style={{
             flex: 1,
@@ -3764,14 +3830,14 @@ ${event.diff || ''}`,
             isStreaming
               ? "Intervieni subito e invia la nuova istruzione all'agente"
               : loopCountdown !== null
-              ? "Invia subito l'istruzione e avvia il task"
-              : "Invia messaggio all'agente"
+                ? "Invia subito l'istruzione e avvia il task"
+                : "Invia messaggio all'agente"
           }
           style={{
             padding: '6px 14px',
             borderRadius: '8px',
-            background: (input.trim() || attachedFiles.length > 0) 
-              ? 'linear-gradient(135deg, #00f2fe, #4facfe)' 
+            background: (input.trim() || attachedFiles.length > 0)
+              ? 'linear-gradient(135deg, #00f2fe, #4facfe)'
               : (isLight ? '#e1e4e8' : '#21262d'),
             border: 'none',
             color: (input.trim() || attachedFiles.length > 0) ? '#000000' : '#8b949e',

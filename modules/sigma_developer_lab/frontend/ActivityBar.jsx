@@ -17,7 +17,12 @@ import { Activity, Users, Layers, MessageSquare, Clock, ChevronDown, ChevronRigh
 
 // Un secondo e mezzo: abbastanza per sembrare vivo, abbastanza poco da non
 // pesare. Il registro è un file piccolo, la lettura costa quanto un ls.
-const INTERVALLO_MS = 1500;
+// Il backend riusa la fotografia dell'attivita' per un secondo (vedi
+// `core/harness/attivita.stato`), e questo pannello non e' l'unico a chiederla:
+// due componenti piu' le schede aperte moltiplicavano le richieste. «Chi sta
+// lavorando adesso» non cambia in tre secondi, e chiederlo tre volte meno spesso
+// e' l'unica parte di questo costo che si poteva togliere senza perdere niente.
+const INTERVALLO_MS = 3000;
 
 const ICONA = {
   ventaglio: Layers,
@@ -211,9 +216,11 @@ export default function ActivityBar({ isLight = false, inline = false }) {
                   flexShrink: 0
                 }} />
                 <span style={{
-                  flex: 1, overflow: 'hidden', textOverflow: 'ellipsis',
-                  whiteSpace: 'nowrap', color: testo
-                }}>
+                  flex: 1, overflow: 'hidden', color: testo,
+                  display: '-webkit-box', WebkitLineClamp: 2,
+                  WebkitBoxOrient: 'vertical', lineHeight: 1.3,
+                  wordBreak: 'break-word'
+                }} title={voce.titolo || voce.tipo}>
                   {voce.titolo || voce.tipo}
                 </span>
                 <span style={{

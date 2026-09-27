@@ -6,7 +6,9 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { Activity, Clock } from 'lucide-react';
 
-const INTERVALLO_MS = 1500;
+// Tre secondi, come `ActivityBar`: il backend riusa la fotografia per un
+// secondo, e due componenti che la chiedono ogni 1,5 s si sommano.
+const INTERVALLO_MS = 3000;
 
 function formatDurata(secondiDa) {
   const s = Math.max(0, Math.round(Date.now() / 1000 - secondiDa));
