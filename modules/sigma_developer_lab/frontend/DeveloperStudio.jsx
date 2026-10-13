@@ -62,22 +62,35 @@ export default function DeveloperStudio() {
   }, [fetchTree]);
 
   // 3. Open file in editor
-  const handleOpenFile = async (filePath) => {
-    const existing = openFiles.find(f => f.path === filePath);
-    if (existing) {
-      setActiveFilePath(filePath);
-      return;
-    }
+  const handleOpenFile = useCallback(async (filePath) => {
+    if (!filePath) return;
+    const cleanPath = String(filePath).trim().replace(/^["']|["']$/g, '');
+    const norm = (p) => String(p || '').replace(/\\/g, '/').toLowerCase();
+
+    // Controlla se il file è già aperto nella lista
+    setOpenFiles(prev => {
+      const existing = prev.find(f =>
+        norm(f.path) === norm(cleanPath) ||
+        norm(f.path).endsWith(norm(cleanPath)) ||
+        norm(cleanPath).endsWith(norm(f.path))
+      );
+      if (existing) {
+        setActiveFilePath(existing.path);
+        return prev;
+      }
+      return prev;
+    });
 
     try {
-      const res = await fetch(`/api/developer/fs/read?path=${encodeURIComponent(filePath)}`);
+      const res = await fetch(`/api/developer/fs/read?path=${encodeURIComponent(cleanPath)}`);
       const data = await res.json();
       if (data.success) {
+        const resolvedPath = data.path || cleanPath;
         const newFile = {
-          path: data.path,
-          filename: data.filename,
-          content: data.content,
-          originalContent: data.content,
+          path: resolvedPath,
+          filename: data.filename || cleanPath.split(/[/\\]/).pop(),
+          content: data.content ?? '',
+          originalContent: data.content ?? '',
           is_binary: !!data.is_binary,
           is_image: !!data.is_image,
           is_pdf: !!data.is_pdf,
@@ -86,15 +99,19 @@ export default function DeveloperStudio() {
           size_label: data.size_label,
           dirty: false
         };
-        setOpenFiles(prev => [...prev, newFile]);
-        setActiveFilePath(data.path);
+        setOpenFiles(prev => {
+          const already = prev.find(f => norm(f.path) === norm(resolvedPath));
+          if (already) return prev;
+          return [...prev, newFile];
+        });
+        setActiveFilePath(resolvedPath);
       } else {
         addToast?.(data.error || 'Errore lettura file', 'error');
       }
     } catch (e) {
       addToast?.('Errore di connessione', 'error');
     }
-  };
+  }, [addToast]);
 
   // Ascolto per aperture file richieste dall'esterno (es. Chat principale)
   useEffect(() => {
@@ -106,15 +123,23 @@ export default function DeveloperStudio() {
     };
     window.addEventListener('sigma_dev_open_file', handleExternalOpen);
 
-    try {
-      const pending = localStorage.getItem('sigma_dev_pending_open_file');
-      if (pending) {
-        localStorage.removeItem('sigma_dev_pending_open_file');
-        handleOpenFile(pending);
-      }
-    } catch (e) {}
+    const checkPending = () => {
+      try {
+        const pending = localStorage.getItem('sigma_dev_pending_open_file');
+        if (pending) {
+          localStorage.removeItem('sigma_dev_pending_open_file');
+          handleOpenFile(pending);
+        }
+      } catch (e) {}
+    };
 
-    return () => window.removeEventListener('sigma_dev_open_file', handleExternalOpen);
+    checkPending();
+    const timer = setTimeout(checkPending, 250);
+
+    return () => {
+      window.removeEventListener('sigma_dev_open_file', handleExternalOpen);
+      clearTimeout(timer);
+    };
   }, [handleOpenFile]);
 
   // 4. Save file

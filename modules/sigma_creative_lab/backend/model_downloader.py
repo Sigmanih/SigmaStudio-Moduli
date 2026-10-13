@@ -9,6 +9,7 @@ Le destinazioni non sono indovinate: si leggono dalla configurazione che ComfyUI
 stesso dichiara nei propri argomenti di avvio.
 """
 
+import hashlib
 import os
 import shutil
 import threading
@@ -45,6 +46,7 @@ class DownloadableAsset:
     license: str = ""
     notes: str = ""
     requires: tuple = ()        # altri asset necessari perché il modello funzioni
+    sha256: str = ""            # se noto (Civitai lo pubblica), il file scaricato deve combaciare
 
     def to_dict(self):
         return {**asdict(self), "requires": list(self.requires)}
@@ -240,8 +242,8 @@ def custom_asset(spec: dict) -> DownloadableAsset:
         raise ValueError("Nome file non valido")
 
     url = str(spec.get("url", ""))
-    if not url.startswith(("https://huggingface.co/", "https://civitai.com/")):
-        raise ValueError("Sono ammessi solo download da Hugging Face o Civitai")
+    if not url.startswith(("https://huggingface.co/", "https://civitai.com/", "https://civitai.red/")):
+        raise ValueError("Sono ammessi solo download da Hugging Face o Civitai (com/red)")
 
     return DownloadableAsset(
         id=f"{spec.get('source', 'custom')}:{spec.get('model_id', '')}:{filename}",
@@ -251,6 +253,7 @@ def custom_asset(spec: dict) -> DownloadableAsset:
         kind=spec.get("kind", "checkpoint"),
         license=spec.get("license", ""),
         notes=spec.get("notes", ""),
+        sha256=str(spec.get("sha256") or "").lower(),
     )
 
 
@@ -295,6 +298,18 @@ class DownloadJob:
         data["progress"] = self.progress
         data["eta_s"] = int((self.total - self.downloaded) / self.speed_bps) if self.speed_bps > 0 and self.total else None
         return data
+
+
+def _log_failure(asset, destination: Path, error: str) -> None:
+    """Gli errori di download finivano solo sulla console: qui restano leggibili anche dopo un riavvio."""
+    try:
+        from core import paths
+        target = paths.var_dir() / "logs" / "model_downloads.log"
+        target.parent.mkdir(parents=True, exist_ok=True)
+        with open(target, "a", encoding="utf-8") as f:
+            f.write("\t".join((time.strftime("%Y-%m-%d %H:%M:%S"), asset.id, destination.name, error)) + "\n")
+    except OSError:
+        pass
 
 
 class DownloadManager:
@@ -366,6 +381,19 @@ class DownloadManager:
         try:
             with requests.get(asset.url, headers=headers, stream=True, timeout=60, allow_redirects=True) as resp:
                 if resp.status_code in (401, 403):
+                    err_msg = ""
+                    try:
+                        err_data = resp.json()
+                        err_msg = err_data.get("message") or err_data.get("error") or ""
+                    except Exception:
+                        pass
+                    if "civitai.com" in asset.url or "civitai.red" in asset.url:
+                        if err_msg:
+                            raise RuntimeError(f"Civitai: {err_msg}")
+                        raise RuntimeError(
+                            "Civitai richiede un token API per scaricare: crealo su civitai.com o civitai.red → "
+                            "Account → API Keys e impostalo in Impostazioni → Creative (civitai_token)."
+                        )
                     raise RuntimeError(
                         "Accesso negato: il repository è gated. Accetta la licenza su Hugging Face "
                         "e imposta un token in Impostazioni → Creative (hf_token)."
@@ -383,6 +411,14 @@ class DownloadManager:
                 mode = "ab" if resume_from and resp.status_code == 206 else "wb"
                 if mode == "wb":
                     job.downloaded = 0
+                # L'hash si calcola mentre si scrive: rileggere 30 GB alla fine
+                # costerebbe un altro minuto di disco. In ripresa si parte dalla
+                # parte gia' presente.
+                hasher = hashlib.sha256() if asset.sha256 else None
+                if hasher and mode == "ab":
+                    with open(part, "rb") as existing:
+                        for block in iter(lambda: existing.read(CHUNK * 8), b""):
+                            hasher.update(block)
 
                 last_t, last_b = time.time(), job.downloaded
                 with open(part, mode) as f:
@@ -394,6 +430,8 @@ class DownloadManager:
                         if not chunk:
                             continue
                         f.write(chunk)
+                        if hasher:
+                            hasher.update(chunk)
                         job.downloaded += len(chunk)
 
                         now = time.time()
@@ -403,6 +441,11 @@ class DownloadManager:
 
             if job.total and job.downloaded < job.total:
                 raise RuntimeError(f"Download incompleto: {job.downloaded}/{job.total} byte")
+            if hasher and hasher.hexdigest().lower() != asset.sha256:
+                # File diverso da quello dichiarato: corrotto o sostituito. Non va usato.
+                part.unlink(missing_ok=True)
+                raise RuntimeError(f"SHA256 non corrisponde (atteso {asset.sha256[:12]}…, "
+                                   f"ottenuto {hasher.hexdigest()[:12]}…): file scartato")
 
             part.replace(destination)
             job.status, job.finished_at = "done", time.time()
@@ -411,6 +454,7 @@ class DownloadManager:
         except Exception as e:
             job.status, job.error, job.finished_at = "error", str(e), time.time()
             log.error(f"Download {asset.id} fallito: {e}")
+            _log_failure(asset, destination, str(e))
         finally:
             with self._lock:
                 self._cancel.pop(job.job_id, None)

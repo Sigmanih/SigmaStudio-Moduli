@@ -30,6 +30,7 @@ import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence
 
+from core.harness.tool_providers import ToolProvider
 from core.logger import get_logger
 
 log = get_logger(__name__)
@@ -766,9 +767,9 @@ def kicad_render(output_path: str = "", mode: str = "3d") -> Dict[str, Any]:
             return _esito("kicad_render", True, **cli.export_svg(_pcb(), out))
         destinazione = Path(output_path) if output_path else (
             Path("var") / "kicad" / f"board-{int(time.time())}.png")
-        Destinazione.parent.mkdir(parents=True, exist_ok=True)
+        destinazione.parent.mkdir(parents=True, exist_ok=True)
         return _esito("kicad_render", True,
-                      **cli.render_3d(_pcb(), Destinazione))
+                      **cli.render_3d(_pcb(), destinazione))
     except Exception as exc:
         return _esito("kicad_render", False, error=str(exc))
 
@@ -1038,15 +1039,30 @@ def provider() -> "ToolProvider":
     from . import roles as hw_roles
     from .tool_schemas import SCHEMI
 
-    alias = {nome: nome for nome in ESECUTORI}
-    alias.update({k: v for k, v in _ALIAS_TOOL.items() if v in ESECUTORI})
+    nomi_dichiarati = {
+        s["function"]["name"] if isinstance(s, dict) and "function" in s
+        else (getattr(s, "name", None) or s.get("name", ""))
+        for s in SCHEMI
+    }
+
+    alias = {nome: nome for nome in ESECUTORI if nome in nomi_dichiarati}
+    for k, v in _ALIAS_TOOL.items():
+        if v in nomi_dichiarati:
+            alias[k] = v
+
+    if "kicad_open" in nomi_dichiarati:
+        alias["kicad_open_project"] = "kicad_open"
+
+    read_only = {t for t in READ_TOOLS if t in nomi_dichiarati}
+    write = {t for t in WRITE_TOOLS if t in nomi_dichiarati}
+
     return ToolProvider(
         id="sigma_kicad_lab",
         label="KiCad",
         schemas=tuple(SCHEMI),
         execute=esegui,
-        read_only=frozenset(READ_TOOLS),
-        write=frozenset(WRITE_TOOLS),
+        read_only=frozenset(read_only),
+        write=frozenset(write),
         aliases=alias,
         roles=(hw_roles.ROLE_KICAD_ENGINEER,),
     )

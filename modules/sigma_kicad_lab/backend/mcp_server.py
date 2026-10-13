@@ -29,6 +29,7 @@ from core.modules.sigma_eda_lab.netlist import Component, Net
 
 from . import bridge
 from . import kicad_cli as cli
+from . import tools
 
 log = get_logger(__name__)
 
@@ -70,7 +71,7 @@ class KiCadLabMCPServer(BaseMCPServer):
                 },
                 "required": ["path"],
             },
-            handler=self._open_project,
+            handler=tools.kicad_open_project,
             safety=SAFE,
             category="eda",
         )
@@ -82,7 +83,7 @@ class KiCadLabMCPServer(BaseMCPServer):
                 "I tool successivi richiederanno di riaprire un progetto."
             ),
             input_schema={"type": "object", "properties": {}},
-            handler=self._close_project,
+            handler=tools.kicad_close_project,
             safety=SAFE,
             category="eda",
         )
@@ -105,7 +106,7 @@ class KiCadLabMCPServer(BaseMCPServer):
                 },
                 "required": ["symbol"],
             },
-            handler=self._add_component,
+            handler=tools.kicad_add_component,
             safety=SENSITIVE,
             category="eda",
         )
@@ -122,7 +123,7 @@ class KiCadLabMCPServer(BaseMCPServer):
                 },
                 "required": ["designator"],
             },
-            handler=self._remove_component,
+            handler=tools.kicad_remove_component,
             safety=SENSITIVE,
             category="eda",
         )
@@ -142,7 +143,7 @@ class KiCadLabMCPServer(BaseMCPServer):
                 },
                 "required": ["designator", "property_name", "new_value"],
             },
-            handler=self._modify_property,
+            handler=tools.kicad_modify_property,
             safety=SENSITIVE,
             category="eda",
         )
@@ -161,7 +162,7 @@ class KiCadLabMCPServer(BaseMCPServer):
                 },
                 "required": ["library_path"],
             },
-            handler=self._import_library,
+            handler=tools.kicad_import_library,
             safety=SENSITIVE,
             category="eda",
         )
@@ -180,7 +181,7 @@ class KiCadLabMCPServer(BaseMCPServer):
                 },
                 "required": ["output_path"],
             },
-            handler=self._export_library,
+            handler=tools.kicad_export_library,
             safety=SAFE,
             category="eda",
         )
@@ -199,7 +200,7 @@ class KiCadLabMCPServer(BaseMCPServer):
                 },
                 "required": ["netlist_path"],
             },
-            handler=self._import_netlist,
+            handler=tools.kicad_import_netlist,
             safety=SENSITIVE,
             category="eda",
         )
@@ -216,7 +217,7 @@ class KiCadLabMCPServer(BaseMCPServer):
                 },
                 "required": ["output_path"],
             },
-            handler=self._export_netlist,
+            handler=tools.kicad_export_netlist,
             safety=SAFE,
             category="eda",
         )
@@ -235,7 +236,7 @@ class KiCadLabMCPServer(BaseMCPServer):
                                "description": "Messaggio di commit (auto-generato se vuoto)."},
                 },
             },
-            handler=self._git_commit,
+            handler=tools.kicad_git_commit,
             safety=SENSITIVE,
             category="eda",
         )

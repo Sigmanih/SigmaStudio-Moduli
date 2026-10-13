@@ -11,13 +11,20 @@ log = get_logger(__name__)
 def register_routes(app=None) -> None:
     """Registra le route HTTP di Voice Studio su FastAPI / Handler Adapter."""
     from .tts_handler import handle_tts_engines, handle_tts_speak
+    from .library_handler import (
+        handle_voice_library, handle_voice_library_create, handle_voice_library_speak, handle_voice_library_update,
+    )
 
     get_routes = {
         '/api/tts/engines': handle_tts_engines,
+        '/api/voices/library': handle_voice_library,
     }
 
     post_routes = {
         '/api/tts/speak': handle_tts_speak,
+        '/api/voices/library/create': handle_voice_library_create,
+        '/api/voices/library/speak': handle_voice_library_speak,
+        '/api/voices/library/update': handle_voice_library_update,
     }
 
     try:

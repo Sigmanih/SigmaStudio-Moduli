@@ -752,14 +752,14 @@
   background: var(--text-dark);
   flex-shrink: 0;
 }
-.training-job-status-dot.running { background: var(--primary); animation: pulse 1.5s infinite; }
+.training-job-status-dot.running { background: var(--primary); animation: trainingPulse 1.5s infinite; }
 .training-job-status-dot.completed { background: var(--success); }
 .training-job-status-dot.failed { background: var(--error); }
 .training-job-status-dot.stopped { background: var(--warning); }
 
-@keyframes pulse {
+@keyframes trainingPulse {
   0%, 100% { opacity: 1; transform: scale(1); }
-  50% { opacity: 0.5; transform: scale(1.5); }
+  50% { opacity: 0.5; transform: scale(1.3); }
 }
 
 /* Log terminal */

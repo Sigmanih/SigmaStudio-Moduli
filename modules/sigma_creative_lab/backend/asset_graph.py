@@ -113,9 +113,13 @@ class Asset:
         }
 
 class AssetGraph:
-    def __init__(self, db_path='data/creative/creative_assets.db'):
-        self.db_path = Path(db_path)
-        self.assets_dir = Path('data/creative/assets')
+    def __init__(self, db_path=None):
+        from core import paths
+        # Percorsi dal kernel e non relativi alla cartella di lavoro: avviando il server da un'altra
+        # cartella nasceva un secondo archivio vuoto. I file nel database restano relativi alla radice
+        # del progetto ("works/creative/assets/..."): sono anche il loro URL per il frontend.
+        self.db_path = Path(db_path) if db_path else paths.creative_assets_db()
+        self.assets_dir = Path(os.path.relpath(paths.creative_store_dir(), paths.project_root()))
         self.assets_dir.mkdir(parents=True, exist_ok=True)
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         self._init_db()

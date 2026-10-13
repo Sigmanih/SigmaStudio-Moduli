@@ -34,23 +34,34 @@ from core.modules.sigma_network.identity import (
 )
 from core.modules.sigma_network.peer_registry import PeerRegistry
 from core.modules.sigma_network.provider import InferenceProvider
+from core.modules.sigma_network.cluster_broker import ClusterBroker
+from core.modules.sigma_network.mining_engine import MiningEngine
+from core.modules.sigma_network.federated_aggregator import FederatedAggregator
+from core.modules.sigma_network.auth_manager import AuthManager
 
 log = get_logger("sigma_network.handlers")
 
 router = APIRouter()
 
-MODULE_VERSION = "0.1.0"
+MODULE_VERSION = "0.2.0"
 
 #: Percorsi di persistenza. Riassegnabili dai test prima di ``_reset_singletons``.
 _identity_file: Optional[str] = None
 _peers_file: Optional[str] = None
 _wallet_file: Optional[str] = None
+_auth_file: Optional[str] = None
 
 _identity: Optional[Dict[str, str]] = None
 _registry_instance: Optional[PeerRegistry] = None
 _wallet_instance: Optional[Wallet] = None
 _discovery_instance: Optional[PeerDiscovery] = None
 _settings: Optional[Dict[str, Any]] = None
+_broker_instance: Optional[ClusterBroker] = None
+_mining_instance: Optional[MiningEngine] = None
+_aggregator_instance: Optional[FederatedAggregator] = None
+_auth_instance: Optional[AuthManager] = None
+_provider_instance: Optional[InferenceProvider] = None
+_current_session_token: Optional[str] = None
 
 _lock = threading.RLock()
 
@@ -82,6 +93,7 @@ def _reset_singletons() -> None:
     tutta la sessione di test e il caso successivo lo troverebbe occupato.
     """
     global _identity, _registry_instance, _wallet_instance, _discovery_instance, _settings
+    global _broker_instance, _mining_instance, _aggregator_instance, _auth_instance, _current_session_token
 
     with _lock:
         if _discovery_instance is not None:
@@ -89,16 +101,43 @@ def _reset_singletons() -> None:
                 _discovery_instance.stop()
             except Exception as exc:  # noqa: BLE001 - lo stop non deve mai propagare
                 log.warning("Arresto discovery durante il reset fallito: %s", exc)
+        if _mining_instance is not None:
+            try:
+                _mining_instance.stop()
+            except Exception:
+                pass
         _identity = None
         _registry_instance = None
         _wallet_instance = None
         _discovery_instance = None
         _settings = None
+        _broker_instance = None
+        _mining_instance = None
+        _aggregator_instance = None
+        _auth_instance = None
+        _provider_instance = None
+        _current_session_token = None
+
+
+def _get_auth() -> AuthManager:
+    global _auth_instance
+    with _lock:
+        if _auth_instance is None:
+            _auth_instance = AuthManager(_auth_file or _default_path("accounts.json"))
+        return _auth_instance
 
 
 def _get_identity() -> Dict[str, str]:
-    global _identity
+    global _identity, _current_session_token
     with _lock:
+        if _current_session_token:
+            sess = _get_auth().get_session(_current_session_token)
+            if sess:
+                return {
+                    "peer_id": sess["peer_id"],
+                    "public_key": sess["public_key"],
+                    "private_key": sess["private_key_b64"],
+                }
         if _identity is None:
             _identity = load_identity(_identity_file or _default_path("identity.json"))
         return _identity
@@ -144,6 +183,48 @@ def _get_discovery() -> PeerDiscovery:
         return _discovery_instance
 
 
+def _get_broker() -> ClusterBroker:
+    global _broker_instance
+    with _lock:
+        if _broker_instance is None:
+            _broker_instance = ClusterBroker(
+                registry_getter=_get_registry,
+                wallet_getter=_get_wallet,
+                identity_getter=_get_identity,
+                settings_getter=_get_settings,
+            )
+        return _broker_instance
+
+
+def _get_mining() -> MiningEngine:
+    global _mining_instance
+    with _lock:
+        if _mining_instance is None:
+            _mining_instance = MiningEngine(
+                wallet_getter=_get_wallet,
+                identity_getter=_get_identity,
+            )
+        return _mining_instance
+
+
+def _get_aggregator() -> FederatedAggregator:
+    global _aggregator_instance
+    with _lock:
+        if _aggregator_instance is None:
+            _aggregator_instance = FederatedAggregator(min_gradients=2, timeout_s=60.0)
+        return _aggregator_instance
+
+
+def _provider() -> InferenceProvider:
+    global _provider_instance
+    with _lock:
+        if _provider_instance is None:
+            _provider_instance = InferenceProvider(_get_settings())
+        return _provider_instance
+
+
+
+
 # ---------------------------------------------------------------------------
 # Corpi delle richieste
 # ---------------------------------------------------------------------------
@@ -166,6 +247,70 @@ class SettingsRequest(BaseModel):
     max_concurrent: Optional[int] = None
     max_requests_per_hour: Optional[int] = None
     display_name: Optional[str] = None
+
+
+class ClusterInferRequest(BaseModel):
+    prompt: str
+    model: str
+    max_tokens: Optional[int] = 1024
+    preferred_peer_id: Optional[str] = None
+
+
+class FaucetRequest(BaseModel):
+    amount: Optional[float] = 100.0
+
+
+class MiningIntensityRequest(BaseModel):
+    intensity: int
+
+
+class WalletTransferRequest(BaseModel):
+    recipient_id: str
+    amount: float
+    note: Optional[str] = ""
+
+
+class GradientsPushRequest(BaseModel):
+    data: str = ""
+    step: int = 0
+    loss: float = 2.0
+    peer_id: Optional[str] = None
+    signature: Optional[str] = None
+
+
+class UserRegisterRequest(BaseModel):
+    username: str
+    password: str
+
+
+class UserLoginRequest(BaseModel):
+    username: str
+    password: str
+
+
+class UserImportRequest(BaseModel):
+    username: str
+    password: str
+    mnemonic_or_privkey: str
+
+
+class UserSessionTokenRequest(BaseModel):
+    session_token: Optional[str] = None
+
+
+class BenchmarkRequest(BaseModel):
+    model: Optional[str] = None
+    model_id: Optional[str] = None
+    tokens: Optional[int] = 48
+    test_tokens: Optional[int] = 48
+
+
+class ProviderGuardRequest(BaseModel):
+    local_user_priority: Optional[bool] = None
+    max_memory_percent: Optional[float] = None
+    access_policy: Optional[str] = None
+
+
 
 
 # ---------------------------------------------------------------------------
@@ -260,12 +405,22 @@ def get_settings() -> Dict[str, Any]:
 
 @router.post("/settings")
 def update_settings(body: SettingsRequest) -> Dict[str, Any]:
-    """Aggiorna le impostazioni. I campi assenti restano invariati."""
+    """Aggiorna le impostazioni e diffonde immediatamente l'annuncio UDP broadcast se attivo."""
     changes = {k: v for k, v in body.model_dump().items() if v is not None}
     with _lock:
         current = _get_settings()
         current.update(changes)
-        return dict(current)
+        res = dict(current)
+
+    # Annuncio gossip/UDP immediato se discovery è attiva
+    try:
+        disc = _discovery_instance
+        if disc and getattr(disc, "is_running", lambda: False)():
+            disc.announce_now()
+    except Exception:
+        pass
+
+    return res
 
 
 @router.post("/discovery/start")
@@ -440,34 +595,462 @@ def p2p_receipt(body: Dict[str, Any]) -> Dict[str, Any]:
     return {"countersigned": controfirmata}
 
 
-@router.post('/inference/remote')
-def inference_remote(body: dict):
+@router.get("/peers/map")
+def get_network_map() -> Dict[str, Any]:
+    """Topologia completa della rete per il radar e visualizzazione dei nodi."""
     identity = _get_identity()
-    signature = body.get('signature')
-    message = body.get('message')
-    remote_peer_id = body.get('remote_peer_id')
-    
-    if not signature or not message:
-        raise HTTPException(status_code=401, detail='Firma o header mancanti')
-    
-    if not verify(identity['public_key'], message, signature):
-        raise HTTPException(status_code=401, detail='Firma non valida')
-    
+    settings = _get_settings()
+    local_info = {
+        "peer_id": identity["peer_id"],
+        "name": str(settings.get("display_name") or "Sigma Studio (Locale)"),
+        "models": list(settings.get("shared_models") or []),
+        "version": MODULE_VERSION,
+    }
+    return _get_registry().get_network_map(local_info)
+
+
+@router.post("/peers/ping")
+def ping_peers() -> Dict[str, Any]:
+    """Invia un probe HTTP rapido a tutti i peer per misurare latenza e stato online."""
+    import requests as _requests
+
     registry = _get_registry()
-    remote_peer = registry.get(remote_peer_id)
-    if not remote_peer or remote_peer['state'] != 'trusted':
-        raise HTTPException(status_code=403, detail='Peer remoto non trusted')
-    
-    # Implementazione dell'inferenza SSE verso un peer remoto
-    # (Assumendo che ci sia un motore di inferenza disponibile)
-    if not _is_inference_engine_available():
-        raise HTTPException(status_code=503, detail='Motore di inferenza non disponibile')
-    
-    # Esempio di SSE
-    def event_generator():
-        yield 'data: Inizio inferenza remota\n\n'
-        # Implementazione dell'inferenza verso il peer remoto
-        # yield f'data: {risultato}\n\n'
-        yield 'data: Fine inferenza remota\n\n'
-    
-    return StreamingResponse(event_generator(), media_type='text/event-stream; charset=utf-8')
+    peers = registry.all_peers()
+    updated = []
+
+    for p in peers:
+        host = p.get("host")
+        port = p.get("port")
+        pid = p.get("peer_id")
+        if not host or not port or not pid:
+            continue
+
+        url = f"http://{host}:{port}/api/sigma_network/p2p/hello"
+        t0 = time.time()
+        try:
+            resp = _requests.get(url, timeout=1.8)
+            if resp.status_code == 200:
+                latency = round((time.time() - t0) * 1000, 1)
+                data = resp.json()
+                registry.touch(pid, latency_ms=latency)
+                # Aggiorna anche i modelli e il nome se annunciati
+                p["latency_ms"] = latency
+                p["last_seen"] = time.time()
+                if "models" in data:
+                    p["models"] = data["models"]
+                if "name" in data:
+                    p["name"] = data["name"]
+                updated.append(pid)
+        except Exception:
+            pass
+
+    registry.save()
+    return {"pinged": len(peers), "online_responded": len(updated), "peer_ids": updated}
+
+
+@router.get("/local_models")
+def get_local_models() -> List[Dict[str, Any]]:
+    """Restituisce l'elenco dei modelli presenti localmente su questa istanza di Sigma Studio."""
+    models_out = []
+    try:
+        from core.engine.provider_server import get_all_available_models
+        for m in get_all_available_models():
+            mid = m.get("id") or m.get("name")
+            if mid:
+                models_out.append({
+                    "id": mid,
+                    "name": mid.split("/")[-1].replace(".gguf", ""),
+                    "size": m.get("size", "N/A"),
+                })
+    except Exception as exc:
+        log.warning("Impossibile recuperare modelli locali da provider_server: %s", exc)
+
+    # Includi sempre almeno i modelli configurati o fallback AILO
+    settings = _get_settings()
+    for configured in settings.get("shared_models", []):
+        if not any(x["id"] == configured for x in models_out):
+            models_out.append({
+                "id": configured,
+                "name": configured.split("/")[-1],
+                "size": "Configurato",
+            })
+
+    if not models_out:
+        models_out.append({"id": "AILO-152M", "name": "AILO-152M (SwiGLU/RoPE)", "size": "152M params"})
+
+    return models_out
+
+
+@router.get("/cluster/models")
+def get_cluster_models() -> List[Dict[str, Any]]:
+    """Restituisce il catalogo unificato dei modelli serviti dall'intero cluster P2P."""
+    return _get_broker().get_cluster_models()
+
+
+def _safe_stream(generator: Generator[str, None, None]) -> Generator[str, None, None]:
+    """Inoltra i chunk SSE proteggendo il client da errori HTTP 500 non gestiti."""
+    try:
+        for chunk in generator:
+            yield chunk
+    except Exception as exc:
+        logger.error("Errore nello streaming SSE: %s", exc, exc_info=True)
+        yield f"data: {json.dumps({'error': f'Errore di streaming: {exc}'})}\n\n"
+        yield "data: [DONE]\n\n"
+
+
+@router.post("/cluster/infer")
+def cluster_infer(body: ClusterInferRequest) -> StreamingResponse:
+    """Esegue inferenza nel cluster P2P con streaming SSE e regolamento AiloCoin."""
+    if not body.prompt.strip():
+        raise HTTPException(status_code=400, detail="prompt mancante")
+    if not body.model.strip():
+        raise HTTPException(status_code=400, detail="model mancante")
+
+    max_tokens = min(body.max_tokens or 1024, 4096)
+    generator = _get_broker().execute_cluster_inference(
+        prompt=body.prompt,
+        model=body.model,
+        max_tokens=max_tokens,
+        preferred_peer_id=body.preferred_peer_id,
+    )
+    return StreamingResponse(_safe_stream(generator), media_type="text/event-stream; charset=utf-8")
+
+
+@router.post("/inference/remote")
+def inference_remote(body: dict):
+    """Endpoint compatibile per richieste di inferenza remota."""
+    prompt = body.get("prompt", "")
+    model = body.get("model", "")
+    remote_peer_id = body.get("remote_peer_id")
+    max_tokens = int(body.get("max_tokens") or 1024)
+
+    if not prompt or not model:
+        raise HTTPException(status_code=400, detail="prompt e model sono obbligatori")
+
+    generator = _get_broker().execute_cluster_inference(
+        prompt=prompt,
+        model=model,
+        max_tokens=max_tokens,
+        preferred_peer_id=remote_peer_id,
+    )
+    return StreamingResponse(_safe_stream(generator), media_type="text/event-stream; charset=utf-8")
+
+
+@router.post("/wallet/faucet")
+def wallet_faucet(body: Optional[FaucetRequest] = None) -> Dict[str, Any]:
+    """Accredita una somma iniziale di AiloCoin da Genesis per consentire di testare la rete."""
+    amount = 100.0 if body is None or body.amount is None else body.amount
+    identity = _get_identity()
+    wallet = _get_wallet()
+    peer_id = identity["peer_id"]
+
+    try:
+        receipt = wallet.mint_faucet(peer_id, amount=amount)
+        totals = wallet.balance(peer_id)
+        return {
+            "status": "success",
+            "credited": amount,
+            "new_balance": totals["balance"],
+            "receipt": receipt,
+        }
+    except ValueError as e:
+        totals = wallet.balance(peer_id)
+        # Se il saldo residuo è inferiore a 10 AILO, consentiamo la ricarica per test
+        if totals["balance"] < 10.0:
+            try:
+                receipt = wallet.mint_faucet(peer_id, amount=amount, force=True)
+                totals = wallet.balance(peer_id)
+                return {
+                    "status": "success",
+                    "credited": amount,
+                    "new_balance": totals["balance"],
+                    "receipt": receipt,
+                    "note": "Ricarica faucet erogata poiché il saldo era esaurito.",
+                }
+            except Exception as inner_err:
+                logger.error("Errore ricarica faucet forzata: %s", inner_err)
+
+        return {
+            "status": "already_claimed",
+            "credited": 0.0,
+            "new_balance": totals["balance"],
+            "detail": f"Genesis Faucet già riscattato per questo wallet. Saldo attuale: {totals['balance']} AILO.",
+        }
+
+
+@router.get("/mining/status")
+def get_mining_status() -> Dict[str, Any]:
+    """Restituisce lo stato attuale della computazione neurale e ricompense di mining."""
+    return _get_mining().get_status()
+
+
+@router.post("/mining/toggle")
+def toggle_mining() -> Dict[str, Any]:
+    """Avvia o arresta il mining Proof-of-Useful-Work in background."""
+    miner = _get_mining()
+    if miner.is_running():
+        miner.stop()
+    else:
+        miner.start()
+    return miner.get_status()
+
+
+@router.post("/mining/step")
+def mining_step() -> Dict[str, Any]:
+    """Esegue immediatamente un ciclo di calcolo utile e accredita la ricompensa."""
+    miner = _get_mining()
+    result = miner.compute_step_now()
+    status = miner.get_status()
+    status["last_step"] = result
+    return status
+
+
+@router.post("/mining/intensity")
+def set_mining_intensity(body: MiningIntensityRequest) -> Dict[str, Any]:
+    """Imposta l'intensità del mining (1=bassa, 2=bilanciata, 3=alta)."""
+    miner = _get_mining()
+    miner.set_intensity(body.intensity)
+    return miner.get_status()
+
+
+@router.post("/wallet/verify_chain")
+def wallet_verify_chain() -> Dict[str, Any]:
+    """Verifica l'integrità crittografica di tutte le ricevute e blocchi registrati nel ledger."""
+    wallet = _get_wallet()
+    return wallet.verify_chain()
+
+
+@router.post("/wallet/transfer")
+def wallet_transfer(body: WalletTransferRequest) -> Dict[str, Any]:
+    """Trasferisce AiloCoin dal peer locale a un peer destinatario con firma Ed25519."""
+    identity = _get_identity()
+    wallet = _get_wallet()
+    priv_bytes = base64.b64decode(identity["private_key"])
+    try:
+        receipt = wallet.transfer(
+            sender_id=identity["peer_id"],
+            recipient_id=body.recipient_id,
+            amount=body.amount,
+            private_key_bytes=priv_bytes,
+            note=body.note or "",
+        )
+        totals = wallet.balance(identity["peer_id"])
+        return {
+            "status": "success",
+            "receipt": receipt,
+            "new_balance": totals["balance"],
+        }
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.get("/federated/status")
+def get_federated_status() -> Dict[str, Any]:
+    """Restituisce lo stato dell'aggregatore Federated Averaging."""
+    return _get_aggregator().get_state()
+
+
+@router.post("/federated/gradients")
+def push_federated_gradients(body: GradientsPushRequest) -> Dict[str, Any]:
+    """Invia gradienti compressi da un peer/miner all'aggregatore federato."""
+    identity = _get_identity()
+    peer_id = body.peer_id or identity["peer_id"]
+    aggregator = _get_aggregator()
+    payload = {
+        "data": body.data,
+        "step": body.step,
+        "loss": body.loss,
+    }
+    return aggregator.push_gradients(
+        peer_id=peer_id,
+        gradients_payload=payload,
+        signature=body.signature,
+    )
+
+
+@router.post("/federated/aggregate")
+def force_federated_aggregate() -> Dict[str, Any]:
+    """Esegue un round forzato di aggregazione FedAvg se ci sono gradienti nel buffer."""
+    aggregator = _get_aggregator()
+    success, version = aggregator.aggregate_now()
+    return {
+        "aggregated": success,
+        "model_version": version,
+        "state": aggregator.get_state(),
+    }
+
+
+@router.get("/federated/weights")
+def get_federated_weights() -> Dict[str, Any]:
+    """Restituisce i metadati e versione dei pesi globali aggiornati via federated learning."""
+    return _get_aggregator().get_latest_weights_metadata()
+
+
+# ---------------------------------------------------------------------------
+# Autenticazione & Custodia Wallet
+# ---------------------------------------------------------------------------
+
+@router.post("/auth/register")
+def auth_register(body: UserRegisterRequest) -> Dict[str, Any]:
+    """Registra un nuovo account utente con Seed Phrase a 12 parole e wallet Ed25519 cifrato."""
+    global _current_session_token
+    auth = _get_auth()
+    try:
+        res = auth.register_user(username=body.username, password=body.password)
+        _current_session_token = res["session_token"]
+        return res
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.post("/auth/login")
+def auth_login(body: UserLoginRequest) -> Dict[str, Any]:
+    """Esegue il login, decifra la chiave privata del wallet e attiva la sessione."""
+    global _current_session_token
+    auth = _get_auth()
+    try:
+        res = auth.login(username=body.username, password=body.password)
+        _current_session_token = res["session_token"]
+        return res
+    except ValueError as e:
+        raise HTTPException(status_code=401, detail=str(e))
+
+
+@router.post("/auth/import")
+def auth_import(body: UserImportRequest) -> Dict[str, Any]:
+    """Ripristina un wallet esistente tramite 12 parole mnemoniche o chiave privata."""
+    global _current_session_token
+    auth = _get_auth()
+    try:
+        res = auth.import_wallet(
+            username=body.username,
+            password=body.password,
+            mnemonic_or_privkey=body.mnemonic_or_privkey,
+        )
+        _current_session_token = res["session_token"]
+        return res
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.get("/auth/session")
+def auth_session() -> Dict[str, Any]:
+    """Restituisce lo stato dell'utente e wallet correntemente autenticato."""
+    auth = _get_auth()
+    sess = auth.get_session(_current_session_token)
+    local_accs = auth.list_local_accounts()
+    has_accounts = len(local_accs) > 0
+    if not sess:
+        return {
+            "authenticated": False,
+            "username": None,
+            "peer_id": _get_identity()["peer_id"],
+            "wallet_assigned": True,
+            "has_accounts": has_accounts,
+            "accounts_count": len(local_accs),
+            "accounts": local_accs,
+        }
+    return {
+        "authenticated": True,
+        "username": sess["username"],
+        "peer_id": sess["peer_id"],
+        "public_key": sess["public_key"],
+        "created_at": sess["created_at"],
+        "wallet_assigned": True,
+        "has_accounts": has_accounts,
+        "accounts_count": len(local_accs),
+        "accounts": local_accs,
+    }
+
+
+@router.post("/auth/login_node")
+def auth_login_node() -> Dict[str, Any]:
+    """Attiva una sessione usando l'identita predefinita del nodo locale."""
+    global _current_session_token
+    identity = load_identity(_identity_file or _default_path("identity.json"))
+    auth = _get_auth()
+    priv_raw = base64.b64decode(identity["private_key"])
+    account_data = {
+        "username": f"Nodo Locale ({identity['peer_id'][:6]})",
+        "peer_id": identity["peer_id"],
+        "public_key": identity["public_key"],
+    }
+    session_token = auth._create_session(account_data, priv_raw)
+    _current_session_token = session_token
+    return {
+        "status": "success",
+        "username": account_data["username"],
+        "peer_id": account_data["peer_id"],
+        "public_key": account_data["public_key"],
+        "session_token": session_token,
+    }
+
+
+@router.post("/auth/logout")
+def auth_logout(body: Optional[UserSessionTokenRequest] = None) -> Dict[str, Any]:
+    """Disconnette la sessione del wallet utente."""
+    global _current_session_token
+    auth = _get_auth()
+    token = body.session_token if (body and body.session_token) else _current_session_token
+    auth.logout(token)
+    _current_session_token = None
+    return {"status": "logged_out"}
+
+
+@router.get("/auth/accounts")
+def auth_accounts() -> List[Dict[str, str]]:
+    """Elenca i profili / wallet utente salvati localmente su questa macchina."""
+    return _get_auth().list_local_accounts()
+
+
+# ---------------------------------------------------------------------------
+# Provider Operations Hub & Profiling
+# ---------------------------------------------------------------------------
+
+@router.get("/provider/telemetry")
+def get_provider_telemetry() -> Dict[str, Any]:
+    """Restituisce la telemetria live del nodo Provider: richieste, throughput, guadagni AILO e RAM."""
+    return _provider().get_telemetry()
+
+
+@router.post("/provider/benchmark")
+def run_model_benchmark(body: BenchmarkRequest) -> Dict[str, Any]:
+    """Esegue un benchmark prestazionale hardware per il modello specificato determinando il QoS Tier."""
+    mid = body.model_id or body.model or "default"
+    tokens = body.test_tokens or body.tokens or 48
+    res = _provider().benchmark_model(model_id=mid, test_tokens=tokens)
+    res["ok"] = True
+    return res
+
+
+@router.post("/provider/guard")
+def set_provider_guard(body: ProviderGuardRequest) -> Dict[str, Any]:
+    """Aggiorna le impostazioni dello Smart Resource Guard (priorità utente locale, soglia RAM)."""
+    settings = _get_settings()
+    with _lock:
+        if body.local_user_priority is not None:
+            settings["local_user_priority"] = body.local_user_priority
+        if body.max_memory_percent is not None:
+            settings["max_memory_percent"] = body.max_memory_percent
+        if body.access_policy is not None:
+            settings["access_policy"] = body.access_policy
+
+    _provider().update_guard(
+        max_memory_percent=settings.get("max_memory_percent"),
+        local_user_priority=settings.get("local_user_priority"),
+    )
+
+    guard_data = {
+        "local_user_priority": settings.get("local_user_priority", True),
+        "max_memory_percent": settings.get("max_memory_percent", 88.0),
+        "access_policy": settings.get("access_policy", "open_market"),
+    }
+    return {
+        "ok": True,
+        "guard": guard_data,
+        **guard_data,
+    }
+
+
+
+

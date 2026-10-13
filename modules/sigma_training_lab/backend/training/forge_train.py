@@ -748,8 +748,16 @@ def run_exports(model_dir, out_dir, formats, model_name, logger=None) -> dict:
     model_dir, out_dir = Path(model_dir), Path(out_dir)
     results = {"safetensors": {"success": True, "path": str(model_dir)}}
 
-    gguf_targets = {"gguf_f16": ("f16", "F16"), "gguf_q8": ("q8_0", "Q8_0"),
-                    "gguf_q4": ("q4_0", "Q4_0")}
+    gguf_targets = {
+        "gguf_f16": ("f16", "F16"),
+        "gguf_q8": ("q8_0", "Q8_0"),
+        "gguf_q4": ("q4_0", "Q4_0"),
+        "gguf_tq2": ("tq2_0", "TQ2_0"),
+        "gguf_tq1": ("tq1_0", "TQ1_0"),
+        "gguf_iq2_xxs": ("iq2_xxs", "IQ2_XXS"),
+        "gguf_iq1_s": ("iq1_s", "IQ1_S"),
+        "gguf_i2_s": ("i2_s", "I2_S"),
+    }
     for form in formats:
         if form not in gguf_targets:
             continue

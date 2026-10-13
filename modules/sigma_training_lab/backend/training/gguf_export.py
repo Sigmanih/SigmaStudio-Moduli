@@ -137,6 +137,51 @@ def export_gguf(model_dir, out_path, quantization: str = "f16",
             print("[GGUF] " + (message % args if args else message), flush=True)
 
     model_dir, out_path = Path(model_dir), Path(out_path)
+    quant_lower = quantization.lower().strip()
+
+    # Formati avanzati ternari e sub-2-bit: passano attraverso il convertitore di sistema
+    _TIPI_AVANZATI = {"tq2_0", "tq1_0", "iq2_xxs", "iq1_s", "i2_s", "iq2_s", "q4_k_m"}
+    if quant_lower in _TIPI_AVANZATI:
+        emit("Richiesta quantizzazione avanzata '%s': esporto base F16 e quantizzo ad anello chiuso...", quantization)
+        tmp_f16 = out_path.with_name(f"{out_path.stem}.f16_tmp.gguf")
+        try:
+            res_f16 = export_gguf(model_dir, tmp_f16, quantization="f16", logger=logger)
+            if not res_f16.get("success"):
+                return res_f16
+            
+            from core.engine.gguf_converter import GgufConverter
+            from core.engine.backends import llamacpp_detector
+            
+            binario = llamacpp_detector.find_llama_quantize()
+            if not binario or not os.path.exists(binario):
+                return {
+                    "success": False,
+                    "error": "Binario 'llama-quantize' non trovato nel sistema. Impossibile eseguire quantizzazione nativa."
+                }
+            
+            quant_label = quant_lower.upper()
+            GgufConverter._quantize_con_motore(binario, str(tmp_f16), str(out_path), quant_label)
+            
+            # Genera adattatore residuo per formati sub-3-bit
+            lora_path = out_path.with_name(f"{out_path.stem}.residual.lora.gguf")
+            GgufConverter._genera_adattatore_residuo(str(tmp_f16), str(out_path), str(lora_path), rank=16)
+            
+            size_mb = round(out_path.stat().st_size / (1024 ** 2), 1)
+            emit("GGUF ternario/sub-2-bit generato con successo: %s (%.1f MB)", out_path, size_mb)
+            return {
+                "success": True,
+                "path": str(out_path),
+                "residual_lora": str(lora_path) if lora_path.exists() else None,
+                "size_mb": size_mb,
+                "quantization": quant_label,
+            }
+        finally:
+            if tmp_f16.exists():
+                try:
+                    tmp_f16.unlink()
+                except Exception:
+                    pass
+
     config = json.loads((model_dir / "config.json").read_text(encoding="utf-8"))
 
     architecture = (config.get("architectures") or ["LlamaForCausalLM"])[0]

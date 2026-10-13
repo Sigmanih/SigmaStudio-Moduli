@@ -3,22 +3,102 @@ import {
   Play, CheckCircle2, XCircle, Trash2, Cpu,
   Award, RefreshCw, Shield, Download, Check, StopCircle, Search,
   RotateCcw, Layers, Compass, AlertTriangle, HelpCircle, Database, Terminal,
-  Zap, ChevronDown, Sparkles, CheckSquare, Square, Globe,
+  Zap, ChevronDown, ChevronRight, ChevronLeft, Code, Sparkles, CheckSquare, Square, Globe, Bot, ShieldCheck,
+  List, LayoutGrid, Trophy, Wrench, HardDrive
 } from 'lucide-react';
+import ProtocolBenchView from './ProtocolBenchView.jsx';
+import TabHeader from '../../components/common/TabHeader';
+import {
+  getModelSpecs, detectModelFamily, isSigmanihModel, getModelChatSpeed,
+  FAMILY_CONFIG
+} from '../../components/Chat/core/modelSpecsHelper';
+import { PROVIDER_COLORS, getProviderForModel } from '../../components/Chat/modelProviderMap';
 
 const SUITE_LABELS = {
-  all: { name: '🌐 Tutti i Benchmark', badge: 'FULL 100%', category: 'Generale' },
-  mmlu: { name: '🏆 MMLU', badge: '57 Materie', category: 'Conoscenza Generale' },
-  mmlu_pro: { name: '🧠 MMLU-Pro', badge: 'Ragionamento Hard', category: 'Ragionamento Avanzato' },
-  gsm8k: { name: '🧮 GSM8K', badge: 'Math', category: 'Matematica & Logica' },
-  math: { name: '📐 MATH', badge: 'Olimpico', category: 'Matematica Avanzata' },
-  humaneval: { name: '💻 HumanEval', badge: 'pass@1', category: 'Coding & Programmazione' },
-  mbpp: { name: '🐍 MBPP', badge: 'pass@1', category: 'Coding Python' },
-  arc: { name: '🔬 ARC Science', badge: 'Scienze', category: 'Scienze Applicate' },
-  hellaswag: { name: '💡 HellaSwag', badge: 'Buon Senso', category: 'Buon Senso' },
-  truthfulqa: { name: '🛡️ TruthfulQA', badge: 'Anti-Allucinazione', category: 'Veridicità & Safety' },
-  gpqa: { name: '🎓 GPQA', badge: 'Expert Level', category: 'Livello Accademico' },
-  bbh: { name: '⚙️ BIG-Bench Hard', badge: '27 Task', category: 'Logica Multi-Step' },
+  all: {
+    name: '🌐 Tutti i Benchmark',
+    badge: 'FULL 100%',
+    category: 'Valutazione Globale',
+    summary: 'Tutte le 11 suite ufficiali (~60.000 quesiti complessivi)',
+    description: 'Valutazione olistica e bilanciata che copre l\'intero spettro delle capacità del modello: conoscenza enciclopedica (MMLU), ragionamento accademico (MMLU-Pro, GPQA), logica multi-step (BBH), problem-solving matematico (GSM8K, MATH), programmazione ed esecuzione codice (HumanEval, MBPP), scienze applicate (ARC), buon senso situazionale (HellaSwag) e mitigazione allucinazioni (TruthfulQA).',
+  },
+  mmlu: {
+    name: '🏆 MMLU',
+    badge: '57 Materie',
+    category: 'Conoscenza Generale',
+    summary: 'Massive Multitask Language Understanding: 57 discipline accademiche',
+    description: 'Misura la conoscenza teorica ed enciclopedica su 57 discipline suddivise in materie umanistiche, scienze sociali, STEM e ambiti professionali (diritto, medicina). Valutato a 5-shot su scelta multipla (A-D) tramite logprob senza CoT.',
+  },
+  mmlu_pro: {
+    name: '🧠 MMLU-Pro',
+    badge: 'Ragionamento Hard',
+    category: 'Ragionamento Avanzato',
+    summary: 'Estensione rigorosa di MMLU con 10 alternative e ragionamento CoT',
+    description: 'Evoluzione più complessa e rigorosa di MMLU concepita per premiare il ragionamento analitico profondo rispetto alla memorizzazione pura. Comprende 14 discipline avanzate con opzioni ampliate fino a 10 alternative ed eliminazione dei quesiti banali. Richiede Chain-of-Thought (CoT).',
+  },
+  gsm8k: {
+    name: '🧮 GSM8K',
+    badge: 'Math',
+    category: 'Matematica & Logica',
+    summary: 'Grade School Math: 8.500 problemi matematici verbali multi-step',
+    description: '8.500 problemi matematici formulati linguisticamente a livello di scuola primaria e media. Misura la capacità di eseguire sequenze logiche di calcoli aritmetici estraendo il numero finale dopo il ragionamento passo-passo (CoT).',
+  },
+  math: {
+    name: '📐 MATH',
+    badge: 'Olimpico',
+    category: 'Matematica Avanzata',
+    summary: 'Hendrycks MATH: 12.500 problemi di livello olimpico e liceale superiore',
+    description: 'Include 12.500 problemi complessi tratti da competizioni matematiche (AMC 10, AMC 12, AIME) su algebra, geometria, calcolo, teoria dei numeri e probabilità. Richiede soluzioni articolate e CoT esteso ad alto budget di token con verifica esatta della formula finale.',
+  },
+  humaneval: {
+    name: '💻 HumanEval',
+    badge: 'pass@1',
+    category: 'Coding & Programmazione',
+    summary: '164 problemi algoritmici Python verificati con unit test ufficiali',
+    description: '164 sfide algoritmiche in Python contenenti docstring, specifiche funzionali e casi limite. Il codice generato dal modello viene realmente eseguito in sandbox isolata contro i test di unità ufficiali per determinare la metrica pass@1.',
+  },
+  mbpp: {
+    name: '🐍 MBPP',
+    badge: 'pass@1',
+    category: 'Coding Python',
+    summary: 'Mostly Basic Python Problems: circa 1.000 funzioni pratiche eseguite',
+    description: 'Circa 1.000 compiti pratici di programmazione Python di livello base/intermedio incentrati su algoritmi di manipolazione stringhe, liste e dizionari. La correttezza viene accertata eseguendo il codice generato contro le asserzioni di test ufficiali (pass@1).',
+  },
+  arc: {
+    name: '🔬 ARC Science',
+    badge: 'Scienze',
+    category: 'Scienze Applicate',
+    summary: 'Abstraction & Reasoning Challenge: quesiti scientifici non banali',
+    description: 'Quesiti scientifici a scelta multipla (scuole medie/superiori) che filtrano le domande risolvibili per sola associazione di parole superficiale, richiedendo reale comprensione causale, fisica e biologica del mondo naturale.',
+  },
+  hellaswag: {
+    name: '💡 HellaSwag',
+    badge: 'Buon Senso',
+    category: 'Buon Senso',
+    summary: 'Completamento di scenari realistici con finali avversari',
+    description: 'Misura il buon senso situazionale chiedendo al modello di individuare la prosecuzione più logica e plausibile di scene di vita quotidiana tra 4 opzioni generate con filtri avversari. Valutato per verosimiglianza del testo continuato.',
+  },
+  truthfulqa: {
+    name: '🛡️ TruthfulQA',
+    badge: 'Anti-Allucinazione',
+    category: 'Veridicità & Safety',
+    summary: '817 quesiti trabocchetto ideati per far emergere miti e allucinazioni',
+    description: '817 quesiti in materie come salute, diritto, finanza e società ideati specificamente per testare se il modello cade in false credenze popolari, miti comuni o allucinazioni del pretraining anziché rispondere con fatti verificati.',
+  },
+  gpqa: {
+    name: '🎓 GPQA',
+    badge: 'Expert Level',
+    category: 'Livello Accademico',
+    summary: 'Google-Proof Q&A: 448 quesiti a livello di dottorato (PhD) in STEM',
+    description: '448 quesiti a scelta multipla ad altissima difficoltà redatti da specialisti con PhD in biologia, fisica e chimica. Sono domande concepite per non essere risolvibili tramite ricerca web immediata e richiedono ragionamento scientifico rigoroso (CoT).',
+  },
+  bbh: {
+    name: '⚙️ BIG-Bench Hard',
+    badge: '27 Task',
+    category: 'Logica Multi-Step',
+    summary: 'I 27 compiti più complessi di BIG-Bench dove il CoT fa la differenza',
+    description: 'Selezione dei 27 task più impegnativi di BIG-Bench (ragionamento temporale, sillogismi, manipolazione simbolica, navigazione logica) in cui i modelli necessitano di una catena passo-passo di pensiero (CoT) per superare il caso.',
+  },
 };
 
 const SUITE_ORDER = ['all', 'mmlu', 'mmlu_pro', 'gsm8k', 'math', 'humaneval', 'mbpp',
@@ -40,18 +120,18 @@ const ACCENT = '#00d2ff';
 const fmt = (n) => (Number(n) || 0).toLocaleString('it-IT');
 
 const card = {
-  background: 'rgba(15,18,35,0.65)',
-  border: '1px solid var(--border, rgba(255,255,255,0.1))',
-  borderRadius: '16px',
-  padding: '20px',
-  backdropFilter: 'blur(12px)',
+  background: 'rgba(15,18,35,0.7)',
+  border: '1px solid var(--border, rgba(255,255,255,0.09))',
+  borderRadius: '12px',
+  padding: '14px 18px',
+  backdropFilter: 'blur(10px)',
 };
 
 const panel = {
-  background: 'rgba(10,12,26,0.65)',
-  border: '1px solid var(--border, rgba(255,255,255,0.08))',
-  borderRadius: '12px',
-  padding: '14px',
+  background: 'rgba(10,12,26,0.7)',
+  border: '1px solid var(--border, rgba(255,255,255,0.07))',
+  borderRadius: '10px',
+  padding: '10px 12px',
 };
 
 const btn = (active, accent = ACCENT) => ({
@@ -78,16 +158,46 @@ const sectionTitle = {
   marginBottom: '10px',
 };
 
-export default function BenchmarkLab({ addToast }) {
+const DATASET_CATEGORIES = {
+  all: { label: 'Tutte le Suite', icon: '🌐', ids: ['all', 'mmlu', 'mmlu_pro', 'gsm8k', 'math', 'humaneval', 'mbpp', 'arc', 'hellaswag', 'truthfulqa', 'gpqa', 'bbh'] },
+  code: { label: 'Coding', icon: '💻', ids: ['humaneval', 'mbpp'] },
+  math: { label: 'Matematica', icon: '🧮', ids: ['gsm8k', 'math'] },
+  reasoning: { label: 'Ragionamento', icon: '🧠', ids: ['mmlu_pro', 'bbh', 'gpqa'] },
+  knowledge: { label: 'Conoscenza & Scienze', icon: '📚', ids: ['mmlu', 'arc', 'hellaswag'] },
+  safety: { label: 'Safety & Fatti', icon: '🛡️', ids: ['truthfulqa'] },
+};
+
+function formatModelDisplay(modelName) {
+  if (!modelName) return '—';
+  let m = String(modelName).trim();
+  if (m.startsWith('sigma:')) m = m.substring(6);
+  if (m === 'sigma' || m === 'test-model') {
+    return 'SigmaEngine (Assegnato)';
+  }
+  return m;
+}
+
+export default function BenchmarkLab({ addToast, activeTabId }) {
+  const [benchTab, setBenchTab] = useState('official'); // 'official' | 'protocol'
   const [models, setModels] = useState([]);
   const [modelSearch, setModelSearch] = useState('');
   const [modelOpen, setModelOpen] = useState(false);
   const [modelCategory, setModelCategory] = useState('all');
   const [selectedModel, setSelectedModel] = useState(null);
+  const [speedVersion, setSpeedVersion] = useState(0);
+
+  // Ascolta aggiornamenti live di velocità di inferenza (tokens/sec)
+  useEffect(() => {
+    const handleSpeedUpdated = () => setSpeedVersion((v) => v + 1);
+    window.addEventListener('sigma-model-speed-updated', handleSpeedUpdated);
+    return () => window.removeEventListener('sigma-model-speed-updated', handleSpeedUpdated);
+  }, []);
 
   // Dataset / Suite Selection
   const [suiteMode, setSuiteMode] = useState('all'); // 'all' or 'custom'
   const [selectedSuites, setSelectedSuites] = useState(['mmlu', 'gsm8k', 'humaneval']);
+  const [datasetCat, setDatasetCat] = useState('all');
+  const [suiteViewMode, setSuiteViewMode] = useState('compact'); // 'compact' | 'detailed'
   const [suiteInfo, setSuiteInfo] = useState({});
   const [suiteTotals, setSuiteTotals] = useState({ count: 0, cached_suites: 0, total_suites: 0 });
   const [downloading, setDownloading] = useState([]);
@@ -95,6 +205,7 @@ export default function BenchmarkLab({ addToast }) {
   // Copertura & Campioni
   const [evalMode, setEvalMode] = useState('sample'); // 'full' or 'sample'
   const [sampleCount, setSampleCount] = useState(100);
+  const [thinkingMode, setThinkingMode] = useState('auto'); // 'auto', 'thinking', 'no_thinking'
   const [launching, setLaunching] = useState(false);
 
   // Job & Dettaglio
@@ -109,12 +220,16 @@ export default function BenchmarkLab({ addToast }) {
   const [searchQuery, setSearchQuery] = useState('');
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(15);
+  const [selectedResultIndex, setSelectedResultIndex] = useState(0);
+  const [questionViewMode, setQuestionViewMode] = useState('compact'); // 'compact' | 'cards'
+
 
   // Ampliamento Benchmark
   const [extendModalOpen, setExtendModalOpen] = useState(false);
   const [extendSamples, setExtendSamples] = useState(25);
   const [extendSuite, setExtendSuite] = useState('all');
   const [extendMode, setExtendMode] = useState('sample');
+  const [extendThinkingMode, setExtendThinkingMode] = useState('auto');
   const [extending, setExtending] = useState(false);
 
   const toast = useCallback((msg, kind) => { if (addToast) addToast(msg, kind); }, [addToast]);
@@ -125,11 +240,28 @@ export default function BenchmarkLab({ addToast }) {
     body: JSON.stringify(body),
   }).then((r) => r.json()), []);
 
+  // Risoluzione ed estetica del nome del modello: mai "test-model" o "sigma" anonimo
+  const formatJobModel = useCallback((modelName) => {
+    if (!modelName) return '—';
+    let m = String(modelName).trim();
+    if (m.startsWith('sigma:')) m = m.substring(6);
+    if (m === 'sigma' || m === 'test-model') {
+      const pEntry = models.find((mod) => mod.id === 'sigma' || mod.is_proxy);
+      if (pEntry?.resolved_target) {
+        let rt = pEntry.resolved_target;
+        if (rt.startsWith('sigma:')) rt = rt.substring(6);
+        return rt;
+      }
+      return 'SigmaEngine (Assegnato)';
+    }
+    return m;
+  }, [models]);
+
   // ── Caricamenti ────────────────────────────────────────────────────────────
 
   const loadModels = useCallback(async () => {
     try {
-      const res = await fetch('/api/training/benchmark/models');
+      const res = await fetch(`/api/training/benchmark/models?_t=${Date.now()}`, { cache: 'no-store' });
       if (!res.ok) return;
       const data = await res.json();
       const list = Array.isArray(data) ? data : (data.models || []);
@@ -144,7 +276,7 @@ export default function BenchmarkLab({ addToast }) {
 
   const loadJobs = useCallback(async () => {
     try {
-      const res = await fetch('/api/training/benchmark/jobs');
+      const res = await fetch(`/api/training/benchmark/jobs?_t=${Date.now()}`, { cache: 'no-store' });
       if (!res.ok) return [];
       const list = (await res.json()) || [];
       setJobs(list);
@@ -158,7 +290,7 @@ export default function BenchmarkLab({ addToast }) {
 
   const loadSuiteInfo = useCallback(async () => {
     try {
-      const res = await fetch('/api/training/benchmark/suite_info?suite=all');
+      const res = await fetch(`/api/training/benchmark/suite_info?suite=all&_t=${Date.now()}`, { cache: 'no-store' });
       if (!res.ok) return;
       const data = await res.json();
       setSuiteInfo(data?.suites || {});
@@ -172,11 +304,40 @@ export default function BenchmarkLab({ addToast }) {
     }
   }, []);
 
+  // Ricarica automatica all'entrata nella tab o al cambio tab interno
   useEffect(() => {
     loadModels();
     loadJobs();
     loadSuiteInfo();
+  }, [activeTabId, benchTab, loadModels, loadJobs, loadSuiteInfo]);
+
+  // Aggiornamento immediato al focus della finestra o al ripristino della tab (visibilitychange)
+  useEffect(() => {
+    const handleRefreshNow = () => {
+      if (document.visibilityState === 'visible') {
+        loadModels();
+        loadJobs();
+        loadSuiteInfo();
+      }
+    };
+    window.addEventListener('focus', handleRefreshNow);
+    document.addEventListener('visibilitychange', handleRefreshNow);
+    return () => {
+      window.removeEventListener('focus', handleRefreshNow);
+      document.removeEventListener('visibilitychange', handleRefreshNow);
+    };
   }, [loadModels, loadJobs, loadSuiteInfo]);
+
+  // Polling periodico in background ogni 4 secondi per mantenere sempre freschi i benchmark
+  useEffect(() => {
+    const backgroundTimer = setInterval(() => {
+      loadJobs();
+      if (benchTab === 'official') {
+        loadModels();
+      }
+    }, 4000);
+    return () => clearInterval(backgroundTimer);
+  }, [loadJobs, loadModels, benchTab]);
 
   const hasActiveJobs = useMemo(() => jobs.some((j) => ACTIVE_STATUSES.includes(j.status)), [jobs]);
   const wasActive = useRef(false);
@@ -199,7 +360,9 @@ export default function BenchmarkLab({ addToast }) {
     return () => clearTimeout(timer);
   }, [searchInput]);
 
-  useEffect(() => { setPage(1); }, [selectedJobId, verdictFilter, suiteFilter, pageSize]);
+  useEffect(() => { setPage(1); setSelectedResultIndex(0); }, [selectedJobId, verdictFilter, suiteFilter, pageSize]);
+  useEffect(() => { setSelectedResultIndex(0); }, [page]);
+
 
   const activeJob = useMemo(
     () => jobs.find((j) => j.id === selectedJobId) || jobs[0] || null,
@@ -309,6 +472,7 @@ export default function BenchmarkLab({ addToast }) {
         suite,
         mode: evalMode,
         samples: evalMode === 'full' ? 0 : sampleCount,
+        thinking_mode: thinkingMode,
         concurrency: 'auto',
       });
       if (!data.success) { toast(`❌ ${data.error || 'Avvio non riuscito'}`, 'error'); return; }
@@ -380,12 +544,14 @@ export default function BenchmarkLab({ addToast }) {
         suite: targetSuite,
         mode: extendMode,
         concurrency: 'auto',
+        thinking_mode: extendThinkingMode,
       });
       if (!res.success) {
         toast(`❌ ${res.error || 'Ampliamento non riuscito'}`, 'error');
         return;
       }
-      toast(`🚀 Benchmark in ampliamento (+${extendMode === 'full' ? 'Tutti i rimanenti' : `${extendSamples}`} quesiti)!`, 'success');
+      const thLabel = extendThinkingMode === 'thinking' ? 'CoT' : extendThinkingMode === 'no_thinking' ? 'No-Think' : 'Auto';
+      toast(`🚀 Benchmark in ampliamento (+${extendMode === 'full' ? 'Tutti i rimanenti' : `${extendSamples}`} quesiti [${thLabel}])!`, 'success');
       setExtendModalOpen(false);
       loadJobs();
       loadDetail();
@@ -507,266 +673,385 @@ export default function BenchmarkLab({ addToast }) {
   const canLaunch = Boolean(selectedModel) && plannedItems > 0 && !launching;
 
   return (
-    <div style={{ padding: '24px', height: '100%', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '22px' }}>
+    <div className="bench-lab-root">
 
-      {/* Intestazione Moderna */}
-      <div className="app-page-header" style={{
-        display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '16px',
-        padding: '16px 20px', background: 'rgba(15,18,35,0.7)', borderRadius: '16px', border: '1px solid var(--border, rgba(255,255,255,0.1))'
-      }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
-          <div style={{
-            width: '44px', height: '44px', borderRadius: '12px', background: 'rgba(0,210,255,0.15)',
-            border: '1px solid rgba(0,210,255,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center',
-          }}>
-            <Award size={24} color="#00f2fe" />
-          </div>
-          <div>
-            <h1 style={{ margin: 0, fontSize: '1.2rem', fontWeight: 800, color: 'var(--text, #fff)', display: 'flex', alignItems: 'center', gap: '8px' }}>
-              Benchmark Lab — Valutazione Ufficiale LLM
-            </h1>
-            <div style={{ fontSize: '0.72rem', color: 'var(--text-dark, #8b949e)', display: 'flex', alignItems: 'center', gap: '8px', marginTop: '2px' }}>
-              <span>11 Benchmark Ufficiali (MMLU, GSM8K, HumanEval...)</span>
-              <span>•</span>
-              <span style={{ color: '#00f2fe', fontFamily: 'monospace', fontWeight: 700 }}>
-                {fmt(suiteTotals.count)} QUESITI DISPONIBILI
-              </span>
-              <span>•</span>
-              <span style={{ color: 'var(--success, #3fb950)', fontWeight: 600 }}>
-                ⚡ SigmaEngine & Multi-Provider Attivo
-              </span>
-            </div>
-          </div>
-        </div>
-
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-          <button onClick={() => { loadModels(); loadJobs(); loadSuiteInfo(); }} style={{
-            background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.12)',
-            borderRadius: '10px', padding: '8px 14px', color: 'var(--text, #fff)', cursor: 'pointer',
-            display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.75rem', fontWeight: 600,
-          }}>
-            <RefreshCw size={14} /> Aggiorna Dati
+      {/* Intestazione Universale Kernel Sigma Studio con Switcher Integrato */}
+      <TabHeader
+        icon={benchTab === 'protocol' ? Bot : Award}
+        title="Benchmark Lab"
+        highlight={benchTab === 'protocol' ? 'COLLAUDO TOOL' : 'VALUTAZIONE UFFICIALE'}
+        tabs={[
+          { id: 'official', label: 'Benchmark Ufficiali', icon: Award, active: benchTab === 'official', onClick: () => setBenchTab('official') },
+          { id: 'protocol', label: 'Aderenza Protocollo Tool', icon: Bot, active: benchTab === 'protocol', onClick: () => setBenchTab('protocol') }
+        ]}
+        description={benchTab === 'protocol'
+          ? '10 Prove Osservabili nel Transcript · Harness Pilotability Check · Zero Quiz · Solo Fatti sul Disco'
+          : `11 Benchmark Ufficiali (MMLU, GSM8K, HumanEval...) · ${fmt(suiteTotals.count)} quesiti disponibili · SigmaEngine & Multi-Provider`}
+        actions={
+          <button
+            onClick={() => { loadModels(); loadJobs(); loadSuiteInfo(); }}
+            title="Ricarica i dati dei job e dei modelli da backend"
+            style={{
+              background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.12)',
+              borderRadius: '6px', padding: '4px 10px', color: 'var(--text, #fff)', cursor: 'pointer',
+              display: 'flex', alignItems: 'center', gap: '5px', fontSize: '0.72rem', fontWeight: 600,
+            }}
+          >
+            <RefreshCw size={12} />
+            <span>Aggiorna Dati</span>
           </button>
-        </div>
-      </div>
+        }
+      />
 
-      {/* Sezione 1: Selezione Dataset e Benchmark */}
-      <div style={{ ...card, display: 'flex', flexDirection: 'column', gap: '14px' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
-          <div>
-            <h3 style={{ margin: 0, fontSize: '0.94rem', fontWeight: 700, color: 'var(--text, #fff)', display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <Database size={16} style={{ color: ACCENT }} />
-              Dataset di Valutazione — {suiteTotals.cached_suites}/{suiteTotals.total_suites} suite pronte
-            </h3>
-            <div style={{ fontSize: '0.68rem', color: 'var(--text-dark, #8b949e)', marginTop: '2px' }}>
-              Puoi selezionare <b>Tutti i benchmark</b> per una valutazione globale, oppure cliccare su <b>specifici dataset</b> per concentrare i campioni.
+      <div className="bench-lab-content">
+        {/* Vista Aderenza Protocollo */}
+      {benchTab === 'protocol' ? (
+        <ProtocolBenchView models={models} onToast={toast} activeTabId={activeTabId} benchTab={benchTab} />
+      ) : (
+        <>
+          {/* Sezione 1: Selezione Dataset e Benchmark Compatta */}
+          <div className="bench-card" style={{ padding: '10px 14px', gap: '8px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <Database size={15} style={{ color: ACCENT }} />
+                <span style={{ fontSize: '0.86rem', fontWeight: 800, color: 'var(--text, #fff)' }}>
+                  Dataset di Valutazione
+                </span>
+                <span style={{ fontSize: '0.62rem', padding: '1px 6px', borderRadius: '4px', background: 'rgba(0,210,255,0.15)', color: '#00f2fe', fontWeight: 700, fontFamily: 'monospace' }}>
+                  {suiteTotals.cached_suites}/{suiteTotals.total_suites} pronte ({fmt(suiteTotals.count)})
+                </span>
+              </div>
+
+              {/* Azioni Rapide per Dataset & Toggle Vista */}
+              <div style={{ display: 'flex', gap: '5px', alignItems: 'center', flexWrap: 'wrap' }}>
+                <button
+                  type="button"
+                  onClick={() => setSuiteViewMode((v) => v === 'compact' ? 'detailed' : 'compact')}
+                  style={{ ...btn(false), padding: '3px 8px', fontSize: '0.65rem', display: 'flex', alignItems: 'center', gap: '4px' }}
+                  title="Alterna tra visualizzazione a chip compatte e schede dettagliate"
+                >
+                  {suiteViewMode === 'compact' ? <LayoutGrid size={11} /> : <List size={11} />}
+                  {suiteViewMode === 'compact' ? 'Dettagli' : 'Compatto'}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => { setSuiteMode('all'); setSelectedSuites(SUITE_ORDER.filter((s) => s !== 'all')); }}
+                  style={{ ...btn(suiteMode === 'all'), padding: '3px 8px', fontSize: '0.65rem', display: 'flex', alignItems: 'center', gap: '4px' }}
+                >
+                  <Globe size={11} /> Tutte ({fmt(suiteTotals.count)})
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSuiteMode('custom');
+                    setSelectedSuites((prev) => prev.length === SUITE_ORDER.filter((s) => s !== 'all').length ? [] : SUITE_ORDER.filter((s) => s !== 'all'));
+                  }}
+                  style={{ ...btn(false), padding: '3px 8px', fontSize: '0.65rem', border: '1px solid rgba(255,255,255,0.12)' }}
+                >
+                  {selectedSuites.length === SUITE_ORDER.filter((s) => s !== 'all').length ? 'Deseleziona' : 'Seleziona'}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleDownload('all', 300)}
+                  disabled={downloading.length > 0}
+                  title="Prende le prime 300 righe di ogni suite per un assaggio rapido."
+                  style={{
+                    ...btn(false), padding: '3px 8px', fontSize: '0.65rem',
+                    border: '1px solid rgba(255,184,108,0.4)', color: '#ffb86c',
+                    background: 'rgba(255,184,108,0.1)', fontWeight: 700,
+                    cursor: downloading.length > 0 ? 'wait' : 'pointer',
+                  }}
+                >
+                  {downloading.includes('all') ? '⏳' : '⚡ Assaggio'}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleDownload('all')}
+                  disabled={downloading.length > 0}
+                  title="Scarica tutte le suite non ancora presenti in cache."
+                  style={{
+                    ...btn(false), padding: '3px 8px', fontSize: '0.65rem',
+                    border: '1px solid rgba(0,210,255,0.4)', color: ACCENT,
+                    background: 'rgba(0,210,255,0.1)', fontWeight: 700,
+                    cursor: downloading.length > 0 ? 'wait' : 'pointer',
+                  }}
+                >
+                  {downloading.includes('all') ? '⏳' : '📥 Scarica Tutte'}
+                </button>
+              </div>
             </div>
+
+            {/* Filtri di Categoria per Suite */}
+            <div className="bench-category-bar" style={{ gap: '4px' }}>
+              {Object.entries(DATASET_CATEGORIES).map(([catKey, cat]) => (
+                <button
+                  key={catKey}
+                  type="button"
+                  onClick={() => setDatasetCat(catKey)}
+                  className={`bench-cat-pill ${datasetCat === catKey ? 'active' : ''}`}
+                  style={{ padding: '2px 8px', fontSize: '0.64rem' }}
+                >
+                  <span>{cat.icon}</span> {cat.label}
+                </button>
+              ))}
+            </div>
+
+            {/* Vista Compatta a Chip (Default) */}
+            {suiteViewMode === 'compact' ? (
+              <div className="bench-suite-chips-grid">
+                {SUITE_ORDER
+                  .filter((id) => datasetCat === 'all' || DATASET_CATEGORIES[datasetCat]?.ids.includes(id))
+                  .map((id) => {
+                    const label = SUITE_LABELS[id];
+                    const info = id === 'all'
+                      ? { cached: suiteTotals.cached_suites === suiteTotals.total_suites, count: suiteTotals.count }
+                      : (suiteInfo[id] || {});
+                    const isSelected = (id === 'all' && suiteMode === 'all') || (suiteMode === 'custom' && selectedSuites.includes(id));
+                    const busy = downloading.includes(id) || downloading.includes('all');
+
+                    return (
+                      <div
+                        key={id}
+                        onClick={() => toggleSuiteSelection(id)}
+                        className={`bench-suite-chip ${isSelected ? 'selected' : ''}`}
+                        title={`${label.name} (${label.category})\n\n${label.description}\n\nDataset: ${label.summary}`}
+                      >
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px', minWidth: 0, flex: 1 }}>
+                          {suiteMode === 'custom' && id !== 'all' && (
+                            <div style={{
+                              width: '13px', height: '13px', borderRadius: '3px', flexShrink: 0,
+                              background: isSelected ? ACCENT : 'rgba(255,255,255,0.08)',
+                              display: 'flex', alignItems: 'center', justifyContent: 'center',
+                              border: `1px solid ${isSelected ? ACCENT : 'rgba(255,255,255,0.15)'}`,
+                            }}>
+                              {isSelected && <Check size={9} color="#000" strokeWidth={3} />}
+                            </div>
+                          )}
+                          <span style={{ fontSize: '0.74rem', fontWeight: 700, color: isSelected ? '#00f2fe' : '#ffffff', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                            {label.name}
+                          </span>
+                          <span style={{ fontSize: '0.55rem', fontWeight: 600, color: isSelected ? '#00f2fe' : 'var(--sigma-text-dim, #8b949e)', background: 'rgba(255,255,255,0.06)', padding: '1px 4px', borderRadius: '3px', flexShrink: 0 }}>
+                            {label.badge}
+                          </span>
+                        </div>
+
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '5px', flexShrink: 0 }}>
+                          {info.cached ? (
+                            <span style={{ fontSize: '0.62rem', color: info.complete === false ? '#ffb86c' : 'var(--success, #3fb950)', fontWeight: 600 }}>
+                              {fmt(info.count)} {info.complete === false ? '⚡' : '✓'}
+                            </span>
+                          ) : (
+                            <span style={{ fontSize: '0.62rem', color: '#8b949e' }}>—</span>
+                          )}
+
+                          {id !== 'all' && (!info.cached || info.needs_refresh || info.complete === false) && (
+                            <button
+                              type="button"
+                              onClick={(e) => { e.stopPropagation(); handleDownload(id); }}
+                              disabled={busy}
+                              title={info.complete === false ? 'Completa' : info.cached ? 'Aggiorna' : 'Scarica'}
+                              style={{
+                                background: 'none', border: 'none', padding: '1px 3px', cursor: busy ? 'wait' : 'pointer',
+                                color: info.needs_refresh ? '#ffb86c' : ACCENT, display: 'flex', alignItems: 'center'
+                              }}
+                            >
+                              {busy ? '⏳' : <Download size={11} />}
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+              </div>
+            ) : (
+              /* Vista Dettagliata (Card estese) */
+              <div className="bench-suite-grid">
+                {SUITE_ORDER
+                  .filter((id) => datasetCat === 'all' || DATASET_CATEGORIES[datasetCat]?.ids.includes(id))
+                  .map((id) => {
+                    const label = SUITE_LABELS[id];
+                    const info = id === 'all'
+                      ? { cached: suiteTotals.cached_suites === suiteTotals.total_suites, count: suiteTotals.count }
+                      : (suiteInfo[id] || {});
+                    const isSelected = (id === 'all' && suiteMode === 'all') || (suiteMode === 'custom' && selectedSuites.includes(id));
+                    const busy = downloading.includes(id) || downloading.includes('all');
+
+                    return (
+                      <div
+                        key={id}
+                        onClick={() => toggleSuiteSelection(id)}
+                        className={`bench-suite-card ${isSelected ? 'selected' : ''}`}
+                        title={`${label.name} (${label.category})\n\n${label.description}\n\nDataset: ${label.summary}`}
+                      >
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '8px' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', minWidth: 0, flex: 1 }}>
+                            {suiteMode === 'custom' && id !== 'all' ? (
+                              <div style={{
+                                width: '16px', height: '16px', borderRadius: '4px', flexShrink: 0,
+                                background: isSelected ? ACCENT : 'rgba(255,255,255,0.08)',
+                                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                border: `1px solid ${isSelected ? ACCENT : 'rgba(255,255,255,0.15)'}`,
+                              }}>
+                                {isSelected && <Check size={11} color="#000" strokeWidth={3} />}
+                              </div>
+                            ) : null}
+                            <span style={{ fontSize: '0.84rem', fontWeight: 800, color: isSelected ? '#00f2fe' : '#ffffff', wordBreak: 'break-word', overflowWrap: 'anywhere' }}>
+                              {label.name}
+                            </span>
+                          </div>
+                          <span style={{
+                            fontSize: '0.58rem', fontWeight: 700, padding: '2px 7px', borderRadius: '5px',
+                            background: isSelected ? 'rgba(0,210,255,0.22)' : 'rgba(255,255,255,0.06)',
+                            color: isSelected ? '#00f2fe' : 'var(--sigma-text-dim, #8b949e)', whiteSpace: 'nowrap',
+                          }}>
+                            {label.badge}
+                          </span>
+                        </div>
+
+                        <div style={{
+                          fontSize: '0.68rem', color: isSelected ? 'rgba(255,255,255,0.85)' : 'var(--sigma-text-dim, #8b949e)',
+                          lineHeight: '1.35', wordBreak: 'break-word', overflowWrap: 'anywhere',
+                        }}>
+                          {label.summary}
+                        </div>
+
+                        <div style={{ fontSize: '0.68rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 'auto', paddingTop: '4px' }}>
+                          {info.cached ? (
+                            <span style={{ color: info.complete === false ? '#ffb86c' : 'var(--success, #3fb950)', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '4px' }}>
+                              <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: info.complete === false ? '#ffb86c' : 'var(--success, #3fb950)' }} />
+                              {fmt(info.count)} quesiti{info.complete === false ? ' · parziale' : ' pronti'}
+                            </span>
+                          ) : (
+                            <span style={{ color: '#8b949e', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                              <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: '#8b949e' }} />
+                              Non in cache
+                            </span>
+                          )}
+
+                          {id !== 'all' && (
+                            <button
+                              onClick={(e) => { e.stopPropagation(); handleDownload(id); }}
+                              disabled={busy}
+                              style={{
+                                background: info.needs_refresh ? 'rgba(255,184,108,0.14)' : 'rgba(0,210,255,0.12)',
+                                border: `1px solid ${info.needs_refresh ? 'rgba(255,184,108,0.4)' : 'rgba(0,210,255,0.35)'}`,
+                                borderRadius: '6px', padding: '2px 8px',
+                                color: info.needs_refresh ? '#ffb86c' : ACCENT,
+                                fontSize: '0.62rem', fontWeight: 700, cursor: busy ? 'wait' : 'pointer',
+                              }}
+                            >
+                              {busy ? '⏳'
+                                : info.complete === false ? 'Completa'
+                                : info.cached ? (info.needs_refresh ? 'Aggiorna' : 'Riscarica')
+                                : 'Scarica'}
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+              </div>
+            )}
           </div>
 
-          <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-            <button
-              onClick={() => setSuiteMode('all')}
-              style={{
-                ...btn(suiteMode === 'all'),
-                display: 'flex', alignItems: 'center', gap: '5px',
-              }}
-            >
-              <Globe size={13} /> Tutti i Benchmark ({fmt(suiteTotals.count)})
-            </button>
-            <button
-              onClick={() => handleDownload('all', 300)}
-              disabled={downloading.length > 0}
-              title="Prende le prime 300 righe di ogni suite: pronto in poco, ma e' l'inizio di ogni dataset e non un suo campione — il punteggio non e' confrontabile con un run sulla suite intera."
-              style={{
-                ...btn(false), border: '1px solid rgba(255,184,108,0.4)', color: '#ffb86c',
-                background: 'rgba(255,184,108,0.1)', fontWeight: 700,
-                cursor: downloading.length > 0 ? 'wait' : 'pointer',
-              }}
-            >
-              {downloading.includes('all') ? '⏳' : '⚡ Assaggio rapido'}
-            </button>
-            <button
-              onClick={() => handleDownload('all')}
-              disabled={downloading.length > 0}
-              title="Scarica una volta sola: le suite gia' in cache non vengono riscaricate."
-              style={{
-                ...btn(false), border: '1px solid rgba(0,210,255,0.4)', color: ACCENT,
-                background: 'rgba(0,210,255,0.1)', fontWeight: 700,
-                cursor: downloading.length > 0 ? 'wait' : 'pointer',
-              }}
-            >
-              {downloading.includes('all') ? '⏳ Download in corso...' : '📥 Scarica tutte'}
-            </button>
-          </div>
-        </div>
+          {/* Sezione 2: Configurazione Modello e Campioni Compatta */}
+          <div className={`bench-card ${modelOpen ? 'bench-card-dropdown-active' : ''}`} style={{ padding: '10px 14px', gap: '10px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px' }}>
+              <h3 style={{ margin: 0, fontSize: '0.86rem', fontWeight: 800, color: 'var(--text, #fff)', display: 'flex', alignItems: 'center', gap: '7px' }}>
+                <Compass size={15} style={{ color: ACCENT }} /> Configura & Avvia Valutazione
+              </h3>
+              <span style={{ fontSize: '0.64rem', color: 'var(--sigma-text-dim, #8b949e)' }}>
+                Seleziona modello, quota campioni e modalità CoT
+              </span>
+            </div>
 
-        {/* Griglia Suite con Toggle Multiplo */}
-        <div style={{
-          display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))',
-          gap: '10px', maxHeight: '280px', overflowY: 'auto', paddingRight: '4px',
-        }}>
-          {SUITE_ORDER.map((id) => {
-            const label = SUITE_LABELS[id];
-            const info = id === 'all'
-              ? { cached: suiteTotals.cached_suites === suiteTotals.total_suites, count: suiteTotals.count }
-              : (suiteInfo[id] || {});
-            const isSelected = (id === 'all' && suiteMode === 'all') || (suiteMode === 'custom' && selectedSuites.includes(id));
-            const busy = downloading.includes(id) || downloading.includes('all');
-
-            return (
-              <div
-                key={id}
-                onClick={() => toggleSuiteSelection(id)}
-                style={{
-                  background: isSelected ? 'rgba(0,210,255,0.14)' : 'rgba(10,12,26,0.6)',
-                  border: `1px solid ${isSelected ? ACCENT : 'rgba(255,255,255,0.08)'}`,
-                  borderRadius: '10px', padding: '10px 12px', cursor: 'pointer',
-                  display: 'flex', flexDirection: 'column', gap: '6px',
-                  transition: 'all 0.15s ease',
+            {/* Trio Configurazione: Modello, Campioni, Thinking */}
+            <div className="bench-config-trio">
+              <ModelPicker
+                models={filteredModels}
+                allModels={models}
+                total={models.length}
+                current={currentModel}
+                search={modelSearch}
+                open={modelOpen}
+                activeCategory={modelCategory}
+                onCategory={setModelCategory}
+                onSearch={setModelSearch}
+                onToggle={() => {
+                  if (!modelOpen && models.length === 0) loadModels();
+                  setModelOpen((v) => !v);
                 }}
-              >
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '6px' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                    {suiteMode === 'custom' && id !== 'all' ? (
-                      selectedSuites.includes(id)
-                        ? <CheckSquare size={14} color={ACCENT} />
-                        : <Square size={14} color="var(--text-dark, #8b949e)" />
-                    ) : null}
-                    <span style={{ fontSize: '0.82rem', fontWeight: 700, color: isSelected ? ACCENT : 'var(--text, #fff)' }}>
-                      {label.name}
-                    </span>
-                  </div>
-                  <span style={{
-                    fontSize: '0.55rem', fontWeight: 700, padding: '2px 6px', borderRadius: '5px',
-                    background: isSelected ? 'rgba(0,210,255,0.25)' : 'rgba(255,255,255,0.06)',
-                    color: isSelected ? ACCENT : 'var(--text-dark, #8b949e)', whiteSpace: 'nowrap',
-                  }}>{label.badge}</span>
+                onRefresh={loadModels}
+                onPick={(id) => { setSelectedModel(id); setModelOpen(false); setModelSearch(''); }}
+              />
+
+              <CoveragePicker
+                evalMode={evalMode}
+                sampleCount={sampleCount}
+                plannedItems={plannedItems}
+                suiteMode={suiteMode}
+                selectedSuitesCount={selectedSuites.length}
+                onMode={setEvalMode}
+                onCount={setSampleCount}
+              />
+
+              <ThinkingPicker
+                thinkingMode={thinkingMode}
+                onThinkingMode={setThinkingMode}
+              />
+            </div>
+
+            {/* Mission Bar: KPI e Avvio Compatto */}
+            <div className="bench-mission-bar">
+              <div className="bench-mission-kpis">
+                <div className="bench-mission-kpi">
+                  <span className="kpi-label">Modello</span>
+                  <span className="kpi-val" style={{ color: '#00f2fe' }}>{currentModel?.name || '—'}</span>
                 </div>
-
-                <div style={{ fontSize: '0.68rem', color: 'var(--text-dark, #8b949e)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  {info.cached ? (
-                    <span style={{ color: info.complete === false ? '#ffb86c' : 'var(--success, #3fb950)', fontWeight: 700 }}>
-                      {fmt(info.count)} quesiti{info.complete === false ? ' · parziale' : ''}
-                    </span>
-                  ) : <span style={{ color: '#8b949e' }}>Non scaricato</span>}
-
-                  {id !== 'all' && (
-                    <button
-                      onClick={(e) => { e.stopPropagation(); handleDownload(id); }}
-                      disabled={busy}
-                      style={{
-                        background: info.needs_refresh ? 'rgba(255,184,108,0.12)' : 'rgba(0,210,255,0.1)',
-                        border: `1px solid ${info.needs_refresh ? 'rgba(255,184,108,0.4)' : 'rgba(0,210,255,0.3)'}`,
-                        borderRadius: '5px', padding: '2px 8px',
-                        color: info.needs_refresh ? '#ffb86c' : ACCENT,
-                        fontSize: '0.6rem', fontWeight: 700, cursor: busy ? 'wait' : 'pointer',
-                      }}
-                    >
-                      {busy ? '⏳'
-                        : info.complete === false ? 'Completa'
-                        : info.cached ? (info.needs_refresh ? 'Aggiorna' : 'Riscarica')
-                        : 'Scarica'}
-                    </button>
-                  )}
+                <div className="bench-mission-kpi">
+                  <span className="kpi-label">Suite</span>
+                  <span className="kpi-val">{suiteMode === 'all' ? 'Tutte (11 Suite)' : `${selectedSuites.length} Selezionate`}</span>
+                </div>
+                <div className="bench-mission-kpi">
+                  <span className="kpi-label">Quesiti</span>
+                  <span className="kpi-val" style={{ color: 'var(--success, #3fb950)' }}>{fmt(plannedItems)}</span>
+                </div>
+                <div className="bench-mission-kpi">
+                  <span className="kpi-label">Thinking Mode</span>
+                  <span className="kpi-val" style={{ color: thinkingMode === 'thinking' ? '#bc8cff' : thinkingMode === 'no_thinking' ? '#ffb86c' : '#00d2ff' }}>
+                    {thinkingMode === 'auto' ? '🧠 Auto' : thinkingMode === 'thinking' ? '💡 CoT' : '⚡ No-Think'}
+                  </span>
+                </div>
+                <div className="bench-mission-kpi">
+                  <span className="kpi-label">Stima Tempo</span>
+                  <span className="kpi-val" style={{ color: '#ffb86c' }}>{estimate || '—'}</span>
                 </div>
               </div>
-            );
-          })}
-        </div>
-      </div>
 
-      {/* Sezione 2: Configurazione Modello e Campioni */}
-      <div style={{ ...card, display: 'flex', flexDirection: 'column', gap: '16px' }}>
-        <h3 style={{ margin: 0, fontSize: '0.94rem', fontWeight: 700, color: 'var(--text, #fff)', display: 'flex', alignItems: 'center', gap: '8px' }}>
-          <Compass size={16} style={{ color: ACCENT }} /> Configura & Avvia Valutazione
-        </h3>
-
-        <div style={{ display: 'grid', gridTemplateColumns: 'minmax(320px, 1.2fr) minmax(300px, 1fr)', gap: '16px', alignItems: 'stretch' }}>
-          {/* Selettore Modello Multi-Provider */}
-          <ModelPicker
-            models={filteredModels}
-            allModels={models}
-            total={models.length}
-            current={currentModel}
-            search={modelSearch}
-            open={modelOpen}
-            activeCategory={modelCategory}
-            onCategory={setModelCategory}
-            onSearch={setModelSearch}
-            onToggle={() => {
-              if (!modelOpen && models.length === 0) loadModels();
-              setModelOpen((v) => !v);
-            }}
-            onRefresh={loadModels}
-            onPick={(id) => { setSelectedModel(id); setModelOpen(false); setModelSearch(''); }}
-          />
-
-          {/* Selettore Copertura & Campioni Estesi */}
-          <CoveragePicker
-            evalMode={evalMode}
-            sampleCount={sampleCount}
-            plannedItems={plannedItems}
-            suiteMode={suiteMode}
-            selectedSuitesCount={selectedSuites.length}
-            onMode={setEvalMode}
-            onCount={setSampleCount}
-          />
-        </div>
-
-        {/* Riepilogo di Lancio Ottimizzato */}
-        <div style={{
-          ...panel, display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-          gap: '16px', flexWrap: 'wrap', borderColor: canLaunch ? 'rgba(0,210,255,0.4)' : 'var(--border, rgba(255,255,255,0.08))',
-          background: 'rgba(10,12,26,0.85)',
-        }}>
-          <div style={{ display: 'flex', gap: '24px', flexWrap: 'wrap', fontSize: '0.74rem' }}>
-            <Summary label="Modello" value={currentModel?.name || '—'} hint={currentModel?.provider_label} />
-            <Summary label="Dataset / Suite" value={suiteMode === 'all' ? 'Tutte (11 Suite)' : `${selectedSuites.length} Selezionate`} />
-            <Summary label="Quesiti Totali" value={fmt(plannedItems)} />
-            <Summary
-              label="Esecuzione"
-              value={currentModel?.is_cloud ? '☁️ Parallel Pool (8x)' : '⚡ GPU Diretta (Full Speed)'}
-              hint={currentModel?.is_cloud ? 'Cloud Concurrency' : '30+ tok/s Massima Efficienza'}
-            />
-            <Summary label="Stima Durata" value={estimate || '—'} />
+              <div className="bench-mission-actions">
+                {hasActiveJobs && (
+                  <button onClick={handleCancelAll} className="bench-btn-cancel-compact">
+                    <StopCircle size={14} /> Ferma
+                  </button>
+                )}
+                <button
+                  onClick={() => handleStart()}
+                  disabled={!canLaunch}
+                  className="bench-btn-start-compact"
+                >
+                  {launching
+                    ? <><RefreshCw size={14} className="spin-icon" /> Avvio...</>
+                    : <><Play size={14} /> Avvia Valutazione Benchmark</>}
+                </button>
+              </div>
+            </div>
           </div>
-
-          <div style={{ display: 'flex', gap: '8px' }}>
-            {hasActiveJobs && (
-              <button onClick={handleCancelAll} style={{
-                height: '42px', padding: '0 18px', border: 'none', borderRadius: '10px',
-                background: 'linear-gradient(135deg, #ff5555 0%, #cc3333 100%)', color: '#fff',
-                fontWeight: 700, fontSize: '0.82rem', cursor: 'pointer',
-                display: 'flex', alignItems: 'center', gap: '6px',
-              }}>
-                <StopCircle size={16} /> Annulla
-              </button>
-            )}
-            <button
-              onClick={() => handleStart()}
-              disabled={!canLaunch}
-              style={{
-                height: '42px', padding: '0 28px', border: 'none', borderRadius: '10px', color: '#fff',
-                fontWeight: 700, fontSize: '0.84rem',
-                background: canLaunch ? 'linear-gradient(135deg, #00d2ff 0%, #0072ff 100%)' : 'rgba(255,255,255,0.1)',
-                cursor: canLaunch ? 'pointer' : 'not-allowed',
-                display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px',
-                boxShadow: canLaunch ? '0 0 20px rgba(0,210,255,0.3)' : 'none',
-              }}
-            >
-              {launching
-                ? <><RefreshCw size={16} className="spin-icon" /> Avvio benchmark...</>
-                : <><Play size={16} /> Avvia Valutazione</>}
-            </button>
-          </div>
-        </div>
-      </div>
 
       {/* Sezione 3: Cronologia Job & Ispezione Risultati */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'minmax(280px, 340px) 1fr', gap: '20px', alignItems: 'start' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'minmax(340px, 440px) 1fr', gap: '14px', alignItems: 'start' }}>
         {/* Lista Job Eseguiti */}
-        <div style={{ ...card, padding: '16px', display: 'flex', flexDirection: 'column', gap: '10px', maxHeight: '820px', overflowY: 'auto' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid rgba(255,255,255,0.06)', paddingBottom: '10px' }}>
+        <div style={{ ...card, padding: '14px', display: 'flex', flexDirection: 'column', gap: '8px', maxHeight: '820px', overflowY: 'auto' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid rgba(255,255,255,0.06)', paddingBottom: '8px' }}>
             <h3 style={{ margin: 0, fontSize: '0.88rem', fontWeight: 700, color: 'var(--text, #fff)', display: 'flex', alignItems: 'center', gap: '8px' }}>
               <Layers size={15} style={{ color: ACCENT }} /> Valutazioni ({jobs.length})
             </h3>
@@ -784,17 +1069,45 @@ export default function BenchmarkLab({ addToast }) {
               <div key={j.id} onClick={() => setSelectedJobId(j.id)} style={{
                 background: isSelected ? 'rgba(0,210,255,0.14)' : 'rgba(10,12,26,0.6)',
                 border: `1px solid ${isSelected ? ACCENT : 'rgba(255,255,255,0.08)'}`,
-                borderRadius: '10px', padding: '11px 13px', cursor: 'pointer',
-                display: 'flex', flexDirection: 'column', gap: '7px',
+                borderRadius: '10px', padding: '10px 12px', cursor: 'pointer',
+                display: 'flex', flexDirection: 'column', gap: '6px',
               }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '6px' }}>
-                  <div style={{ minWidth: 0 }}>
-                    <div style={{ fontSize: '0.8rem', fontWeight: 700, color: 'var(--text, #fff)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                      {j.model}
+                  <div style={{ minWidth: 0, flex: 1 }}>
+                    <div style={{ fontSize: '0.82rem', fontWeight: 700, color: 'var(--text, #fff)', wordBreak: 'break-word', overflowWrap: 'anywhere', lineHeight: '1.3' }}>
+                      {formatJobModel(j.model)}
                     </div>
-                    <div style={{ fontSize: '0.68rem', color: ACCENT, fontWeight: 600 }}>{j.suite_name || j.suite}</div>
+                    {(() => {
+                      const sKey = (j.suite || '').toLowerCase().replace('-', '_');
+                      const sLabel = SUITE_LABELS[sKey] || (j.suite === 'all' ? SUITE_LABELS.all : null);
+                      return (
+                        <div
+                          style={{ fontSize: '0.68rem', color: ACCENT, fontWeight: 600, cursor: 'help' }}
+                          title={sLabel ? `${sLabel.name} (${sLabel.category}):\n${sLabel.description}` : (j.suite_name || j.suite)}
+                        >
+                          {j.suite_name || j.suite}
+                        </div>
+                      );
+                    })()}
                   </div>
-                  <StatusPill job={j} />
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
+                    {j.thinking_mode === 'no_thinking' && (
+                      <span style={{ fontSize: '0.6rem', padding: '1px 5px', borderRadius: '4px', background: 'rgba(255,184,108,0.15)', color: '#ffb86c', fontWeight: 700 }} title="No-Thinking (Risposta diretta)">
+                        ⚡ No-Think
+                      </span>
+                    )}
+                    {j.thinking_mode === 'thinking' && (
+                      <span style={{ fontSize: '0.6rem', padding: '1px 5px', borderRadius: '4px', background: 'rgba(188,140,255,0.15)', color: '#bc8cff', fontWeight: 700 }} title="Thinking (Forzato CoT)">
+                        💡 CoT
+                      </span>
+                    )}
+                    {j.thinking_mode === 'mixed' && (
+                      <span style={{ fontSize: '0.6rem', padding: '1px 5px', borderRadius: '4px', background: 'rgba(0,210,255,0.2)', color: '#00f2fe', fontWeight: 700 }} title="Ibrido (Test eseguiti sia con che senza thinking)">
+                        🔀 Ibrido
+                      </span>
+                    )}
+                    <StatusPill job={j} />
+                  </div>
                 </div>
 
                 {isActive && (
@@ -811,6 +1124,8 @@ export default function BenchmarkLab({ addToast }) {
                     {jm.overall_score || 0}%
                   </span>
                   {' · '}{fmt(jm.tests_passed)}/{fmt(jm.tests_total)} pass
+                  {jm.no_thinking_total > 0 && <span style={{ color: '#ffb86c' }}> · ⚡{jm.no_thinking_accuracy}%</span>}
+                  {jm.thinking_total > 0 && <span style={{ color: '#bc8cff' }}> · 💡{jm.thinking_accuracy}%</span>}
                   {jm.tests_review > 0 && <span style={{ color: '#ffb86c' }}> · {fmt(jm.tests_review)} rev.</span>}
                   {j.concurrency > 1 && <span> · {j.concurrency}x</span>}
                 </div>
@@ -862,13 +1177,50 @@ export default function BenchmarkLab({ addToast }) {
               }}>
                 <div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '9px', flexWrap: 'wrap' }}>
-                    <h3 style={{ margin: 0, fontSize: '1.05rem', fontWeight: 800, color: 'var(--text, #fff)' }}>{activeJob.model}</h3>
-                    <span style={{ fontSize: '0.68rem', padding: '2px 8px', borderRadius: '6px', background: 'rgba(0,210,255,0.15)', color: ACCENT, fontWeight: 700 }}>
-                      {activeJob.suite_name || activeJob.suite}
-                    </span>
+                    <h3 style={{ margin: 0, fontSize: '1.05rem', fontWeight: 800, color: 'var(--text, #fff)' }}>{formatJobModel(activeJob.model)}</h3>
+                    {(() => {
+                      const sKey = (activeJob.suite || '').toLowerCase().replace('-', '_');
+                      const sMeta = SUITE_LABELS[sKey] || (activeJob.suite === 'all' ? SUITE_LABELS.all : null);
+                      return (
+                        <span
+                          style={{ fontSize: '0.68rem', padding: '2px 8px', borderRadius: '6px', background: 'rgba(0,210,255,0.15)', color: ACCENT, fontWeight: 700, cursor: 'help' }}
+                          title={sMeta ? `${sMeta.name} (${sMeta.category}):\n\n${sMeta.description}` : undefined}
+                        >
+                          {activeJob.suite_name || activeJob.suite}
+                        </span>
+                      );
+                    })()}
                     {repro.reproducible_hash && (
                       <span style={{ fontSize: '0.62rem', padding: '2px 8px', borderRadius: '6px', background: 'rgba(63,185,80,0.15)', color: 'var(--success, #3fb950)', fontWeight: 600, fontFamily: 'monospace' }}>
                         {repro.reproducible_hash}
+                      </span>
+                    )}
+                    {(repro.thinking_mode || activeJob.thinking_mode) && (
+                      <span style={{
+                        fontSize: '0.62rem', padding: '2px 8px', borderRadius: '6px',
+                        background: (repro.thinking_mode || activeJob.thinking_mode) === 'no_thinking'
+                          ? 'rgba(255,184,108,0.15)'
+                          : (repro.thinking_mode || activeJob.thinking_mode) === 'thinking'
+                            ? 'rgba(188,140,255,0.15)'
+                            : (repro.thinking_mode || activeJob.thinking_mode) === 'mixed'
+                              ? 'rgba(0,210,255,0.2)'
+                              : 'rgba(0,210,255,0.12)',
+                        color: (repro.thinking_mode || activeJob.thinking_mode) === 'no_thinking'
+                          ? '#ffb86c'
+                          : (repro.thinking_mode || activeJob.thinking_mode) === 'thinking'
+                            ? '#bc8cff'
+                            : (repro.thinking_mode || activeJob.thinking_mode) === 'mixed'
+                              ? '#00f2fe'
+                              : ACCENT,
+                        fontWeight: 700,
+                      }}>
+                        {(repro.thinking_mode || activeJob.thinking_mode) === 'no_thinking'
+                          ? '⚡ No-Thinking (Risposta diretta)'
+                          : (repro.thinking_mode || activeJob.thinking_mode) === 'thinking'
+                            ? '💡 Thinking (CoT forzato)'
+                            : (repro.thinking_mode || activeJob.thinking_mode) === 'mixed'
+                              ? '🔀 Ibrido (Thinking + No-Thinking)'
+                              : '🧠 Thinking Auto (Protocollo Suite)'}
                       </span>
                     )}
                   </div>
@@ -900,16 +1252,22 @@ export default function BenchmarkLab({ addToast }) {
                       sono confrontabili, e questo e' il posto in cui si vede. */}
                   {repro.protocols && Object.keys(repro.protocols).length > 0 && (
                     <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px', marginTop: '5px' }}>
-                      {Object.values(repro.protocols).map((p) => (
-                        <span key={p.suite} title={p.note}
-                          style={{
-                            fontSize: '0.58rem', padding: '2px 6px', borderRadius: '5px',
-                            background: 'rgba(255,255,255,0.05)',
-                            color: 'var(--text-dark, #8b949e)', whiteSpace: 'nowrap',
-                          }}>
-                          {p.suite}: {p.metric}{p.shots ? ` · ${p.shots}-shot` : ''}{p.thinking ? ' · CoT' : ''}
-                        </span>
-                      ))}
+                      {Object.values(repro.protocols).map((p) => {
+                        const sKey = (p.suite || '').toLowerCase().replace('-', '_');
+                        const sMeta = SUITE_LABELS[sKey];
+                        return (
+                          <span key={p.suite}
+                            title={sMeta ? `${sMeta.name} (${sMeta.category}):\n${sMeta.description}\n\nProtocollo: ${p.note || p.metric}` : p.note}
+                            style={{
+                              fontSize: '0.58rem', padding: '2px 6px', borderRadius: '5px',
+                              background: 'rgba(255,255,255,0.05)',
+                              color: 'var(--text-dark, #8b949e)', whiteSpace: 'nowrap',
+                              cursor: 'help',
+                            }}>
+                            {p.suite}: {p.metric}{p.shots ? ` · ${p.shots}-shot` : ''}{p.thinking ? ' · CoT' : ''}
+                          </span>
+                        );
+                      })}
                     </div>
                   )}
                 </div>
@@ -938,7 +1296,11 @@ export default function BenchmarkLab({ addToast }) {
                   <button
                     type="button"
                     disabled={isRunning || extending}
-                    onClick={() => { setExtendSuite('all'); setExtendModalOpen(true); }}
+                    onClick={() => {
+                      setExtendSuite('all');
+                      setExtendThinkingMode(activeJob?.thinking_mode === 'mixed' ? 'auto' : (activeJob?.thinking_mode || 'auto'));
+                      setExtendModalOpen(true);
+                    }}
                     style={{
                       ...btn(true, '#00d2ff'),
                       display: 'flex', alignItems: 'center', gap: '6px',
@@ -1013,6 +1375,22 @@ export default function BenchmarkLab({ addToast }) {
                     un run che macinava un quesito ogni 400 ms. */}
                 <Metric label="Ritmo" value={`${metrics.avg_latency_ms ? Math.round(60000 / metrics.avg_latency_ms) : 0}/min`} color="#bc8cff"
                   hint={`${fmt(metrics.avg_latency_ms)} ms medi · ${metrics.tokens_per_sec || 0} tok/s`} />
+                {(metrics.no_thinking_total > 0 || (repro.thinking_mode || activeJob.thinking_mode) === 'no_thinking') && (
+                  <Metric
+                    label="⚡ No-Thinking"
+                    value={`${metrics.no_thinking_accuracy ?? (activeJob.thinking_mode === 'no_thinking' ? metrics.overall_score : 0)}%`}
+                    color="#ffb86c"
+                    hint={`${fmt(metrics.no_thinking_passed ?? (activeJob.thinking_mode === 'no_thinking' ? metrics.tests_passed : 0))}/${fmt(metrics.no_thinking_total ?? (activeJob.thinking_mode === 'no_thinking' ? metrics.tests_total : 0))} quesiti diretti`}
+                  />
+                )}
+                {(metrics.thinking_total > 0 || (repro.thinking_mode || activeJob.thinking_mode) === 'thinking') && (
+                  <Metric
+                    label="💡 Thinking CoT"
+                    value={`${metrics.thinking_accuracy ?? (activeJob.thinking_mode === 'thinking' ? metrics.overall_score : 0)}%`}
+                    color="#bc8cff"
+                    hint={`${fmt(metrics.thinking_passed ?? (activeJob.thinking_mode === 'thinking' ? metrics.tests_passed : 0))}/${fmt(metrics.thinking_total ?? (activeJob.thinking_mode === 'thinking' ? metrics.tests_total : 0))} quesiti CoT`}
+                  />
+                )}
               </div>
 
               {/* Ripartizione Verdetti */}
@@ -1067,7 +1445,7 @@ export default function BenchmarkLab({ addToast }) {
                         <div
                           key={name}
                           onClick={() => setSuiteFilter((prev) => (prev.toLowerCase().replace('-', '_') === sKey ? 'all' : sKey))}
-                          title={`Clicca per filtrare solo i test di ${name}`}
+                          title={meta.description ? `${meta.name} (${meta.category}):\n\n${meta.description}\n\nClicca per filtrare i quesiti di questo dataset.` : `Clicca per filtrare solo i test di ${name}`}
                           style={{
                             background: isSelected ? 'rgba(0,210,255,0.22)' : 'rgba(10,12,26,0.75)',
                             border: `1px solid ${isSelected ? ACCENT : 'rgba(255,255,255,0.1)'}`,
@@ -1145,6 +1523,32 @@ export default function BenchmarkLab({ addToast }) {
                       ⚠ Da rivedere ({fmt(reviewTotal)})
                     </button>
                   </div>
+
+                  {/* Toggle Modalita Vista: Compatta (seleziona a schermo) vs Schede */}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '4px', marginLeft: 'auto' }}>
+                    <button
+                      type="button"
+                      onClick={() => setQuestionViewMode('compact')}
+                      title="Vista Compatta con Ispezione: seleziona e visualizza i quesiti a schermo intero senza scroll infinito"
+                      style={{
+                        ...btn(questionViewMode === 'compact'),
+                        fontSize: '0.68rem', padding: '4px 8px', display: 'inline-flex', alignItems: 'center', gap: '4px',
+                      }}
+                    >
+                      <LayoutGrid size={12} /> ☷ Compatta
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setQuestionViewMode('cards')}
+                      title="Vista a Schede: mostra l'elenco espanso di tutte le schede quesito"
+                      style={{
+                        ...btn(questionViewMode === 'cards'),
+                        fontSize: '0.68rem', padding: '4px 8px', display: 'inline-flex', alignItems: 'center', gap: '4px',
+                      }}
+                    >
+                      <List size={12} /> ☰ Schede
+                    </button>
+                  </div>
                 </div>
 
                 {/* Filtro Rapido per Dataset */}
@@ -1161,11 +1565,13 @@ export default function BenchmarkLab({ addToast }) {
                     {Object.entries(detail.suite_breakdown).map(([name, stats]) => {
                       const sKey = name.toLowerCase().replace('-', '_');
                       const isSelected = suiteFilter.toLowerCase().replace('-', '_') === sKey;
+                      const sMeta = SUITE_LABELS[sKey];
                       return (
                         <button
                           key={name}
                           type="button"
                           onClick={() => setSuiteFilter(isSelected ? 'all' : sKey)}
+                          title={sMeta ? `${sMeta.name} (${sMeta.category}):\n${sMeta.description}` : undefined}
                           style={{
                             ...btn(isSelected),
                             fontSize: '0.66rem', padding: '3px 8px',
@@ -1193,14 +1599,47 @@ export default function BenchmarkLab({ addToast }) {
                   </div>
                 ) : (
                   <>
-                    {detail.results.map((tr, idx) => (
-                      <QuestionCard
-                        key={`${tr.id}_${idx}`}
-                        result={tr}
-                        model={activeJob.model}
-                        number={(detail.page - 1) * detail.page_size + idx + 1}
-                      />
-                    ))}
+                    {questionViewMode === 'compact' ? (
+                      <div className="bench-tests-master-detail">
+                        {/* Colonna Sinistra: Lista Compatta Selezionabile */}
+                        <div className="bench-tests-list-col">
+                          {detail.results.map((tr, idx) => {
+                            const qNum = (detail.page - 1) * detail.page_size + idx + 1;
+                            const isSelected = (selectedResultIndex < detail.results.length ? selectedResultIndex : 0) === idx;
+                            return (
+                              <QuestionRowItem
+                                key={`${tr.id}_${idx}`}
+                                result={tr}
+                                number={qNum}
+                                isSelected={isSelected}
+                                onSelect={() => setSelectedResultIndex(idx)}
+                              />
+                            );
+                          })}
+                        </div>
+
+                        {/* Colonna Destra: Ispezione Dettagliata del Quesito Selezionato */}
+                        <QuestionDetailInspector
+                          result={detail.results[selectedResultIndex < detail.results.length ? selectedResultIndex : 0]}
+                          model={activeJob.model}
+                          number={(detail.page - 1) * detail.page_size + (selectedResultIndex < detail.results.length ? selectedResultIndex : 0) + 1}
+                          currentIndex={selectedResultIndex < detail.results.length ? selectedResultIndex : 0}
+                          totalInPage={detail.results.length}
+                          onPrev={() => setSelectedResultIndex((prev) => Math.max(0, prev - 1))}
+                          onNext={() => setSelectedResultIndex((prev) => Math.min(detail.results.length - 1, prev + 1))}
+                        />
+                      </div>
+                    ) : (
+                      detail.results.map((tr, idx) => (
+                        <QuestionCard
+                          key={`${tr.id}_${idx}`}
+                          result={tr}
+                          model={activeJob.model}
+                          number={(detail.page - 1) * detail.page_size + idx + 1}
+                        />
+                      ))
+                    )}
+
 
                     {/* Paginazione */}
                     <div style={{
@@ -1248,13 +1687,18 @@ export default function BenchmarkLab({ addToast }) {
         extendSamples={extendSamples}
         extendSuite={extendSuite}
         extendMode={extendMode}
+        extendThinkingMode={extendThinkingMode}
         extending={extending}
         onSamples={setExtendSamples}
         onSuite={setExtendSuite}
         onMode={setExtendMode}
+        onThinkingMode={setExtendThinkingMode}
         onClose={() => setExtendModalOpen(false)}
         onConfirm={handleExtendBenchmark}
       />
+        </>
+      )}
+      </div>
     </div>
   );
 }
@@ -1274,199 +1718,498 @@ function ModelPicker({ models, allModels = [], total, current, search, open, act
 
   const categories = [
     { id: 'all', label: `Tutti (${catCounts.all || 0})` },
-    { id: 'sigma_engine', label: `⚡ SigmaEngine (${catCounts.sigma_engine || 0})` },
+    { id: 'sigma_engine', label: `⚡ Sigma (${catCounts.sigma_engine || 0})` },
     { id: 'ollama', label: `🐙 Ollama (${catCounts.ollama || 0})` },
     { id: 'local_provider', label: `💻 LM Studio (${catCounts.local_provider || 0})` },
-    { id: 'cloud', label: `☁️ Cloud API (${catCounts.cloud || 0})` },
+    { id: 'cloud', label: `☁️ Cloud (${catCounts.cloud || 0})` },
   ];
 
+  const colRef = useRef(null);
+
+  const currentSpecs = useMemo(() => {
+    if (!current) return null;
+    return getModelSpecs(current, allModels);
+  }, [current, allModels]);
+
+  useEffect(() => {
+    if (!open) return;
+    const handleClickOutside = (e) => {
+      if (colRef.current && !colRef.current.contains(e.target)) {
+        if (onToggle) onToggle();
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [open, onToggle]);
+
   return (
-    <div style={{ ...panel, display: 'flex', flexDirection: 'column', gap: '10px' }}>
-      <div style={sectionTitle}><Cpu size={14} /> Modello da Valutare</div>
+    <div ref={colRef} className={`bench-config-col ${open ? 'dropdown-open' : ''}`}>
+      <div className="bench-config-header">
+        <span className="bench-config-title"><Cpu size={13} style={{ color: ACCENT }} /> Modello da Valutare</span>
+        <span className="bench-config-count">{total} disponibili</span>
+      </div>
 
-      {/* Scheda Selezionata */}
-      <button
-        type="button"
-        onClick={onToggle}
-        style={{
-          display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '10px',
-          background: 'rgba(0,210,255,0.08)', border: `1px solid ${ACCENT}`,
-          borderRadius: '10px', padding: '10px 14px', cursor: 'pointer', width: '100%',
-        }}
-      >
-        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', minWidth: 0 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <span style={{ fontSize: '0.88rem', fontWeight: 800, color: ACCENT, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-              {current?.name || 'Seleziona un modello...'}
-            </span>
-            {current?.badge && (
-              <span style={{ fontSize: '0.58rem', fontWeight: 800, padding: '2px 6px', borderRadius: '4px', background: 'rgba(0,210,255,0.2)', color: ACCENT }}>
-                {current.badge}
+      {/* Contenitore Relativo per allineare Trigger e Dropdown */}
+      <div style={{ position: 'relative', width: '100%' }}>
+        {/* Trigger Modello con Statistiche Arricchite */}
+        <button
+          type="button"
+          onClick={onToggle}
+          className={`bench-model-trigger ${open ? 'open' : ''}`}
+        >
+          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', minWidth: 0, flex: 1, gap: '3px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', width: '100%', flexWrap: 'wrap' }}>
+              <span style={{ fontSize: '0.78rem', fontWeight: 800, color: ACCENT, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                {current?.name || 'Seleziona un modello...'}
               </span>
-            )}
-          </div>
-          <span style={{ fontSize: '0.66rem', color: 'var(--text-dark, #8b949e)', fontFamily: 'monospace', marginTop: '2px' }}>
-            {current
-              ? [current.provider_label, current.parameter_size, current.quantization].filter(Boolean).join(' · ')
-              : 'Nessun modello selezionato'}
-          </span>
-        </div>
-        <ChevronDown size={16} style={{ color: ACCENT, flexShrink: 0, transform: open ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s' }} />
-      </button>
 
-      {/* Menu a Tendina Filtrabile */}
-      {open && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginTop: '4px' }}>
-          {/* Categorie Provider */}
-          <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap' }}>
-            {categories.map((c) => (
-              <button
-                key={c.id}
-                type="button"
-                onClick={() => onCategory(c.id)}
-                style={{
-                  ...btn(activeCategory === c.id),
-                  fontSize: '0.65rem', padding: '3px 8px',
-                }}
-              >
-                {c.label}
-              </button>
-            ))}
-          </div>
+              {/* Statistiche Live nel Trigger come in Chat */}
+              {currentSpecs?.chatSpeed !== null && currentSpecs?.chatSpeed !== undefined && (
+                <span
+                  title={`Velocità live misurata: ${currentSpecs.chatSpeed} tok/s`}
+                  style={{
+                    fontSize: '0.56rem', padding: '1px 5px', borderRadius: '4px',
+                    background: 'rgba(0, 210, 255, 0.16)', color: '#00d2ff', fontWeight: 800,
+                    display: 'inline-flex', alignItems: 'center', gap: '2px', whiteSpace: 'nowrap'
+                  }}
+                >
+                  ⚡ {currentSpecs.chatSpeed} t/s
+                </span>
+              )}
 
-          {/* Campo Ricerca */}
-          <div style={{
-            display: 'flex', alignItems: 'center', gap: '6px',
-            background: 'rgba(0,0,0,0.35)', border: '1px solid var(--border, rgba(255,255,255,0.1))',
-            borderRadius: '8px', padding: '6px 10px',
-          }}>
-            <Search size={13} style={{ color: 'var(--text-dark, #8b949e)', flexShrink: 0 }} />
-            <input
-              autoFocus type="text" value={search} onChange={(e) => onSearch(e.target.value)}
-              placeholder="Cerca per nome, provider o quantizzazione..."
-              style={{ width: '100%', background: 'none', border: 'none', color: 'var(--text, #fff)', fontSize: '0.74rem', outline: 'none' }}
-            />
-          </div>
+              {currentSpecs?.params && (
+                <span style={{ fontSize: '0.56rem', padding: '1px 5px', borderRadius: '4px', background: 'rgba(0, 210, 255, 0.16)', color: '#00d2ff', fontWeight: 800, whiteSpace: 'nowrap' }}>
+                  ⚡ {currentSpecs.params}
+                </span>
+              )}
 
-          {/* Lista Modelli */}
-          <div style={{
-            display: 'flex', flexDirection: 'column', gap: '3px',
-            maxHeight: '220px', overflowY: 'auto',
-          }}>
-            {models.length === 0 ? (
-              <div style={{ fontSize: '0.72rem', color: 'var(--text-dark, #8b949e)', padding: '12px', textAlign: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '8px' }}>
-                <span>{allModels.length === 0 ? 'Caricamento modelli in corso...' : 'Nessun modello corrisponde ai filtri.'}</span>
-                {onRefresh && (
-                  <button type="button" onClick={(e) => { e.stopPropagation(); onRefresh(); }} style={{ ...btn(true), fontSize: '0.66rem', display: 'flex', alignItems: 'center', gap: '4px' }}>
-                    <RefreshCw size={11} /> Aggiorna Catalogo Modelli
-                  </button>
-                )}
-              </div>
-            ) : models.map((m) => (
-              <button
-                type="button" key={m.id} onClick={() => onPick(m.id)}
-                style={{
-                  background: current?.id === m.id ? 'rgba(0,210,255,0.18)' : 'rgba(255,255,255,0.03)',
-                  border: `1px solid ${current?.id === m.id ? ACCENT : 'transparent'}`,
-                  borderRadius: '7px', padding: '7px 10px', cursor: 'pointer',
-                  display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px', textAlign: 'left',
-                }}
-              >
-                <div style={{ display: 'flex', flexDirection: 'column', minWidth: 0 }}>
-                  <span style={{
-                    fontSize: '0.76rem', fontWeight: current?.id === m.id ? 800 : 600,
-                    color: current?.id === m.id ? ACCENT : 'var(--text, #fff)',
-                    overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-                  }}>{m.name}</span>
-                  <span style={{ fontSize: '0.62rem', color: 'var(--text-dark, #8b949e)', fontFamily: 'monospace' }}>
-                    {m.provider_label} {m.parameter_size ? `· ${m.parameter_size}` : ''} {m.quantization ? `· ${m.quantization}` : ''}
-                  </span>
+              {currentSpecs?.toolScore !== null && currentSpecs?.toolScore !== undefined && (
+                <span
+                  title={`Benchmark Tools (Aderenza Protocollo & Tool Use): ${Math.round(currentSpecs.toolScore)}%`}
+                  style={{
+                    fontSize: '0.56rem', padding: '1px 5px', borderRadius: '4px',
+                    background: 'rgba(0, 210, 255, 0.16)', color: '#00d2ff', fontWeight: 800,
+                    display: 'inline-flex', alignItems: 'center', gap: '3px', whiteSpace: 'nowrap'
+                  }}
+                >
+                  <Wrench size={10} color="#00d2ff" />
+                  <span>{Math.round(currentSpecs.toolScore)}%</span>
+                </span>
+              )}
+
+              {currentSpecs?.size && (
+                <span style={{ fontSize: '0.56rem', padding: '1px 5px', borderRadius: '4px', background: 'rgba(255, 184, 108, 0.15)', color: '#ffb86c', fontWeight: 800, whiteSpace: 'nowrap' }}>
+                  💾 {currentSpecs.size}
+                </span>
+              )}
+
+              {current?.badge && (
+                <span style={{ fontSize: '0.55rem', fontWeight: 800, padding: '1px 5px', borderRadius: '4px', background: 'rgba(0,210,255,0.2)', color: ACCENT, flexShrink: 0 }}>
+                  {current.badge}
+                </span>
+              )}
+            </div>
+
+            <span style={{ fontSize: '0.62rem', color: 'var(--text-dark, #8b949e)', fontFamily: 'monospace', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', width: '100%' }}>
+              {current
+                ? [current.provider_label, currentSpecs?.params || current.parameter_size, currentSpecs?.quantization || current.quantization].filter(Boolean).join(' · ')
+                : 'Nessun modello selezionato'}
+            </span>
+          </div>
+          <ChevronDown size={14} style={{ color: ACCENT, flexShrink: 0, transform: open ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s' }} />
+        </button>
+
+        {/* Menu a Tendina Filtrabile Compatto */}
+        {open && (
+          <div className="bench-model-dropdown">
+            {/* Categorie Provider */}
+            <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap' }}>
+              {categories.map((c) => (
+                <button
+                  key={c.id}
+                  type="button"
+                  onClick={() => onCategory(c.id)}
+                  style={{
+                    ...btn(activeCategory === c.id),
+                    fontSize: '0.62rem', padding: '2px 6px',
+                  }}
+                >
+                  {c.label}
+                </button>
+              ))}
+            </div>
+
+            {/* Campo Ricerca */}
+            <div style={{
+              display: 'flex', alignItems: 'center', gap: '6px',
+              background: 'rgba(0,0,0,0.35)', border: '1px solid var(--border, rgba(255,255,255,0.1))',
+              borderRadius: '6px', padding: '4px 8px',
+            }}>
+              <Search size={12} style={{ color: 'var(--text-dark, #8b949e)', flexShrink: 0 }} />
+              <input
+                autoFocus type="text" value={search} onChange={(e) => onSearch(e.target.value)}
+                placeholder="Cerca per nome, provider o quantizzazione..."
+                style={{ width: '100%', background: 'none', border: 'none', color: 'var(--text, #fff)', fontSize: '0.7rem', outline: 'none' }}
+              />
+            </div>
+
+            {/* Lista Modelli Arricchita con Statistiche Identiche alla Chat */}
+            <div style={{
+              display: 'flex', flexDirection: 'column', gap: '4px',
+              maxHeight: '260px', overflowY: 'auto', paddingRight: '2px'
+            }}>
+              {models.length === 0 ? (
+                <div style={{ fontSize: '0.68rem', color: 'var(--text-dark, #8b949e)', padding: '10px', textAlign: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '6px' }}>
+                  <span>{allModels.length === 0 ? 'Caricamento modelli...' : 'Nessun modello trovato.'}</span>
+                  {onRefresh && (
+                    <button type="button" onClick={(e) => { e.stopPropagation(); onRefresh(); }} style={{ ...btn(true), fontSize: '0.62rem', display: 'flex', alignItems: 'center', gap: '4px', padding: '2px 6px' }}>
+                      <RefreshCw size={10} /> Aggiorna Catalogo
+                    </button>
+                  )}
                 </div>
-                {m.badge && (
-                  <span style={{
-                    fontSize: '0.55rem', fontWeight: 800, padding: '2px 6px', borderRadius: '4px',
-                    background: 'rgba(255,255,255,0.08)', color: 'var(--text-dark, #8b949e)', flexShrink: 0,
-                  }}>{m.badge}</span>
-                )}
-              </button>
-            ))}
-          </div>
-        </div>
-      )}
+              ) : models.map((m) => {
+                const isSelected = current?.id === m.id;
+                const itemSpecs = getModelSpecs(m, allModels);
+                const isSig = isSigmanihModel(m);
+                const famKey = detectModelFamily(m);
+                const familyConf = FAMILY_CONFIG[famKey] || FAMILY_CONFIG.altro;
+                const providerKey = m.provider || getProviderForModel(m.name || m.id, {}) || 'sigma_engine';
+                const colors = PROVIDER_COLORS[providerKey] || PROVIDER_COLORS[m.provider_label] || PROVIDER_COLORS.ollama;
 
-      <div style={{ marginTop: 'auto', paddingTop: '6px', fontSize: '0.66rem', color: 'var(--text-dark, #8b949e)' }}>
-        {total} modelli disponibili (Locali GGUF, SigmaEngine, Ollama, Cloud API).
+                // Metriche di Benchmark
+                const bm = m.benchmark_summary || itemSpecs?.benchmark || null;
+                const hasBm = Boolean(bm && (bm.has_benchmarks || bm.score !== undefined || bm.overall_pass_rate !== undefined));
+                const bmScore = hasBm ? (bm.score ?? bm.overall_pass_rate ?? bm.best_score ?? 0) : null;
+                const bmColor = bmScore !== null ? (bmScore >= 75 ? '#10b981' : (bmScore >= 50 ? '#00d2ff' : '#ffb86c')) : '#8b949e';
+
+                // Metriche Tool Benchmark (Wrench)
+                const tScore = m.tool_score ?? bm?.tool_score ?? itemSpecs?.toolScore ?? null;
+                const hasTool = Boolean(tScore !== null && tScore !== undefined);
+                const toolPassed = m.tool_passed ?? bm?.tool_passed ?? itemSpecs?.toolStats?.passed ?? 0;
+                const toolTotal = m.tool_total ?? bm?.tool_total ?? itemSpecs?.toolStats?.total ?? 0;
+                const toolColor = tScore !== null ? (tScore >= 75 ? '#10b981' : (tScore >= 50 ? '#00d2ff' : '#ffb86c')) : '#8b949e';
+
+                // Velocità live tokens/sec
+                const chatTps = getModelChatSpeed(m.name || m.id, m) ?? (m.benchmark_summary?.tokens_per_sec || null);
+                const params = itemSpecs?.params || m.parameter_size;
+                const quant = itemSpecs?.quantization || m.quantization;
+                const size = itemSpecs?.size || (m.size_gb ? `~${m.size_gb.toFixed(1)} GB` : null);
+
+                return (
+                  <button
+                    type="button" key={m.id} onClick={() => onPick(m.id)}
+                    style={{
+                      background: isSelected ? 'rgba(0,210,255,0.18)' : 'rgba(255,255,255,0.03)',
+                      border: `1px solid ${isSelected ? ACCENT : 'rgba(255,255,255,0.06)'}`,
+                      borderRadius: '7px', padding: '6px 8px', cursor: 'pointer',
+                      display: 'flex', flexDirection: 'column', gap: '4px', textAlign: 'left',
+                      transition: 'all 0.15s ease'
+                    }}
+                  >
+                    {/* Riga 1: Dot provider + Sigmanih + Famiglia + Nome + Check */}
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%', gap: '6px' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '5px', minWidth: 0, flex: 1 }}>
+                        <span
+                          style={{
+                            width: '7px', height: '7px', borderRadius: '50%',
+                            backgroundColor: colors.color || '#00d2ff', flexShrink: 0
+                          }}
+                          title={`Provider: ${m.provider_label || m.provider || 'locale'}`}
+                        />
+
+                        {isSig && (
+                          <span
+                            title="Modello Sigmanih Ecosystem"
+                            style={{
+                              fontSize: '0.54rem', fontWeight: 800, padding: '1px 4px', borderRadius: '3px',
+                              background: 'rgba(255, 184, 108, 0.15)', border: '1px solid rgba(255, 184, 108, 0.35)',
+                              color: '#ffb86c', flexShrink: 0
+                            }}
+                          >
+                            Sigmanih
+                          </span>
+                        )}
+
+                        {famKey && famKey !== 'altro' && famKey !== 'sigmanih' && (
+                          <span
+                            title={`Famiglia architetturale: ${familyConf.title}`}
+                            style={{
+                              fontSize: '0.54rem', fontWeight: 800, padding: '1px 4px', borderRadius: '3px',
+                              background: familyConf.bg, border: `1px solid ${familyConf.border}`,
+                              color: familyConf.color, flexShrink: 0
+                            }}
+                          >
+                            {familyConf.title}
+                          </span>
+                        )}
+
+                        <span style={{
+                          fontSize: '0.74rem', fontWeight: isSelected ? 800 : 600,
+                          color: isSelected ? '#00f2fe' : 'var(--text, #fff)',
+                          wordBreak: 'break-word', overflowWrap: 'anywhere',
+                        }}>{m.name}</span>
+                      </div>
+
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '4px', flexShrink: 0 }}>
+                        {m.badge && (
+                          <span style={{
+                            fontSize: '0.50rem', fontWeight: 800, padding: '1px 4px', borderRadius: '3px',
+                            background: 'rgba(255,255,255,0.08)', color: 'var(--text-dark, #8b949e)',
+                          }}>{m.badge}</span>
+                        )}
+                        {isSelected && <Check size={12} color="#00f2fe" />}
+                      </div>
+                    </div>
+
+                    {/* Riga 2: Statistiche e Badges identici alla Chat */}
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '4px', flexWrap: 'wrap', fontSize: '0.60rem' }}>
+                      {/* 🏆 Benchmark Badge */}
+                      <span
+                        title={hasBm
+                          ? `Valutazione Benchmark: ${Math.round(bmScore)}%`
+                          : 'Nessun benchmark registrato per questo modello'
+                        }
+                        style={{
+                          fontSize: '0.56rem', fontWeight: 800, padding: '1px 5px', borderRadius: '3px',
+                          background: hasBm ? `${bmColor}18` : 'rgba(255, 255, 255, 0.04)',
+                          border: hasBm ? `1px solid ${bmColor}40` : '1px solid rgba(255, 255, 255, 0.08)',
+                          color: bmColor,
+                          display: 'inline-flex', alignItems: 'center', gap: '2px'
+                        }}
+                      >
+                        <Trophy size={9} color={bmColor} />
+                        <span>{hasBm ? `${Math.round(bmScore)}%` : '-'}</span>
+                      </span>
+
+                      {/* 🔧 Tool Benchmark Badge */}
+                      <span
+                        title={hasTool
+                          ? `Benchmark Tools: ${Math.round(tScore)}%${toolTotal ? ` (${toolPassed}/${toolTotal})` : ''}`
+                          : 'Nessun benchmark tools registrato'
+                        }
+                        style={{
+                          fontSize: '0.56rem', fontWeight: 800, padding: '1px 5px', borderRadius: '3px',
+                          background: hasTool ? `${toolColor}18` : 'rgba(255, 255, 255, 0.04)',
+                          border: hasTool ? `1px solid ${toolColor}40` : '1px solid rgba(255, 255, 255, 0.08)',
+                          color: toolColor,
+                          display: 'inline-flex', alignItems: 'center', gap: '2px'
+                        }}
+                      >
+                        <Wrench size={9} color={toolColor} />
+                        <span>{hasTool ? `${Math.round(tScore)}%` : '-'}</span>
+                      </span>
+
+                      {/* ⚡ Live Speed t/s Badge */}
+                      <span
+                        title={chatTps !== null
+                          ? `Velocità inferenza registrata: ${chatTps} token/secondo`
+                          : 'Nessuna misurazione live disponibile'
+                        }
+                        style={{
+                          fontSize: '0.56rem', fontWeight: 800, padding: '1px 5px', borderRadius: '3px',
+                          background: chatTps !== null ? 'rgba(0, 210, 255, 0.14)' : 'rgba(255, 255, 255, 0.04)',
+                          border: chatTps !== null ? '1px solid rgba(0, 210, 255, 0.35)' : '1px solid rgba(255, 255, 255, 0.08)',
+                          color: chatTps !== null ? '#00d2ff' : '#8b949e',
+                          display: 'inline-flex', alignItems: 'center', gap: '2px'
+                        }}
+                      >
+                        <Zap size={9} color={chatTps !== null ? '#00d2ff' : '#8b949e'} />
+                        <span>{chatTps !== null ? `${chatTps} t/s` : '-'}</span>
+                      </span>
+
+                      {/* Parametri */}
+                      {params && (
+                        <span style={{
+                          fontSize: '0.56rem', padding: '1px 4px', borderRadius: '3px',
+                          background: 'rgba(0, 210, 255, 0.12)', color: '#00d2ff', fontWeight: 800
+                        }}>
+                          {params}
+                        </span>
+                      )}
+
+                      {/* Quantizzazione */}
+                      {quant && (
+                        <span style={{
+                          fontSize: '0.56rem', padding: '1px 4px', borderRadius: '3px',
+                          background: 'rgba(168, 85, 247, 0.14)', color: '#c084fc',
+                          border: '1px solid rgba(168, 85, 247, 0.3)', fontWeight: 700
+                        }}>
+                          {quant}
+                        </span>
+                      )}
+
+                      {/* Dimensione */}
+                      {size && (
+                        <span style={{
+                          fontSize: '0.56rem', padding: '1px 4px', borderRadius: '3px',
+                          background: 'rgba(255, 184, 108, 0.12)', color: '#ffb86c', fontWeight: 800
+                        }}>
+                          {size}
+                        </span>
+                      )}
+
+                      {/* Provider Badge */}
+                      <span style={{
+                        fontSize: '0.54rem', fontWeight: 700, padding: '1px 4px', borderRadius: '3px',
+                        backgroundColor: colors.bg || 'rgba(255,255,255,0.06)',
+                        color: colors.color || '#fff', marginLeft: 'auto'
+                      }}>
+                        {m.provider === 'sigma_engine' ? 'SIGMA' : (m.provider_label || m.provider || 'locale')}
+                      </span>
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
+      </div>
+
+      <div style={{ marginTop: 'auto', fontSize: '0.62rem', color: 'var(--text-dark, #8b949e)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+        Locali GGUF, SigmaEngine, Ollama & Cloud
       </div>
     </div>
   );
 }
 
 function CoveragePicker({ evalMode, sampleCount, plannedItems, suiteMode, selectedSuitesCount, onMode, onCount }) {
-  const samplePresets = [25, 50, 100, 250, 500, 1000, 2500];
+  const samplePresets = [25, 50, 100, 250, 500, 1000];
 
   return (
-    <div style={{ ...panel, display: 'flex', flexDirection: 'column', gap: '10px' }}>
-      <div style={sectionTitle}><Shield size={14} /> Campioni & Copertura Dataset</div>
+    <div className="bench-config-col">
+      <div className="bench-config-header">
+        <span className="bench-config-title"><Shield size={13} style={{ color: 'var(--success, #3fb950)' }} /> Campioni & Copertura</span>
+        <span className="bench-config-count" style={{ color: evalMode === 'full' ? 'var(--success, #3fb950)' : ACCENT, fontWeight: 700 }}>
+          {fmt(plannedItems)} quesiti
+        </span>
+      </div>
 
       {/* Modalità Copertura */}
-      <div style={{ display: 'flex', gap: '8px' }}>
+      <div style={{ display: 'flex', gap: '6px' }}>
         <button type="button" onClick={() => onMode('sample')} style={{
-          flex: 1, padding: '9px 10px', borderRadius: '8px', cursor: 'pointer',
+          flex: 1, padding: '5px 8px', borderRadius: '6px', cursor: 'pointer',
           border: `1px solid ${evalMode === 'sample' ? ACCENT : 'rgba(255,255,255,0.08)'}`,
           background: evalMode === 'sample' ? 'rgba(0,210,255,0.15)' : 'rgba(0,0,0,0.25)',
           color: evalMode === 'sample' ? ACCENT : 'var(--text-dark, #8b949e)',
-          fontSize: '0.75rem', fontWeight: 700,
-        }}>⚡ Campione Rapido</button>
+          fontSize: '0.7rem', fontWeight: 700,
+        }}>⚡ Campione</button>
         <button type="button" onClick={() => onMode('full')} style={{
-          flex: 1, padding: '9px 10px', borderRadius: '8px', cursor: 'pointer',
+          flex: 1, padding: '5px 8px', borderRadius: '6px', cursor: 'pointer',
           border: `1px solid ${evalMode === 'full' ? 'var(--success, #3fb950)' : 'rgba(255,255,255,0.08)'}`,
           background: evalMode === 'full' ? 'rgba(63,185,80,0.15)' : 'rgba(0,0,0,0.25)',
           color: evalMode === 'full' ? 'var(--success, #3fb950)' : 'var(--text-dark, #8b949e)',
-          fontSize: '0.75rem', fontWeight: 700,
+          fontSize: '0.7rem', fontWeight: 700,
         }}>🏆 100% Integrale</button>
       </div>
 
-      {/* Selettore Quantità Campioni */}
-      {evalMode === 'sample' && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <span style={{ fontSize: '0.7rem', color: 'var(--text-dark, #8b949e)' }}>Preset Campioni:</span>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-              <span style={{ fontSize: '0.72rem', color: 'var(--text-dark, #8b949e)' }}>Personalizzato:</span>
-              <input
-                type="number" min="5" max="50000" step="25"
-                value={sampleCount}
-                onChange={(e) => onCount(Math.max(5, Number(e.target.value)))}
-                style={{
-                  width: '70px', background: 'rgba(0,0,0,0.4)', border: '1px solid var(--border, rgba(255,255,255,0.1))',
-                  borderRadius: '6px', padding: '3px 6px', color: ACCENT, fontWeight: 700, fontSize: '0.74rem', textAlign: 'center', outline: 'none'
-                }}
-              />
-            </div>
+      {/* Selettore Quantità Campioni Compatto */}
+      {evalMode === 'sample' ? (
+        <div style={{ display: 'flex', alignItems: 'center', gap: '4px', flexWrap: 'wrap' }}>
+          {samplePresets.map((cnt) => (
+            <button
+              key={cnt}
+              type="button"
+              onClick={() => onCount(cnt)}
+              style={{
+                padding: '2px 6px', borderRadius: '4px', fontSize: '0.64rem', fontWeight: 700, cursor: 'pointer',
+                border: `1px solid ${sampleCount === cnt ? ACCENT : 'rgba(255,255,255,0.08)'}`,
+                background: sampleCount === cnt ? 'rgba(0,210,255,0.18)' : 'rgba(255,255,255,0.03)',
+                color: sampleCount === cnt ? ACCENT : 'var(--text-dark, #8b949e)',
+              }}
+            >
+              {cnt >= 1000 ? `${cnt / 1000}k` : cnt}
+            </button>
+          ))}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '3px', marginLeft: 'auto' }}>
+            <span style={{ fontSize: '0.58rem', color: 'var(--text-dark, #8b949e)' }}>Custom:</span>
+            <input
+              type="number" min="5" max="50000" step="25"
+              value={sampleCount}
+              onChange={(e) => onCount(Math.max(5, Number(e.target.value)))}
+              style={{
+                width: '52px', background: 'rgba(0,0,0,0.4)', border: '1px solid var(--border, rgba(255,255,255,0.1))',
+                borderRadius: '5px', padding: '2px 4px', color: ACCENT, fontWeight: 700, fontSize: '0.68rem', textAlign: 'center', outline: 'none'
+              }}
+            />
           </div>
-
-          <div style={{ display: 'flex', gap: '5px', flexWrap: 'wrap' }}>
-            {samplePresets.map((cnt) => (
-              <button
-                key={cnt}
-                type="button"
-                onClick={() => onCount(cnt)}
-                style={{
-                  ...btn(sampleCount === cnt),
-                  fontSize: '0.68rem', padding: '4px 8px',
-                }}
-              >
-                {cnt}
-              </button>
-            ))}
-          </div>
+        </div>
+      ) : (
+        <div style={{ fontSize: '0.62rem', color: 'var(--text-dark, #8b949e)', padding: '2px 0' }}>
+          Tutti i quesiti certificati delle suite selezionate.
         </div>
       )}
 
-      <div style={{ marginTop: 'auto', paddingTop: '6px', fontSize: '0.68rem', color: 'var(--text-dark, #8b949e)' }}>
+      <div style={{ marginTop: 'auto', fontSize: '0.6rem', color: 'var(--text-dark, #8b949e)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
         {evalMode === 'full'
-          ? <>Ogni singolo quesito: <b style={{ color: 'var(--text, #fff)' }}>{fmt(plannedItems)} quesiti</b> con certificato SHA-256.</>
-          : <>Campione deterministico (seed 42): <b style={{ color: ACCENT }}>{fmt(plannedItems)} quesiti</b> distribuiti su {suiteMode === 'all' ? 'tutte le 11 suite' : `${selectedSuitesCount} suite selezionate`}.</>}
+          ? `Certificato integrale SHA-256`
+          : `Seed 42 su ${suiteMode === 'all' ? '11 suite' : `${selectedSuitesCount} suite`}`}
+      </div>
+    </div>
+  );
+}
+
+function ThinkingPicker({ thinkingMode, onThinkingMode }) {
+  return (
+    <div className="bench-config-col">
+      <div className="bench-config-header">
+        <span className="bench-config-title"><Zap size={13} style={{ color: '#bc8cff' }} /> Modalità Thinking</span>
+        <span className="bench-config-count" style={{
+          color: thinkingMode === 'thinking' ? '#bc8cff' : thinkingMode === 'no_thinking' ? '#ffb86c' : ACCENT,
+          fontWeight: 700,
+        }}>
+          {thinkingMode === 'auto' ? '🧠 Auto' : thinkingMode === 'thinking' ? '💡 CoT' : '⚡ No-Think'}
+        </span>
+      </div>
+
+      <div style={{ display: 'flex', gap: '5px' }}>
+        <button
+          type="button"
+          onClick={() => onThinkingMode('auto')}
+          style={{
+            flex: 1, padding: '5px 5px', borderRadius: '6px', cursor: 'pointer',
+            border: `1px solid ${thinkingMode === 'auto' ? ACCENT : 'rgba(255,255,255,0.08)'}`,
+            background: thinkingMode === 'auto' ? 'rgba(0,210,255,0.15)' : 'rgba(0,0,0,0.25)',
+            color: thinkingMode === 'auto' ? ACCENT : 'var(--text-dark, #8b949e)',
+            fontSize: '0.68rem', fontWeight: 700,
+          }}
+          title="Auto: CoT su logica/matematica, risposta diretta su conoscenza"
+        >
+          🧠 Auto
+        </button>
+        <button
+          type="button"
+          onClick={() => onThinkingMode('no_thinking')}
+          style={{
+            flex: 1, padding: '5px 5px', borderRadius: '6px', cursor: 'pointer',
+            border: `1px solid ${thinkingMode === 'no_thinking' ? '#ffb86c' : 'rgba(255,255,255,0.08)'}`,
+            background: thinkingMode === 'no_thinking' ? 'rgba(255,184,108,0.15)' : 'rgba(0,0,0,0.25)',
+            color: thinkingMode === 'no_thinking' ? '#ffb86c' : 'var(--text-dark, #8b949e)',
+            fontSize: '0.68rem', fontWeight: 700,
+          }}
+          title="No-Thinking: risposte dirette senza CoT"
+        >
+          ⚡ No-Think
+        </button>
+        <button
+          type="button"
+          onClick={() => onThinkingMode('thinking')}
+          style={{
+            flex: 1, padding: '5px 5px', borderRadius: '6px', cursor: 'pointer',
+            border: `1px solid ${thinkingMode === 'thinking' ? '#bc8cff' : 'rgba(255,255,255,0.08)'}`,
+            background: thinkingMode === 'thinking' ? 'rgba(188,140,255,0.15)' : 'rgba(0,0,0,0.25)',
+            color: thinkingMode === 'thinking' ? '#bc8cff' : 'var(--text-dark, #8b949e)',
+            fontSize: '0.68rem', fontWeight: 700,
+          }}
+          title="Thinking CoT: catena di pensiero estesa ovunque"
+        >
+          💡 CoT
+        </button>
+      </div>
+
+      <div style={{ marginTop: 'auto', fontSize: '0.6rem', color: 'var(--text-dark, #8b949e)', lineHeight: '1.25' }}>
+        {thinkingMode === 'auto' && 'CoT logica/math, diretto conoscenza.'}
+        {thinkingMode === 'no_thinking' && 'Risposta istintiva ad alta velocità.'}
+        {thinkingMode === 'thinking' && 'Forza Chain-of-Thought su tutti i task.'}
       </div>
     </div>
   );
@@ -1475,12 +2218,12 @@ function CoveragePicker({ evalMode, sampleCount, plannedItems, suiteMode, select
 
 function Summary({ label, value, hint }) {
   return (
-    <div>
+    <div style={{ minWidth: 0 }}>
       <div style={{ fontSize: '0.62rem', color: 'var(--text-dark, #8b949e)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>{label}</div>
-      <div style={{ fontSize: '0.88rem', fontWeight: 800, color: 'var(--text, #fff)', maxWidth: '220px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+      <div style={{ fontSize: '0.84rem', fontWeight: 800, color: 'var(--text, #fff)', wordBreak: 'break-word', overflowWrap: 'anywhere', lineHeight: '1.25' }}>
         {value}
       </div>
-      {hint && <div style={{ fontSize: '0.62rem', color: 'var(--text-dark, #8b949e)' }}>{hint}</div>}
+      {hint && <div style={{ fontSize: '0.62rem', color: 'var(--text-dark, #8b949e)', wordBreak: 'break-word', marginTop: '1px' }}>{hint}</div>}
     </div>
   );
 }
@@ -1519,61 +2262,198 @@ function Metric({ label, value, color, hint }) {
   );
 }
 
-function QuestionCard({ result, model, number }) {
+function QuestionRowItem({ result, number, isSelected, onSelect }) {
+  const style = VERDICT_STYLE[result.verdict] || VERDICT_STYLE.fail;
+  const sKey = (result.suite || result.suite_name || '').toLowerCase().replace('-', '_');
+  const qMeta = SUITE_LABELS[sKey];
+  const shortPrompt = (result.prompt || '').replace(/\s+/g, ' ').trim();
+  const verdictClass = result.verdict === 'pass' ? 'verdict-pass' : result.verdict === 'fail' ? 'verdict-fail' : '';
+
+  return (
+    <div
+      onClick={onSelect}
+      className={`bench-test-item-row ${isSelected ? 'selected' : ''} ${verdictClass}`}
+      title={shortPrompt}
+    >
+      <div style={{ display: 'flex', alignItems: 'center', gap: '6px', minWidth: 0, flex: 1 }}>
+        <span style={{
+          fontSize: '0.62rem', fontWeight: 800, padding: '2px 5px', borderRadius: '4px',
+          background: isSelected ? 'rgba(0,210,255,0.25)' : 'rgba(255,255,255,0.06)',
+          color: isSelected ? '#00f2fe' : 'var(--text-dark, #8b949e)',
+          fontFamily: 'monospace', flexShrink: 0,
+        }}>
+          #{number}
+        </span>
+
+        {/* Verdetto Badge Icona */}
+        <span style={{
+          display: 'inline-flex', alignItems: 'center', gap: '3px',
+          fontSize: '0.64rem', fontWeight: 800, color: style.color,
+          padding: '1px 5px', borderRadius: '4px', background: 'rgba(0,0,0,0.3)',
+          border: `1px solid ${style.border}`, flexShrink: 0,
+        }}>
+          <style.Icon size={11} /> {result.verdict === 'pass' ? 'PASS' : result.verdict === 'fail' ? 'FAIL' : style.label}
+        </span>
+
+        {/* Suite Badge */}
+        {result.suite_name && (
+          <span style={{
+            fontSize: '0.6rem', color: '#fff', fontWeight: 700,
+            background: 'rgba(255,255,255,0.06)', padding: '1px 5px', borderRadius: '4px',
+            border: '1px solid rgba(255,255,255,0.08)', flexShrink: 0,
+          }} title={qMeta?.name || result.suite_name}>
+            {result.suite_name}
+          </span>
+        )}
+
+        {/* Prompt su una sola riga */}
+        <span className="row-prompt">
+          {shortPrompt || '(Nessun testo)'}
+        </span>
+      </div>
+
+      {/* Metriche rapide */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.62rem', fontFamily: 'monospace', flexShrink: 0 }}>
+        {result.tokens_per_sec ? (
+          <span style={{ color: ACCENT, fontWeight: 700 }}>{result.tokens_per_sec} t/s</span>
+        ) : null}
+        {result.latency_ms ? (
+          <span style={{ color: '#ffb86c' }}>{fmt(result.latency_ms)}ms</span>
+        ) : null}
+        <ChevronRight size={12} style={{ color: isSelected ? '#00f2fe' : 'rgba(255,255,255,0.2)', transition: 'transform 0.15s' }} />
+      </div>
+    </div>
+  );
+}
+
+function QuestionDetailInspector({ result, model, number, currentIndex, totalInPage, onPrev, onNext }) {
+  if (!result) {
+    return (
+      <div style={{ padding: '30px', textAlign: 'center', color: 'var(--text-dark, #8b949e)', fontSize: '0.8rem' }}>
+        Seleziona un quesito per visualizzare l'ispezione completa.
+      </div>
+    );
+  }
+  const [showThinking, setShowThinking] = useState(false);
   const style = VERDICT_STYLE[result.verdict] || VERDICT_STYLE.fail;
   const parsed = result.parsed || {};
   const correct = (result.correct_choice || '').trim().toUpperCase();
   const chosen = parsed.status === 'resolved' ? (parsed.value || '').toUpperCase() : null;
   const candidates = (parsed.candidates || []).map((c) => String(c).toUpperCase());
-  const compact = result.verdict === 'pass';
+
+  // Rilevamento ed estrazione del ragionamento CoT
+  const rawAnswer = result.given_answer || result.error || '';
+  let thinkingText = result.thinking || result.reasoning || null;
+  let cleanAnswer = rawAnswer;
+  if (!thinkingText && typeof rawAnswer === 'string') {
+    const thinkMatch = rawAnswer.match(/<think>([\s\S]*?)<\/think>/i);
+    if (thinkMatch) {
+      thinkingText = thinkMatch[1].trim();
+      cleanAnswer = rawAnswer.replace(/<think>[\s\S]*?<\/think>/i, '').trim();
+    }
+  }
 
   return (
-    <div style={{
-      background: style.bg, border: `1px solid ${style.border}`, borderRadius: '10px',
-      padding: compact ? '9px 12px' : '13px 15px', display: 'flex', flexDirection: 'column',
-      gap: compact ? '6px' : '10px',
-    }}>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px', flexWrap: 'wrap' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '7px', flexWrap: 'wrap' }}>
-          <span style={{ color: style.color, display: 'flex', alignItems: 'center', gap: '4px', fontWeight: 800, fontSize: '0.72rem' }}>
-            <style.Icon size={14} /> {style.label}
-          </span>
-          <span style={{ fontSize: '0.6rem', fontWeight: 700, padding: '1px 6px', borderRadius: '4px', background: 'rgba(0,210,255,0.15)', color: ACCENT }}>
+    <div className="bench-test-detail-col">
+      {/* Barra di Navigazione Rapida Superiore */}
+      <div style={{
+        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+        padding: '8px 12px', background: 'rgba(0,0,0,0.35)', borderRadius: '8px',
+        border: '1px solid rgba(255,255,255,0.08)', flexWrap: 'wrap', gap: '8px',
+      }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+          <span style={{
+            fontSize: '0.74rem', fontWeight: 900, color: '#fff',
+            background: 'rgba(0,210,255,0.18)', border: '1px solid rgba(0,210,255,0.4)',
+            padding: '2px 8px', borderRadius: '5px',
+          }}>
             #{number}
           </span>
+          <span style={{
+            color: style.color, display: 'flex', alignItems: 'center', gap: '4px',
+            fontWeight: 800, fontSize: '0.74rem', background: 'rgba(0,0,0,0.3)',
+            padding: '2px 8px', borderRadius: '5px', border: `1px solid ${style.border}`,
+          }}>
+            <style.Icon size={14} /> {style.label}
+          </span>
           {result.suite_name && (
-            <span style={{ fontSize: '0.64rem', color: 'var(--text-dark, #8b949e)', fontWeight: 600 }}>{result.suite_name}</span>
+            <span style={{
+              fontSize: '0.68rem', color: '#fff', fontWeight: 700,
+              background: 'rgba(255,255,255,0.06)', padding: '2px 7px', borderRadius: '5px',
+              border: '1px solid rgba(255,255,255,0.1)',
+            }}>
+              {result.suite_name}
+            </span>
           )}
           {result.category && (
-            <span style={{ fontSize: '0.64rem', color: 'var(--text-dark, #8b949e)' }}>· {result.category}</span>
+            <span style={{ fontSize: '0.66rem', color: 'var(--text-dark, #8b949e)' }}>
+              {result.category}
+            </span>
           )}
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontFamily: 'monospace', fontSize: '0.64rem' }}>
-          {result.endpoint && (
-            <span style={{ color: 'var(--text-dark, #8b949e)' }}>{result.endpoint}</span>
-          )}
-          <span style={{ color: ACCENT }}>⚡ {result.tokens_per_sec} tok/s</span>
-          <span style={{ color: '#ffb86c' }}>⏱️ {fmt(result.latency_ms)} ms</span>
-          {/* Una generazione troncata da una scadenza non e' una risposta
-              sbagliata del modello: e' una misura che non e' stata completata,
-              e va letta come tale accanto al verdetto. */}
-          {result.finish_reason === 'timeout' && (
-            <span title={result.warning || 'Generazione interrotta dalla scadenza'}
-              style={{ color: '#ff7b72', fontWeight: 700 }}>⏳ scaduta</span>
-          )}
-          {result.finish_reason === 'length' && (
-            <span title="Il budget di token e' finito prima della risposta"
-              style={{ color: '#ffb86c', fontWeight: 700 }}>✂️ troncata</span>
-          )}
+
+        {/* Tasti Navigazione Prec / Succ */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+          <span style={{ fontSize: '0.68rem', color: 'var(--text-dark, #8b949e)', marginRight: '4px' }}>
+            {currentIndex + 1} di {totalInPage}
+          </span>
+          <button
+            type="button"
+            disabled={currentIndex <= 0}
+            onClick={onPrev}
+            style={{
+              background: currentIndex <= 0 ? 'rgba(255,255,255,0.02)' : 'rgba(255,255,255,0.08)',
+              border: '1px solid rgba(255,255,255,0.15)',
+              color: currentIndex <= 0 ? 'rgba(255,255,255,0.2)' : '#fff',
+              borderRadius: '5px', padding: '3px 8px', fontSize: '0.68rem',
+              cursor: currentIndex <= 0 ? 'not-allowed' : 'pointer',
+              display: 'inline-flex', alignItems: 'center', gap: '3px',
+            }}
+          >
+            <ChevronLeft size={12} /> Prec
+          </button>
+          <button
+            type="button"
+            disabled={currentIndex >= totalInPage - 1}
+            onClick={onNext}
+            style={{
+              background: currentIndex >= totalInPage - 1 ? 'rgba(255,255,255,0.02)' : 'rgba(0,210,255,0.15)',
+              border: `1px solid ${currentIndex >= totalInPage - 1 ? 'rgba(255,255,255,0.15)' : 'rgba(0,210,255,0.4)'}`,
+              color: currentIndex >= totalInPage - 1 ? 'rgba(255,255,255,0.2)' : '#00f2fe',
+              borderRadius: '5px', padding: '3px 8px', fontSize: '0.68rem',
+              cursor: currentIndex >= totalInPage - 1 ? 'not-allowed' : 'pointer',
+              display: 'inline-flex', alignItems: 'center', gap: '3px',
+            }}
+          >
+            Succ <ChevronRight size={12} />
+          </button>
         </div>
       </div>
 
-      <div style={{ fontSize: '0.78rem', fontWeight: 600, color: 'var(--text, #fff)', lineHeight: 1.4, whiteSpace: 'pre-wrap' }}>
+      {/* Metriche sintetiche di esecuzione */}
+      <div style={{
+        display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap',
+        fontSize: '0.68rem', fontFamily: 'monospace', padding: '4px 2px',
+      }}>
+        {result.endpoint && <span style={{ color: 'var(--text-dark, #8b949e)' }}>{result.endpoint}</span>}
+        <span style={{ color: ACCENT, fontWeight: 700 }}>⚡ {result.tokens_per_sec || 0} tok/s</span>
+        <span style={{ color: '#ffb86c', fontWeight: 700 }}>⏱️ {fmt(result.latency_ms)} ms</span>
+        {result.finish_reason === 'timeout' && (
+          <span style={{ color: '#ff7b72', background: 'rgba(255,123,114,0.15)', padding: '1px 6px', borderRadius: '4px' }}>⏳ Scaduta</span>
+        )}
+        {result.finish_reason === 'length' && (
+          <span style={{ color: '#ffb86c', background: 'rgba(255,184,108,0.15)', padding: '1px 6px', borderRadius: '4px' }}>✂️ Troncata</span>
+        )}
+      </div>
+
+      {/* Prompt Integrale del Quesito */}
+      <div className="bench-question-prompt" style={{ maxHeight: '180px', overflowY: 'auto' }}>
         {result.prompt}
       </div>
 
+      {/* Opzioni Multiple se applicabili */}
       {result.options?.length > 0 && (
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(210px, 1fr))', gap: '5px' }}>
+        <div className="bench-options-grid" style={{ maxHeight: '200px', overflowY: 'auto' }}>
           {result.options.map((opt, i) => {
             const match = opt.match(/^\s*\(?([A-Za-z0-9])[)\].:]/);
             const letter = (match ? match[1] : String.fromCharCode(65 + i)).toUpperCase();
@@ -1587,29 +2467,43 @@ function QuestionCard({ result, model, number }) {
             let badge = null;
 
             if (isCorrect) {
-              bg = 'rgba(63,185,80,0.14)'; border = 'rgba(63,185,80,0.5)'; color = 'var(--success, #3fb950)';
-              badge = <Badge color="var(--success, #3fb950)"><Check size={8} /> CORRETTA</Badge>;
+              bg = 'rgba(63,185,80,0.14)';
+              border = 'rgba(63,185,80,0.55)';
+              color = '#3fb950';
+              badge = <span style={{ fontSize: '0.62rem', color: '#3fb950', fontWeight: 800 }}>✓ CORRETTA</span>;
             }
             if (isCandidate) {
-              bg = 'rgba(255,184,108,0.12)'; border = 'rgba(255,184,108,0.45)'; color = '#ffb86c';
-              badge = <Badge color="#ffb86c">🤖 CANDIDATA</Badge>;
+              bg = 'rgba(255,184,108,0.12)';
+              border = 'rgba(255,184,108,0.45)';
+              color = '#ffb86c';
+              badge = <span style={{ fontSize: '0.62rem', color: '#ffb86c', fontWeight: 800 }}>🤖 CANDIDATA</span>;
             }
             if (isChosen) {
               const ok = result.verdict === 'pass';
-              bg = ok ? 'rgba(63,185,80,0.22)' : 'rgba(255,85,85,0.15)';
-              border = ok ? '#3fb950' : 'rgba(255,85,85,0.6)';
+              bg = ok ? 'rgba(63,185,80,0.22)' : 'rgba(255,85,85,0.18)';
+              border = ok ? '#3fb950' : 'rgba(255,85,85,0.7)';
               color = ok ? '#3fb950' : '#ff5555';
-              badge = <Badge color={color}>🤖 SCELTA {ok ? '(GIUSTA)' : '(ERRATA)'}</Badge>;
+              badge = <span style={{ fontSize: '0.62rem', color, fontWeight: 800 }}>🤖 SCELTA {ok ? '(GIUSTA)' : '(ERRATA)'}</span>;
             }
 
             return (
-              <div key={i} style={{
-                background: bg, border: `1px solid ${border}`, borderRadius: '5px',
-                padding: '5px 9px', fontSize: '0.72rem', color,
+              <div key={i} className="bench-opt-row" style={{
+                background: bg,
+                border: `1px solid ${border}`,
+                color,
                 fontWeight: (isCorrect || isChosen || isCandidate) ? 700 : 500,
-                display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '6px',
               }}>
-                <span>{opt}</span>
+                <div style={{ display: 'flex', alignItems: 'flex-start', gap: '8px' }}>
+                  <span style={{
+                    width: '18px', height: '18px', borderRadius: '50%',
+                    background: (isCorrect || isChosen) ? 'rgba(255,255,255,0.12)' : 'rgba(255,255,255,0.05)',
+                    border: `1px solid ${border}`, display: 'inline-flex', alignItems: 'center',
+                    justifyContent: 'center', fontSize: '0.64rem', fontWeight: 800, flexShrink: 0,
+                  }}>
+                    {letter}
+                  </span>
+                  <span>{opt}</span>
+                </div>
                 {badge}
               </div>
             );
@@ -1617,43 +2511,410 @@ function QuestionCard({ result, model, number }) {
         </div>
       )}
 
+      {/* Risultato Sandbox Unit Test (HumanEval / MBPP) */}
       {result.execution && (
         <div style={{
-          background: 'rgba(10,12,26,0.8)', border: '1px solid var(--border, rgba(255,255,255,0.08))', borderRadius: '6px',
-          padding: '6px 10px', fontSize: '0.69rem', color: 'var(--text-dark, #8b949e)',
-          display: 'flex', alignItems: 'center', gap: '6px', fontFamily: 'monospace',
+          background: 'rgba(6, 8, 18, 0.95)',
+          border: '1px solid rgba(0, 210, 255, 0.3)',
+          borderRadius: '8px',
+          overflow: 'hidden',
         }}>
-          <Terminal size={11} style={{ color: style.color, flexShrink: 0 }} />
-          <b style={{ color: style.color }}>{result.execution.status}</b>
-          <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-            {result.execution.detail}
-          </span>
+          <div style={{
+            display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+            background: 'rgba(0,0,0,0.4)', padding: '5px 10px', borderBottom: '1px solid rgba(255,255,255,0.06)',
+          }}>
+            <span style={{ fontSize: '0.64rem', color: 'var(--text-dark, #8b949e)', fontFamily: 'monospace' }}>
+              Sandbox Esecuzione Unit Test
+            </span>
+            <span style={{
+              fontSize: '0.62rem', fontWeight: 800, color: result.execution.status === 'passed' ? 'var(--success, #3fb950)' : '#ff5555',
+              background: result.execution.status === 'passed' ? 'rgba(63,185,80,0.15)' : 'rgba(255,85,85,0.15)',
+              padding: '1px 6px', borderRadius: '4px', textTransform: 'uppercase',
+            }}>
+              {result.execution.status}
+            </span>
+          </div>
+          {result.execution.detail && (
+            <div style={{
+              padding: '8px 10px', fontSize: '0.7rem', color: '#e6edf3',
+              fontFamily: 'monospace', whiteSpace: 'pre-wrap', maxHeight: '130px', overflowY: 'auto',
+            }}>
+              {result.execution.detail}
+            </div>
+          )}
         </div>
       )}
 
+      {/* Sezione Risposta Generata */}
       <div style={{
-        background: 'rgba(10,12,26,0.7)', padding: compact ? '6px 10px' : '9px 13px',
-        borderRadius: '7px', border: `1px solid ${style.border}`,
-        maxHeight: compact ? '90px' : '320px', overflowY: 'auto',
+        background: 'rgba(10,12,26,0.75)',
+        padding: '10px 12px',
+        borderRadius: '8px',
+        border: `1px solid ${style.border}`,
+        display: 'flex',
+        flexDirection: 'column',
+        gap: '8px',
       }}>
-        <div style={{ fontSize: '0.58rem', fontWeight: 800, color: style.color, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '3px', display: 'flex', alignItems: 'center', gap: '4px' }}>
-          <Cpu size={10} /> Risposta generata da {model}
-        </div>
-        <div style={{ fontSize: '0.74rem', color: 'var(--text, #fff)', fontFamily: 'monospace', whiteSpace: 'pre-wrap', lineHeight: 1.35 }}>
-          {result.given_answer || result.error || '(nessuna risposta generata)'}
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '10px' }}>
+          <div style={{
+            fontSize: '0.64rem', fontWeight: 800, color: style.color,
+            textTransform: 'uppercase', letterSpacing: '0.05em',
+            display: 'flex', alignItems: 'center', gap: '5px',
+          }}>
+            <Cpu size={12} /> Risposta Generata da {model}
+          </div>
+
+          {thinkingText && (
+            <button
+              type="button"
+              onClick={() => setShowThinking(!showThinking)}
+              style={{
+                background: 'rgba(188,140,255,0.12)',
+                border: '1px solid rgba(188,140,255,0.3)',
+                color: '#bc8cff',
+                fontSize: '0.62rem',
+                fontWeight: 700,
+                padding: '2px 7px',
+                borderRadius: '4px',
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '4px',
+              }}
+            >
+              <Zap size={10} />
+              {showThinking ? 'Nascondi CoT' : `Mostra CoT (${thinkingText.length} car.)`}
+              <ChevronDown size={10} style={{ transform: showThinking ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s' }} />
+            </button>
+          )}
         </div>
 
+        {/* Box Thinking Collassabile */}
+        {showThinking && thinkingText && (
+          <div className="bench-thinking-box" style={{ maxHeight: '160px', overflowY: 'auto' }}>
+            <div style={{ fontSize: '0.62rem', fontWeight: 800, color: '#bc8cff', marginBottom: '4px', textTransform: 'uppercase' }}>
+              🧠 Catena di Pensiero (Chain of Thought):
+            </div>
+            <div style={{ fontFamily: 'monospace', whiteSpace: 'pre-wrap', lineHeight: 1.4 }}>
+              {thinkingText}
+            </div>
+          </div>
+        )}
+
+        {/* Risposta Pulita Finale */}
+        <div style={{
+          fontSize: '0.74rem', color: 'var(--text, #fff)',
+          fontFamily: 'monospace', whiteSpace: 'pre-wrap', lineHeight: 1.4,
+          maxHeight: '180px', overflowY: 'auto',
+        }}>
+          {cleanAnswer || '(Nessuna risposta testuale prodotta)'}
+        </div>
+
+        {/* Risposta Attesa di Riferimento */}
         {!result.options?.length && result.correct_answer && (
           <div style={{
-            marginTop: '7px', paddingTop: '6px',
+            marginTop: '4px', paddingTop: '6px',
             borderTop: '1px dashed rgba(255,255,255,0.12)',
           }}>
             <div style={{
-              fontSize: '0.58rem', fontWeight: 800, color: 'var(--success, #3fb950)',
-              textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '3px',
-              display: 'flex', alignItems: 'center', gap: '4px',
+              fontSize: '0.62rem', fontWeight: 800, color: 'var(--success, #3fb950)',
+              textTransform: 'uppercase', marginBottom: '2px',
             }}>
-              <Check size={10} /> Risposta attesa
+              ✓ Risposta Attesa Ufficiale:
+            </div>
+            <div style={{ fontSize: '0.74rem', color: '#a8f0b0', fontFamily: 'monospace', whiteSpace: 'pre-wrap' }}>
+              {result.correct_answer}
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function QuestionCard({ result, model, number }) {
+  const [showThinking, setShowThinking] = useState(false);
+  const style = VERDICT_STYLE[result.verdict] || VERDICT_STYLE.fail;
+  const parsed = result.parsed || {};
+  const correct = (result.correct_choice || '').trim().toUpperCase();
+  const chosen = parsed.status === 'resolved' ? (parsed.value || '').toUpperCase() : null;
+  const candidates = (parsed.candidates || []).map((c) => String(c).toUpperCase());
+
+  // Rilevamento ed estrazione del ragionamento CoT
+  const rawAnswer = result.given_answer || result.error || '';
+  let thinkingText = result.thinking || result.reasoning || null;
+  let cleanAnswer = rawAnswer;
+  if (!thinkingText && typeof rawAnswer === 'string') {
+    const thinkMatch = rawAnswer.match(/<think>([\s\S]*?)<\/think>/i);
+    if (thinkMatch) {
+      thinkingText = thinkMatch[1].trim();
+      cleanAnswer = rawAnswer.replace(/<think>[\s\S]*?<\/think>/i, '').trim();
+    }
+  }
+
+  const sKey = (result.suite || result.suite_name || '').toLowerCase().replace('-', '_');
+  const qMeta = SUITE_LABELS[sKey];
+
+  return (
+    <div className="bench-question-card" style={{
+      background: style.bg,
+      border: `1px solid ${style.border}`,
+      boxShadow: result.verdict === 'pass' ? '0 2px 14px rgba(63,185,80,0.08)' : '0 2px 14px rgba(255,85,85,0.08)',
+    }}>
+      {/* Testata Quesito: Verdetto, Numero, Suite, Metriche */}
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '10px', flexWrap: 'wrap' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+          <span style={{
+            color: style.color, display: 'flex', alignItems: 'center', gap: '5px',
+            fontWeight: 800, fontSize: '0.76rem', background: 'rgba(0,0,0,0.3)',
+            padding: '3px 8px', borderRadius: '6px', border: `1px solid ${style.border}`,
+          }}>
+            <style.Icon size={15} /> {style.label}
+          </span>
+          <span style={{
+            fontSize: '0.64rem', fontWeight: 800, padding: '3px 8px', borderRadius: '6px',
+            background: 'rgba(0,210,255,0.15)', color: ACCENT, border: '1px solid rgba(0,210,255,0.3)',
+          }}>
+            #{number}
+          </span>
+          {result.suite_name && (
+            <span
+              style={{
+                fontSize: '0.7rem', color: '#fff', fontWeight: 700,
+                background: 'rgba(255,255,255,0.06)', padding: '2px 8px', borderRadius: '6px',
+                border: '1px solid rgba(255,255,255,0.08)', cursor: 'help',
+              }}
+              title={qMeta ? `${qMeta.name} (${qMeta.category}):\n${qMeta.description}` : result.suite_name}
+            >
+              {result.suite_name}
+            </span>
+          )}
+          {result.category && (
+            <span style={{ fontSize: '0.68rem', color: 'var(--text-dark, #8b949e)', fontWeight: 500 }}>
+              {result.category}
+            </span>
+          )}
+          {result.thinking_mode === 'thinking' || result.is_thinking || thinkingText ? (
+            <span style={{
+              fontSize: '0.62rem', fontWeight: 700, padding: '2px 7px', borderRadius: '6px',
+              background: 'rgba(188,140,255,0.18)', color: '#bc8cff', border: '1px solid rgba(188,140,255,0.3)',
+            }} title="Valutato con Chain-of-Thought (CoT)">
+              💡 CoT
+            </span>
+          ) : result.thinking_mode === 'no_thinking' ? (
+            <span style={{
+              fontSize: '0.62rem', fontWeight: 700, padding: '2px 7px', borderRadius: '6px',
+              background: 'rgba(255,184,108,0.15)', color: '#ffb86c', border: '1px solid rgba(255,184,108,0.25)',
+            }} title="Valutato a risposta diretta senza CoT">
+              ⚡ No-Think
+            </span>
+          ) : null}
+        </div>
+
+        {/* Metriche di Esecuzione */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', fontFamily: 'monospace', fontSize: '0.68rem' }}>
+          {result.endpoint && (
+            <span style={{ color: 'var(--text-dark, #8b949e)', opacity: 0.8 }}>{result.endpoint}</span>
+          )}
+          <span style={{ color: ACCENT, fontWeight: 700 }}>⚡ {result.tokens_per_sec || 0} tok/s</span>
+          <span style={{ color: '#ffb86c', fontWeight: 700 }}>⏱️ {fmt(result.latency_ms)} ms</span>
+          {result.finish_reason === 'timeout' && (
+            <span title={result.warning || 'Generazione interrotta dalla scadenza'}
+              style={{ color: '#ff7b72', fontWeight: 800, background: 'rgba(255,123,114,0.15)', padding: '2px 6px', borderRadius: '4px' }}>
+              ⏳ Scaduta
+            </span>
+          )}
+          {result.finish_reason === 'length' && (
+            <span title="Il budget di token è finito prima della risposta"
+              style={{ color: '#ffb86c', fontWeight: 800, background: 'rgba(255,184,108,0.15)', padding: '2px 6px', borderRadius: '4px' }}>
+              ✂️ Troncata
+            </span>
+          )}
+        </div>
+      </div>
+
+      {/* Testo del Quesito / Prompt */}
+      <div className="bench-question-prompt">
+        {result.prompt}
+      </div>
+
+      {/* Griglia Scelte Multiple (se applicabile) */}
+      {result.options?.length > 0 && (
+        <div className="bench-options-grid">
+          {result.options.map((opt, i) => {
+            const match = opt.match(/^\s*\(?([A-Za-z0-9])[)\].:]/);
+            const letter = (match ? match[1] : String.fromCharCode(65 + i)).toUpperCase();
+            const isCorrect = letter === correct;
+            const isChosen = chosen === letter;
+            const isCandidate = !isChosen && candidates.includes(letter);
+
+            let bg = 'rgba(10,12,26,0.6)';
+            let border = 'rgba(255,255,255,0.08)';
+            let color = 'var(--text-dark, #8b949e)';
+            let badge = null;
+
+            if (isCorrect) {
+              bg = 'rgba(63,185,80,0.14)';
+              border = 'rgba(63,185,80,0.55)';
+              color = '#3fb950';
+              badge = <Badge color="#3fb950"><Check size={9} /> CORRETTA</Badge>;
+            }
+            if (isCandidate) {
+              bg = 'rgba(255,184,108,0.12)';
+              border = 'rgba(255,184,108,0.45)';
+              color = '#ffb86c';
+              badge = <Badge color="#ffb86c">🤖 CANDIDATA</Badge>;
+            }
+            if (isChosen) {
+              const ok = result.verdict === 'pass';
+              bg = ok ? 'rgba(63,185,80,0.22)' : 'rgba(255,85,85,0.18)';
+              border = ok ? '#3fb950' : 'rgba(255,85,85,0.7)';
+              color = ok ? '#3fb950' : '#ff5555';
+              badge = <Badge color={color}>🤖 SCELTA {ok ? '(GIUSTA)' : '(ERRATA)'}</Badge>;
+            }
+
+            return (
+              <div key={i} className="bench-opt-row" style={{
+                background: bg,
+                border: `1px solid ${border}`,
+                color,
+                fontWeight: (isCorrect || isChosen || isCandidate) ? 700 : 500,
+              }}>
+                <div style={{ display: 'flex', alignItems: 'flex-start', gap: '8px' }}>
+                  <span style={{
+                    width: '20px', height: '20px', borderRadius: '50%',
+                    background: (isCorrect || isChosen) ? 'rgba(255,255,255,0.12)' : 'rgba(255,255,255,0.05)',
+                    border: `1px solid ${border}`, display: 'inline-flex', alignItems: 'center',
+                    justifyContent: 'center', fontSize: '0.68rem', fontWeight: 800, flexShrink: 0,
+                  }}>
+                    {letter}
+                  </span>
+                  <span>{opt}</span>
+                </div>
+                {badge}
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {/* Risultato Esecuzione Codice Sandbox (HumanEval / MBPP) */}
+      {result.execution && (
+        <div style={{
+          background: 'rgba(6, 8, 18, 0.95)',
+          border: '1px solid rgba(0, 210, 255, 0.3)',
+          borderRadius: '8px',
+          overflow: 'hidden',
+        }}>
+          <div style={{
+            display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+            background: 'rgba(0,0,0,0.4)', padding: '6px 12px', borderBottom: '1px solid rgba(255,255,255,0.06)',
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#ff5f56' }} />
+              <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#ffbd2e' }} />
+              <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#27c93f' }} />
+              <span style={{ fontSize: '0.66rem', color: 'var(--text-dark, #8b949e)', fontFamily: 'monospace', marginLeft: '6px' }}>
+                Sandbox Esecuzione Unit Test
+              </span>
+            </div>
+            <span style={{
+              fontSize: '0.66rem', fontWeight: 800, color: result.execution.status === 'passed' ? 'var(--success, #3fb950)' : '#ff5555',
+              background: result.execution.status === 'passed' ? 'rgba(63,185,80,0.15)' : 'rgba(255,85,85,0.15)',
+              padding: '2px 8px', borderRadius: '4px', textTransform: 'uppercase',
+            }}>
+              {result.execution.status}
+            </span>
+          </div>
+          {result.execution.detail && (
+            <div style={{
+              padding: '8px 12px', fontSize: '0.72rem', color: '#e6edf3',
+              fontFamily: 'monospace', whiteSpace: 'pre-wrap', maxHeight: '180px', overflowY: 'auto',
+            }}>
+              {result.execution.detail}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Sezione Risposta Generata */}
+      <div style={{
+        background: 'rgba(10,12,26,0.75)',
+        padding: '10px 14px',
+        borderRadius: '8px',
+        border: `1px solid ${style.border}`,
+        display: 'flex',
+        flexDirection: 'column',
+        gap: '8px',
+      }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '10px' }}>
+          <div style={{
+            fontSize: '0.64rem', fontWeight: 800, color: style.color,
+            textTransform: 'uppercase', letterSpacing: '0.05em',
+            display: 'flex', alignItems: 'center', gap: '5px',
+          }}>
+            <Cpu size={12} /> Risposta Generata da {model}
+          </div>
+
+          {/* Toggle Thinking CoT se presente */}
+          {thinkingText && (
+            <button
+              type="button"
+              onClick={() => setShowThinking(!showThinking)}
+              style={{
+                background: 'rgba(188,140,255,0.12)',
+                border: '1px solid rgba(188,140,255,0.3)',
+                color: '#bc8cff',
+                fontSize: '0.64rem',
+                fontWeight: 700,
+                padding: '2px 8px',
+                borderRadius: '5px',
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '4px',
+              }}
+            >
+              <Zap size={11} />
+              {showThinking ? 'Nascondi Ragionamento CoT' : `Mostra CoT (${thinkingText.length} car.)`}
+              <ChevronDown size={11} style={{ transform: showThinking ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s' }} />
+            </button>
+          )}
+        </div>
+
+        {/* Box Thinking Collassabile */}
+        {showThinking && thinkingText && (
+          <div className="bench-thinking-box" style={{ maxHeight: '240px', overflowY: 'auto' }}>
+            <div style={{ fontSize: '0.62rem', fontWeight: 800, color: '#bc8cff', marginBottom: '4px', textTransform: 'uppercase' }}>
+              🧠 Catena di Pensiero (Chain of Thought):
+            </div>
+            <div style={{ fontFamily: 'monospace', whiteSpace: 'pre-wrap', lineHeight: 1.4 }}>
+              {thinkingText}
+            </div>
+          </div>
+        )}
+
+        {/* Risposta Pulita Finale */}
+        <div style={{
+          fontSize: '0.78rem', color: 'var(--text, #fff)',
+          fontFamily: 'monospace', whiteSpace: 'pre-wrap', lineHeight: 1.4,
+          maxHeight: '340px', overflowY: 'auto',
+        }}>
+          {cleanAnswer || '(Nessuna risposta testuale prodotta)'}
+        </div>
+
+        {/* Risposta Attesa di Riferimento */}
+        {!result.options?.length && result.correct_answer && (
+          <div style={{
+            marginTop: '4px', paddingTop: '8px',
+            borderTop: '1px dashed rgba(255,255,255,0.12)',
+          }}>
+            <div style={{
+              fontSize: '0.62rem', fontWeight: 800, color: 'var(--success, #3fb950)',
+              textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '3px',
+              display: 'flex', alignItems: 'center', gap: '5px',
+            }}>
+              <Check size={11} /> Risposta Attesa dal Benchmark
               {result.correct_choice && (
                 <span style={{ textTransform: 'none', color: 'var(--text-dark, #8b949e)', fontWeight: 600 }}>
                   — target: <b style={{ color: 'var(--success, #3fb950)' }}>{result.correct_choice}</b>
@@ -1661,7 +2922,7 @@ function QuestionCard({ result, model, number }) {
               )}
             </div>
             <div style={{
-              fontSize: '0.73rem', color: 'var(--text-dark, #8b949e)', fontFamily: 'monospace',
+              fontSize: '0.75rem', color: 'var(--text-dark, #8b949e)', fontFamily: 'monospace',
               whiteSpace: 'pre-wrap', lineHeight: 1.35,
             }}>
               {String(result.correct_answer)}
@@ -1685,7 +2946,7 @@ function Badge({ color, children }) {
   );
 }
 
-function ExtendBenchmarkModal({ open, activeJob, extendSamples, extendSuite, extendMode, extending, onSamples, onSuite, onMode, onClose, onConfirm }) {
+function ExtendBenchmarkModal({ open, activeJob, extendSamples, extendSuite, extendMode, extendThinkingMode, extending, onSamples, onSuite, onMode, onThinkingMode, onClose, onConfirm }) {
   if (!open || !activeJob) return null;
 
   const currentTotal = activeJob.metrics?.tests_total || activeJob.reproducibility?.dataset_items_processed || 0;
@@ -1738,8 +2999,18 @@ function ExtendBenchmarkModal({ open, activeJob, extendSamples, extendSuite, ext
         }}>
           <div>
             <div style={{ fontSize: '0.64rem', color: '#8b949e', textTransform: 'uppercase' }}>Modello & Stato Attuale</div>
-            <div style={{ fontSize: '0.86rem', fontWeight: 800, color: '#fff', marginTop: '2px' }}>{activeJob.model}</div>
-            <div style={{ fontSize: '0.68rem', color: '#00f2fe', marginTop: '2px' }}>{activeJob.suite_name || activeJob.suite}</div>
+            <div style={{ fontSize: '0.86rem', fontWeight: 800, color: '#fff', marginTop: '2px' }}>{formatModelDisplay(activeJob.model)}</div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginTop: '3px' }}>
+              <span style={{ fontSize: '0.68rem', color: '#00f2fe' }}>{activeJob.suite_name || activeJob.suite}</span>
+              <span style={{
+                fontSize: '0.6rem', padding: '1px 6px', borderRadius: '4px',
+                background: activeJob.thinking_mode === 'no_thinking' ? 'rgba(255,184,108,0.15)' : activeJob.thinking_mode === 'thinking' ? 'rgba(188,140,255,0.15)' : activeJob.thinking_mode === 'mixed' ? 'rgba(0,210,255,0.2)' : 'rgba(0,210,255,0.12)',
+                color: activeJob.thinking_mode === 'no_thinking' ? '#ffb86c' : activeJob.thinking_mode === 'thinking' ? '#bc8cff' : activeJob.thinking_mode === 'mixed' ? '#00f2fe' : ACCENT,
+                fontWeight: 700,
+              }}>
+                {activeJob.thinking_mode === 'no_thinking' ? '⚡ No-Think' : activeJob.thinking_mode === 'thinking' ? '💡 CoT' : activeJob.thinking_mode === 'mixed' ? '🔀 Ibrido' : '🧠 Auto'}
+              </span>
+            </div>
           </div>
           <div style={{ textAlign: 'right' }}>
             <div style={{ fontSize: '0.64rem', color: '#8b949e', textTransform: 'uppercase' }}>Completati</div>
@@ -1779,6 +3050,59 @@ function ExtendBenchmarkModal({ open, activeJob, extendSamples, extendSuite, ext
           </div>
         </div>
 
+        {/* Scelta Modalità Thinking & Ragionamento */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+          <label style={{ fontSize: '0.72rem', fontWeight: 700, color: '#fff', display: 'flex', alignItems: 'center', gap: '6px' }}>
+            <Zap size={13} style={{ color: ACCENT }} /> Modalità Thinking & Ragionamento per i nuovi quesiti
+          </label>
+          <div style={{ display: 'flex', gap: '6px' }}>
+            <button
+              type="button"
+              onClick={() => onThinkingMode('auto')}
+              style={{
+                flex: 1, padding: '7px 8px', borderRadius: '8px', cursor: 'pointer',
+                border: `1px solid ${extendThinkingMode === 'auto' ? ACCENT : 'rgba(255,255,255,0.08)'}`,
+                background: extendThinkingMode === 'auto' ? 'rgba(0,210,255,0.15)' : 'rgba(0,0,0,0.25)',
+                color: extendThinkingMode === 'auto' ? ACCENT : 'var(--text-dark, #8b949e)',
+                fontSize: '0.72rem', fontWeight: 700,
+              }}
+            >
+              🧠 Auto (Suite)
+            </button>
+            <button
+              type="button"
+              onClick={() => onThinkingMode('no_thinking')}
+              style={{
+                flex: 1, padding: '7px 8px', borderRadius: '8px', cursor: 'pointer',
+                border: `1px solid ${extendThinkingMode === 'no_thinking' ? '#ffb86c' : 'rgba(255,255,255,0.08)'}`,
+                background: extendThinkingMode === 'no_thinking' ? 'rgba(255,184,108,0.15)' : 'rgba(0,0,0,0.25)',
+                color: extendThinkingMode === 'no_thinking' ? '#ffb86c' : 'var(--text-dark, #8b949e)',
+                fontSize: '0.72rem', fontWeight: 700,
+              }}
+            >
+              ⚡ No-Thinking
+            </button>
+            <button
+              type="button"
+              onClick={() => onThinkingMode('thinking')}
+              style={{
+                flex: 1, padding: '7px 8px', borderRadius: '8px', cursor: 'pointer',
+                border: `1px solid ${extendThinkingMode === 'thinking' ? 'var(--success, #3fb950)' : 'rgba(255,255,255,0.08)'}`,
+                background: extendThinkingMode === 'thinking' ? 'rgba(63,185,80,0.15)' : 'rgba(0,0,0,0.25)',
+                color: extendThinkingMode === 'thinking' ? 'var(--success, #3fb950)' : 'var(--text-dark, #8b949e)',
+                fontSize: '0.72rem', fontWeight: 700,
+              }}
+            >
+              💡 Thinking CoT
+            </button>
+          </div>
+          <div style={{ fontSize: '0.66rem', color: 'var(--text-dark, #8b949e)' }}>
+            {extendThinkingMode === 'auto' && 'Protocollo standard: CoT sui task di logica e matematica, risposta diretta sui compiti a scelta.'}
+            {extendThinkingMode === 'no_thinking' && 'Forza risposte dirette senza Chain-of-Thought per misurare velocità e istinto del modello.'}
+            {extendThinkingMode === 'thinking' && 'Forza catena di pensiero estesa (Chain-of-Thought) su tutti i quesiti aggiunti.'}
+          </div>
+        </div>
+
         {/* Scelta Suite da Ampliare */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
           <label style={{ fontSize: '0.72rem', fontWeight: 700, color: '#fff' }}>
@@ -1796,11 +3120,22 @@ function ExtendBenchmarkModal({ open, activeJob, extendSamples, extendSuite, ext
               <option key={s.id} value={s.id}>{s.label}</option>
             ))}
           </select>
+          {extendSuite && SUITE_LABELS[extendSuite]?.description && (
+            <div style={{
+              fontSize: '0.68rem', color: '#00d2ff', background: 'rgba(0,210,255,0.06)',
+              border: '1px solid rgba(0,210,255,0.2)', borderRadius: '6px', padding: '7px 10px',
+              lineHeight: 1.35,
+            }}>
+              ℹ️ <b>{SUITE_LABELS[extendSuite].category}:</b> {SUITE_LABELS[extendSuite].description}
+            </div>
+          )}
         </div>
 
         {/* Anteprima Totale */}
         <div style={{ fontSize: '0.72rem', color: '#8b949e', background: 'rgba(255, 255, 255, 0.03)', borderRadius: '8px', padding: '8px 12px' }}>
-          📈 Totale quesiti risultante: <b style={{ color: '#fff' }}>{fmt(currentTotal)}</b> ➔ <b style={{ color: '#00f2fe' }}>{newEstimate}</b>
+          📈 Totale quesiti risultante: <b style={{ color: '#fff' }}>{fmt(currentTotal)}</b> ➔ <b style={{ color: '#00f2fe' }}>{newEstimate}</b> · Modalità: <b style={{ color: extendThinkingMode === 'no_thinking' ? '#ffb86c' : extendThinkingMode === 'thinking' ? '#bc8cff' : '#00d2ff' }}>
+            {extendThinkingMode === 'no_thinking' ? '⚡ No-Thinking' : extendThinkingMode === 'thinking' ? '💡 Thinking CoT' : '🧠 Auto (Suite)'}
+          </b>
         </div>
 
         {/* Azioni */}

@@ -6,16 +6,20 @@ con le loro API reali, ed e' preferibile non esporre tool agli agenti finche'
 non fanno quello che dichiarano di fare.
 """
 
+from core.logger import get_logger
 from .handlers import router
+
+log = get_logger("sigma_network")
 
 __all__ = ["router", "register_mcp"]
 
 
 def register_mcp(mcp_hub) -> None:
-    """Registrerebbe il server MCP di Sigma Network. Non ancora implementato.
+    """Registra il server MCP di Sigma Network nell'hub MCP del kernel."""
+    try:
+        from .network_server import SigmaNetworkMCPServer
+        mcp_hub.register_server(SigmaNetworkMCPServer)
+        log.info("[sigma_network] Sigma Network MCP Server registrato con successo nell'MCP Hub.")
+    except Exception as e:
+        log.warning(f"[sigma_network] Sigma Network MCP Server non registrato: {e}")
 
-    Volutamente inerte invece che assente: il module loader la cerca, e una
-    funzione che non fa nulla e lo dice e' meglio di un import che fallisce o,
-    peggio, di tool registrati che restituiscono dati inventati.
-    """
-    return None

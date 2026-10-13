@@ -239,10 +239,26 @@ class ComfyUIBackend(GenerationBackend):
 
     async def _wait_ws(self, job_id: str, progress_cb, timeout_s: int) -> bool:
         ws_url = self.base_url.replace("http://", "ws://").replace("https://", "wss://")
+        loop = asyncio.get_running_loop()
+        deadline = loop.time() + timeout_s
         try:
             async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=timeout_s)) as session:
                 async with session.ws_connect(f"{ws_url}/ws?clientId={self.client_id}") as ws:
-                    async for msg in ws:
+                    while loop.time() < deadline:
+                        # Un messaggio perso o una connessione caduta senza errore
+                        # lasciavano l'attesa appesa fino al timeout (2 ore per un
+                        # clip): ogni 20 s di silenzio si controlla lo storico.
+                        try:
+                            msg = await ws.receive(timeout=20)
+                        except asyncio.TimeoutError:
+                            job = await self.get_job_status(job_id)
+                            if job.status == "error":
+                                raise RuntimeError(f"ComfyUI: {job.error}")
+                            if job.status == "done":
+                                return True
+                            continue
+                        if msg.type in (aiohttp.WSMsgType.CLOSED, aiohttp.WSMsgType.CLOSING, aiohttp.WSMsgType.ERROR):
+                            return False
                         if msg.type != aiohttp.WSMsgType.TEXT:
                             continue
                         payload = json.loads(msg.data)
@@ -253,7 +269,7 @@ class ComfyUIBackend(GenerationBackend):
                             total = data.get("max", 1) or 1
                             progress_cb({"job_id": job_id, "status": "running",
                                          "progress": round(data.get("value", 0) / total * 100, 1)})
-                        elif kind == "executing" and data.get("node") is None \
+                        elif ((kind == "executing" and data.get("node") is None) or kind == "execution_success") \
                                 and data.get("prompt_id") == job_id:
                             return True
                         elif kind == "execution_error" and data.get("prompt_id") == job_id:

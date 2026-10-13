@@ -21,7 +21,9 @@ from core.logger import get_logger
 
 log = get_logger("comfy_workflows")
 
-WORKFLOW_DIR = Path("data/creative/workflows")
+from core import paths
+
+WORKFLOW_DIR = paths.creative_dir() / "workflows"
 
 # Checkpoint di default per famiglia: sovrascrivibili da
 # config.creative.backends.comfyui.checkpoints

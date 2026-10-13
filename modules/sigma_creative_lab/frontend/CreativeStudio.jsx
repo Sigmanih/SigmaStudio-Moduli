@@ -3,10 +3,11 @@ import {
   Wand2, Edit3, Box, Hexagon, Layers, Workflow, Film, Cpu,
   Database, X, Upload, Search, Download, Trash2, CheckCircle2,
   Sparkles, Sliders, LayoutGrid, List, Play, Scissors, ChevronRight,
-  RefreshCw, Eye
+  RefreshCw, Eye, Palette
 } from 'lucide-react';
 import { useApp } from '../../contexts/AppContext';
 import TechSpaceCanvas from '../common/TechSpaceCanvas';
+import TabHeader from '../../components/common/TabHeader';
 import GeneratePanel from './Generate/GeneratePanel';
 import EditCanvas from './Edit/EditCanvas';
 import MeshLab from './MeshLab/MeshLab';
@@ -288,88 +289,36 @@ export default function CreativeStudio() {
     }}>
       <TechSpaceCanvas isLight={isLight} />
 
-      {/* TOP HEADER & STUDIO CONTROLS */}
-      <div style={{
-        padding: '14px 24px',
-        background: cardBg,
-        borderBottom: isLight ? '1px solid rgba(190, 160, 110, 0.3)' : '1px solid rgba(255, 255, 255, 0.08)',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'space-between',
-        flexWrap: 'wrap',
-        gap: '12px',
-        zIndex: 10,
-        flexShrink: 0
-      }}>
-        {/* Title & Engine status */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-          <div style={{
-            width: '36px',
-            height: '36px',
-            borderRadius: '10px',
-            background: isLight ? 'rgba(234, 88, 12, 0.12)' : 'rgba(0, 210, 255, 0.15)',
-            border: isLight ? '1px solid rgba(234, 88, 12, 0.35)' : '1px solid rgba(0, 210, 255, 0.35)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            fontSize: '1.2rem'
-          }}>
-            🎨
+      {/* Intestazione Universale Kernel Sigma Studio con View Switcher */}
+      <TabHeader
+        icon={Palette}
+        title="Creative Lab"
+        highlight="3D & 2D STUDIO"
+        tabs={VIEWS.map(v => ({
+          id: v.id,
+          label: v.label,
+          icon: v.icon,
+          active: activeView === v.id,
+          onClick: () => setActiveView(v.id)
+        }))}
+        description={`${stats.total ?? assets.length} asset generati · Studio generativo 2D/3D con FLUX, SDXL e Blender`}
+        actions={
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <BackendStatus backends={backends} />
+            <button
+              onClick={fetchCreativeData}
+              title="Ricarica asset e stato backends"
+              style={{
+                background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.12)',
+                borderRadius: '6px', padding: '4px 10px', color: 'inherit', cursor: 'pointer',
+                display: 'flex', alignItems: 'center', gap: '5px', fontSize: '0.72rem', fontWeight: 600
+              }}
+            >
+              <RefreshCw size={12} />
+            </button>
           </div>
-          <div>
-            <h1 style={{ margin: 0, fontSize: '1.05rem', fontWeight: 800, color: titleColor }}>
-              Creative Lab
-            </h1>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.68rem', color: subtitleColor }}>
-              <BackendStatus backends={backends} />
-              <span>•</span>
-              <Database size={11} color="#00d2ff" />
-              <span>{stats.total ?? assets.length} asset generati</span>
-            </div>
-          </div>
-        </div>
-
-        {/* View Switcher Chips (Horizontal Pills) */}
-        <div style={{
-          display: 'flex',
-          alignItems: 'center',
-          gap: '6px',
-          background: innerCardBg,
-          padding: '4px',
-          borderRadius: '12px',
-          border: innerCardBorder,
-          overflowX: 'auto'
-        }}>
-          {VIEWS.map(v => {
-            const active = activeView === v.id;
-            const Icon = v.icon;
-            return (
-              <button
-                key={v.id}
-                onClick={() => setActiveView(v.id)}
-                style={{
-                  padding: '6px 12px',
-                  borderRadius: '8px',
-                  border: 'none',
-                  background: active ? (isLight ? '#111827' : '#00d2ff') : 'transparent',
-                  color: active ? '#ffffff' : subtitleColor,
-                  fontSize: '0.74rem',
-                  fontWeight: active ? 800 : 600,
-                  cursor: 'pointer',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '6px',
-                  transition: 'all 0.15s ease',
-                  whiteSpace: 'nowrap'
-                }}
-              >
-                <Icon size={13} />
-                <span>{v.label}</span>
-              </button>
-            );
-          })}
-        </div>
-      </div>
+        }
+      />
 
       {error && (
         <div style={{

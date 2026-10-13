@@ -219,7 +219,7 @@ export default function DeveloperModelSelector({
 
   // Selected Model Object with full details
   const activeModelObj = useMemo(() => {
-    if (!selectedModel) {
+    if (!selectedModel || selectedModel === 'sigmaengine') {
       const firstFav = favoriteModels.length > 0 ? allModels.find(m => favoriteModels.includes(m.id) || favoriteModels.includes(m.name)) : null;
       return firstFav || allModels[0] || {
         id: 'default',
@@ -247,6 +247,19 @@ export default function DeveloperModelSelector({
       chatSpeed: specs.chatSpeed || null
     };
   }, [allModels, selectedModel, localModels]);
+
+  // Seleziona automaticamente il primo tra i preferiti o il primo presente se non impostato o 'sigmaengine'
+  useEffect(() => {
+    if ((!selectedModel || selectedModel === 'sigmaengine') && allModels.length > 0) {
+      const firstFav = favoriteModels.length > 0 
+        ? allModels.find(m => favoriteModels.includes(m.id) || favoriteModels.includes(m.name)) 
+        : null;
+      const target = firstFav || allModels[0];
+      if (target?.id && target.id !== selectedModel) {
+        onSelectModel?.(target.id);
+      }
+    }
+  }, [selectedModel, allModels, favoriteModels, onSelectModel]);
 
   // Models in the currently selected top tab (for family counts)
   const modelsInCurrentTab = useMemo(() => {
@@ -617,6 +630,34 @@ export default function DeveloperModelSelector({
                 </div>
               );
             })}
+            <div style={{
+              marginTop: '4px',
+              padding: '5px 8px',
+              borderRadius: '5px',
+              background: 'rgba(0, 242, 254, 0.1)',
+              border: '1px solid rgba(0, 242, 254, 0.25)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              fontSize: '0.62rem',
+              color: '#00f2fe',
+              fontWeight: 700
+            }}>
+              <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                <Zap size={11} color="#00f2fe" />
+                <span>Flash Attention (FA)</span>
+              </span>
+              <span style={{
+                fontSize: '0.56rem',
+                fontWeight: 800,
+                padding: '1px 5px',
+                borderRadius: '3px',
+                background: '#00f2fe',
+                color: '#000'
+              }}>
+                ON (GPU)
+              </span>
+            </div>
           </div>
         )}
       </div>

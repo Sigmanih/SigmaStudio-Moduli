@@ -51,3 +51,37 @@
   width: 100%;
   accent-color: #ff79c6;
 }
+
+/* Libreria delle voci personali */
+.vs-library { display: flex; flex-direction: column; gap: 10px; }
+.vs-library h3 { margin: 0; display: flex; align-items: center; gap: 8px; font-size: 1rem; color: #f0f2f8; }
+.vs-hint { margin: 0; font-size: 0.74rem; color: #8b8fa3; }
+.vs-error { margin: 0; font-size: 0.74rem; color: #ff6b6b; }
+.vs-lib-modes { display: flex; gap: 6px; flex-wrap: wrap; }
+.vs-chip { padding: 3px 10px; border-radius: 12px; font-size: 0.72rem; cursor: pointer; background: transparent;
+  border: 1px solid rgba(255,255,255,0.14); color: #b8bccb; }
+.vs-chip.on { border-color: #ff79c6; color: #ff79c6; }
+.vs-lib-form { display: flex; flex-direction: column; gap: 6px; }
+.vs-lib-form input, .vs-lib-form textarea, .vs-lib-form select, .vs-test {
+  background: #0e1016; border: 1px solid rgba(255,255,255,0.1); color: #f0f2f8; border-radius: 8px;
+  padding: 7px 10px; font-size: 0.78rem; font-family: inherit; }
+.vs-file { display: flex; align-items: center; gap: 6px; padding: 7px 10px; border-radius: 8px; cursor: pointer;
+  border: 1px dashed rgba(255,255,255,0.2); font-size: 0.76rem; color: #b8bccb; }
+.vs-primary { display: inline-flex; align-items: center; gap: 6px; align-self: flex-start; padding: 6px 12px;
+  border-radius: 8px; border: 1px solid rgba(255,121,198,0.4); background: rgba(255,121,198,0.15); color: #ff79c6;
+  font-size: 0.76rem; font-weight: 600; cursor: pointer; }
+.vs-primary:disabled { opacity: 0.45; cursor: default; }
+.vs-lib-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.vs-lib-list li { display: grid; grid-template-columns: 1fr 220px auto auto auto; gap: 6px; align-items: center;
+  padding: 6px 8px; border-radius: 8px; background: rgba(255,255,255,0.03); border: 1px solid transparent; }
+.vs-lib-list li.active { border-color: #ff79c6; }
+.vs-lib-list li div { display: flex; flex-direction: column; min-width: 0; }
+.vs-lib-list li strong { font-size: 0.8rem; color: #f0f2f8; }
+.vs-lib-list li span { font-size: 0.7rem; color: #8b8fa3; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.vs-lib-list li audio { width: 220px; height: 30px; }
+.vs-lib-list li button { background: transparent; border: 1px solid rgba(255,255,255,0.12); color: #d0d3df;
+  border-radius: 6px; padding: 4px 6px; cursor: pointer; display: inline-flex; }
+.vs-lib-list .vs-empty { display: block; font-size: 0.75rem; color: #8b8fa3; }
+.vs-spin { animation: vs-spin 1s linear infinite; }
+@keyframes vs-spin { to { transform: rotate(360deg); } }
+@media (max-width: 900px) { .vs-lib-list li { grid-template-columns: 1fr auto auto auto; } .vs-lib-list li audio { display: none; } }

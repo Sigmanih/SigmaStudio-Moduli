@@ -7,6 +7,25 @@ from core.modules.sigma_creative_lab.model_registry import select_model, set_com
 
 log = get_logger("creative_model_router")
 
+NATIVE_CAPABILITIES = ("text_to_video", "image_to_video", "first_last_to_video", "ref_to_video")
+
+
+def _native_status(cfg: dict) -> tuple[bool, str]:
+    """Installato = worker compilato, libreria stable-diffusion.cpp e ffmpeg presenti.
+
+    Non serve che sia acceso: il backend lo avvia al primo job.
+    """
+    if cfg.get("enabled") is False:
+        return False, ""
+    try:
+        from core.modules.sigma_creative_lab.native.runtime import get_runtime
+        runtime = get_runtime(cfg)
+        ok, _why = runtime.availability()
+        return ok, runtime.url
+    except Exception as e:
+        log.debug(f"runtime nativo non disponibile: {e}")
+        return False, ""
+
 class CreativeTask:
     def __init__(self, task_type: str, params: dict, priority: str = 'balanced'):
         self.task_type = task_type
@@ -140,6 +159,9 @@ class ModelRouter:
         elif name == "pollinations":
             available = True
             capabilities = ['text_to_image', 'img_to_img', 'upscale']
+        elif name == "sigma_native":
+            available, url = _native_status(backend_cfg)
+            capabilities = list(NATIVE_CAPABILITIES)
 
         return BackendStatus(name, available, capabilities, url)
 
@@ -165,6 +187,12 @@ class ModelRouter:
         for name in self.backends.keys():
             status = await self.check_backend(name)
             statuses.append(status)
+        # Il worker nativo non richiede configurazione: se e' installato si usa,
+        # come un motore locale qualsiasi.
+        if "sigma_native" not in self.backends:
+            available, url = _native_status({})
+            if available:
+                statuses.append(BackendStatus("sigma_native", True, list(NATIVE_CAPABILITIES), url))
         # Always include Pollinations AI zero-setup fallback
         if not any(s.name == "pollinations" for s in statuses):
             statuses.append(BackendStatus(

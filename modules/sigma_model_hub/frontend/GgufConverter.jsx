@@ -139,11 +139,14 @@ export default function GgufConverter({ isLight, addToast, initialModel, jobs = 
   // Quick Preset Quantizations
   const POPULAR_QUANTS = [
     { id: 'Q4_K_M', label: '⚡ Q4_K_M', tag: 'Consigliato', color: '#10b981' },
+    { id: 'IQ2_S', label: '⚡ IQ2_S', tag: '2-Bit + Scarti', color: '#ec4899' },
+    { id: 'TQ2_0', label: '⚡ TQ2_0', tag: 'BitNet Ternario', color: '#8b5cf6' },
+    { id: 'IQ2_XXS', label: '⚡ IQ2_XXS', tag: '2.06 bpw', color: '#a855f7' },
     { id: 'Q5_K_M', label: '⚡ Q5_K_M', tag: 'Alta Fedeltà', color: '#00d2ff' },
     { id: 'Q8_0', label: '⚡ Q8_0', tag: 'Lossless', color: '#bc8cff' },
     { id: 'Q4_K_S', label: '⚡ Q4_K_S', tag: 'Leggero', color: '#38bdf8' },
     { id: 'Q3_K_M', label: '⚡ Q3_K_M', tag: 'Basso VRAM', color: '#f59e0b' },
-    { id: 'Q6_K', label: '⚡ Q6_K', tag: 'Bilanciato', color: '#a855f7' },
+    { id: 'Q2_K', label: '⚡ Q2_K', tag: '2-Bit Base', color: '#ef4444' },
     { id: 'IQ4_XS', label: '⚡ IQ4_XS', tag: 'iMatrix', color: '#ff79c6' },
   ];
 
@@ -601,6 +604,20 @@ export default function GgufConverter({ isLight, addToast, initialModel, jobs = 
               </div>
             )}
 
+            {/* Calibrated Importance & Residual Recovery Banner */}
+            {(quant.startsWith('IQ') || ['TQ2_0', 'TQ1_0', 'I2_S', 'Q2_K'].includes(quant)) && (
+              <div style={{
+                fontSize: '0.70rem', color: '#ec4899',
+                background: 'rgba(236, 72, 153, 0.08)', padding: '8px 12px', borderRadius: '8px',
+                border: '1px solid rgba(236, 72, 153, 0.3)', display: 'flex', alignItems: 'center', gap: '8px'
+              }}>
+                <Sparkles size={14} color="#ec4899" />
+                <span>
+                  <b>Pipeline di Calibrazione Avanzata:</b> calcola automaticamente la matrice d'importanza (iMatrix) CUDA multi-dominio, protegge l'output e genera l'adattatore LoRA compagno per il recupero degli scarti di precisione.
+                </span>
+              </div>
+            )}
+
             {model.already_converted && (
               <div style={{ fontSize: '0.68rem', color: '#ffb86c' }}>
                 ℹ️ Esiste già una versione convertita nella cartella <code>{model.name}-GGUF</code>.
@@ -664,6 +681,40 @@ export default function GgufConverter({ isLight, addToast, initialModel, jobs = 
           {activeJob ? <Activity className="mh-spin" size={13} /> : <Play size={13} />}
           <span>{activeJob ? 'Conversione in corso…' : '⚡ Avvia Conversione in GGUF'}</span>
         </button>
+
+        {/* Un pulsante spento senza spiegazione sembra un guasto, ed e' il modo
+            in cui "il convertitore non funziona" viene percepito quando invece
+            la conversione e' impossibile: la ragione il server la sa gia'
+            (compatibility.summary) e resta scritta qui sotto finche' non cambia
+            la scelta del modello. */}
+        {!!model?.compatibility?.blocked_by?.length && (
+          <div style={{
+            padding: '12px 14px', borderRadius: '10px',
+            background: 'rgba(245, 158, 11, 0.10)',
+            border: '1px solid rgba(245, 158, 11, 0.35)',
+            display: 'flex', flexDirection: 'column', gap: '8px'
+          }}>
+            <div style={{
+              fontSize: '0.76rem', fontWeight: 800, color: '#f59e0b',
+              display: 'flex', alignItems: 'center', gap: '6px'
+            }}>
+              <AlertTriangle size={14} color="#f59e0b" />
+              Conversione non disponibile per questo modello
+            </div>
+            <div style={{ fontSize: '0.74rem', color: textPrimary, lineHeight: 1.5 }}>
+              {model?.compatibility?.summary
+                || 'Il runtime installato non sa leggere questa architettura.'}
+            </div>
+            {model?.compatibility?.upstream_missing && (
+              <div style={{ fontSize: '0.70rem', color: textMuted, lineHeight: 1.5 }}>
+                Non dipende da questa macchina né da strumenti più recenti: il
+                supporto manca a monte, e finché non arriva nessuna build saprà
+                caricare il file. Il modello resta usabile dai pesi Safetensors,
+                che non passano da llama.cpp.
+              </div>
+            )}
+          </div>
+        )}
 
         {/* Perche' l'avvio e' stato rifiutato. Resta finche' non cambia la scelta. */}
         {startError && (

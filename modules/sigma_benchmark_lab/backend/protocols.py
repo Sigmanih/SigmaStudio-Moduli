@@ -192,6 +192,36 @@ def protocol_for(suite_id: str) -> Protocol:
     return PROTOCOLS.get((suite_id or "").lower(), FALLBACK)
 
 
+def resolve_protocol(suite_id: str, thinking_mode: str = "auto") -> Protocol:
+    """Restituisce il protocollo per la suite applicando l'eventuale override thinking ('auto', 'thinking', 'no_thinking')."""
+    base = protocol_for(suite_id)
+    if not thinking_mode or thinking_mode == "auto":
+        return base
+    if thinking_mode == "no_thinking":
+        return Protocol(
+            mode=base.mode,
+            shots=base.shots,
+            thinking=False,
+            max_tokens=min(base.max_tokens, 512) if base.max_tokens else 0,
+            normalize=base.normalize,
+            metric=base.metric,
+            note=base.note + " [No-Thinking forzato]",
+            context=base.context,
+        )
+    if thinking_mode == "thinking":
+        return Protocol(
+            mode=base.mode,
+            shots=base.shots,
+            thinking=True,
+            max_tokens=max(base.max_tokens, 2048),
+            normalize=base.normalize,
+            metric=base.metric,
+            note=base.note + " [Thinking CoT forzato]",
+            context=base.context,
+        )
+    return base
+
+
 def describe(suite_id: str) -> Dict[str, object]:
     """La riga di certificato per una suite."""
     protocol = protocol_for(suite_id)
@@ -204,3 +234,4 @@ def describe(suite_id: str) -> Dict[str, object]:
         "normalize": protocol.normalize or None,
         "note": protocol.note,
     }
+

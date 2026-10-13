@@ -7,18 +7,90 @@ import {
 } from 'lucide-react';
 
 const SUITE_LABELS = {
-  all: { name: '🌐 Tutti i Benchmark', badge: 'FULL 100%', category: 'Generale' },
-  mmlu: { name: '🏆 MMLU', badge: '57 Materie', category: 'Conoscenza Generale' },
-  mmlu_pro: { name: '🧠 MMLU-Pro', badge: 'Ragionamento Hard', category: 'Ragionamento Avanzato' },
-  gsm8k: { name: '🧮 GSM8K', badge: 'Math', category: 'Matematica & Logica' },
-  math: { name: '📐 MATH', badge: 'Olimpico', category: 'Matematica Avanzata' },
-  humaneval: { name: '💻 HumanEval', badge: 'pass@1', category: 'Coding & Programmazione' },
-  mbpp: { name: '🐍 MBPP', badge: 'pass@1', category: 'Coding Python' },
-  arc: { name: '🔬 ARC Science', badge: 'Scienze', category: 'Scienze Applicate' },
-  hellaswag: { name: '💡 HellaSwag', badge: 'Buon Senso', category: 'Buon Senso' },
-  truthfulqa: { name: '🛡️ TruthfulQA', badge: 'Anti-Allucinazione', category: 'Veridicità & Safety' },
-  gpqa: { name: '🎓 GPQA', badge: 'Expert Level', category: 'Livello Accademico' },
-  bbh: { name: '⚙️ BIG-Bench Hard', badge: '27 Task', category: 'Logica Multi-Step' },
+  all: {
+    name: '🌐 Tutti i Benchmark',
+    badge: 'FULL 100%',
+    category: 'Valutazione Globale',
+    summary: 'Tutte le 11 suite ufficiali (~60.000 quesiti complessivi)',
+    description: 'Valutazione olistica e bilanciata che copre l\'intero spettro delle capacità del modello: conoscenza enciclopedica (MMLU), ragionamento accademico (MMLU-Pro, GPQA), logica multi-step (BBH), problem-solving matematico (GSM8K, MATH), programmazione ed esecuzione codice (HumanEval, MBPP), scienze applicate (ARC), buon senso situazionale (HellaSwag) e mitigazione allucinazioni (TruthfulQA).',
+  },
+  mmlu: {
+    name: '🏆 MMLU',
+    badge: '57 Materie',
+    category: 'Conoscenza Generale',
+    summary: 'Massive Multitask Language Understanding: 57 discipline accademiche',
+    description: 'Misura la conoscenza teorica ed enciclopedica su 57 discipline suddivise in materie umanistiche, scienze sociali, STEM e ambiti professionali (diritto, medicina). Valutato a 5-shot su scelta multipla (A-D) tramite logprob senza CoT.',
+  },
+  mmlu_pro: {
+    name: '🧠 MMLU-Pro',
+    badge: 'Ragionamento Hard',
+    category: 'Ragionamento Avanzato',
+    summary: 'Estensione rigorosa di MMLU con 10 alternative e ragionamento CoT',
+    description: 'Evoluzione più complessa e rigorosa di MMLU concepita per premiare il ragionamento analitico profondo rispetto alla memorizzazione pura. Comprende 14 discipline avanzate con opzioni ampliate fino a 10 alternative ed eliminazione dei quesiti banali. Richiede Chain-of-Thought (CoT).',
+  },
+  gsm8k: {
+    name: '🧮 GSM8K',
+    badge: 'Math',
+    category: 'Matematica & Logica',
+    summary: 'Grade School Math: 8.500 problemi matematici verbali multi-step',
+    description: '8.500 problemi matematici formulati linguisticamente a livello di scuola primaria e media. Misura la capacità di eseguire sequenze logiche di calcoli aritmetici estraendo il numero finale dopo il ragionamento passo-passo (CoT).',
+  },
+  math: {
+    name: '📐 MATH',
+    badge: 'Olimpico',
+    category: 'Matematica Avanzata',
+    summary: 'Hendrycks MATH: 12.500 problemi di livello olimpico e liceale superiore',
+    description: 'Include 12.500 problemi complessi tratti da competizioni matematiche (AMC 10, AMC 12, AIME) su algebra, geometria, calcolo, teoria dei numeri e probabilità. Richiede soluzioni articolate e CoT esteso ad alto budget di token con verifica esatta della formula finale.',
+  },
+  humaneval: {
+    name: '💻 HumanEval',
+    badge: 'pass@1',
+    category: 'Coding & Programmazione',
+    summary: '164 problemi algoritmici Python verificati con unit test ufficiali',
+    description: '164 sfide algoritmiche in Python contenenti docstring, specifiche funzionali e casi limite. Il codice generato dal modello viene realmente eseguito in sandbox isolata contro i test di unità ufficiali per determinare la metrica pass@1.',
+  },
+  mbpp: {
+    name: '🐍 MBPP',
+    badge: 'pass@1',
+    category: 'Coding Python',
+    summary: 'Mostly Basic Python Problems: circa 1.000 funzioni pratiche eseguite',
+    description: 'Circa 1.000 compiti pratici di programmazione Python di livello base/intermedio incentrati su algoritmi di manipolazione stringhe, liste e dizionari. La correttezza viene accertata eseguendo il codice generato contro le asserzioni di test ufficiali (pass@1).',
+  },
+  arc: {
+    name: '🔬 ARC Science',
+    badge: 'Scienze',
+    category: 'Scienze Applicate',
+    summary: 'Abstraction & Reasoning Challenge: quesiti scientifici non banali',
+    description: 'Quesiti scientifici a scelta multipla (scuole medie/superiori) che filtrano le domande risolvibili per sola associazione di parole superficiale, richiedendo reale comprensione causale, fisica e biologica del mondo naturale.',
+  },
+  hellaswag: {
+    name: '💡 HellaSwag',
+    badge: 'Buon Senso',
+    category: 'Buon Senso',
+    summary: 'Completamento di scenari realistici con finali avversari',
+    description: 'Misura il buon senso situazionale chiedendo al modello di individuare la prosecuzione più logica e plausibile di scene di vita quotidiana tra 4 opzioni generate con filtri avversari. Valutato per verosimiglianza del testo continuato.',
+  },
+  truthfulqa: {
+    name: '🛡️ TruthfulQA',
+    badge: 'Anti-Allucinazione',
+    category: 'Veridicità & Safety',
+    summary: '817 quesiti trabocchetto ideati per far emergere miti e allucinazioni',
+    description: '817 quesiti in materie come salute, diritto, finanza e società ideati specificamente per testare se il modello cade in false credenze popolari, miti comuni o allucinazioni del pretraining anziché rispondere con fatti verificati.',
+  },
+  gpqa: {
+    name: '🎓 GPQA',
+    badge: 'Expert Level',
+    category: 'Livello Accademico',
+    summary: 'Google-Proof Q&A: 448 quesiti a livello di dottorato (PhD) in STEM',
+    description: '448 quesiti a scelta multipla ad altissima difficoltà redatti da specialisti con PhD in biologia, fisica e chimica. Sono domande concepite per non essere risolvibili tramite ricerca web immediata e richiedono ragionamento scientifico rigoroso (CoT).',
+  },
+  bbh: {
+    name: '⚙️ BIG-Bench Hard',
+    badge: '27 Task',
+    category: 'Logica Multi-Step',
+    summary: 'I 27 compiti più complessi di BIG-Bench dove il CoT fa la differenza',
+    description: 'Selezione dei 27 task più impegnativi di BIG-Bench (ragionamento temporale, sillogismi, manipolazione simbolica, navigazione logica) in cui i modelli necessitano di una catena passo-passo di pensiero (CoT) per superare il caso.',
+  },
 };
 
 const SUITE_ORDER = ['all', 'mmlu', 'mmlu_pro', 'gsm8k', 'math', 'humaneval', 'mbpp',
@@ -115,6 +187,7 @@ export default function TrainingBenchmark({ addToast }) {
   const [extendSamples, setExtendSamples] = useState(25);
   const [extendSuite, setExtendSuite] = useState('all');
   const [extendMode, setExtendMode] = useState('sample');
+  const [extendThinkingMode, setExtendThinkingMode] = useState('auto');
   const [extending, setExtending] = useState(false);
 
   const toast = useCallback((msg, kind) => { if (addToast) addToast(msg, kind); }, [addToast]);
@@ -380,12 +453,14 @@ export default function TrainingBenchmark({ addToast }) {
         suite: targetSuite,
         mode: extendMode,
         concurrency: 'auto',
+        thinking_mode: extendThinkingMode,
       });
       if (!res.success) {
         toast(`❌ ${res.error || 'Ampliamento non riuscito'}`, 'error');
         return;
       }
-      toast(`🚀 Benchmark in ampliamento (+${extendMode === 'full' ? 'Tutti i rimanenti' : `${extendSamples}`} quesiti)!`, 'success');
+      const thLabel = extendThinkingMode === 'thinking' ? 'CoT' : extendThinkingMode === 'no_thinking' ? 'No-Think' : 'Auto';
+      toast(`🚀 Benchmark in ampliamento (+${extendMode === 'full' ? 'Tutti i rimanenti' : `${extendSamples}`} quesiti [${thLabel}])!`, 'success');
       setExtendModalOpen(false);
       loadJobs();
       loadDetail();
@@ -617,6 +692,7 @@ export default function TrainingBenchmark({ addToast }) {
               <div
                 key={id}
                 onClick={() => toggleSuiteSelection(id)}
+                title={`${label.name} (${label.category})\n\n${label.description}\n\nTipo di dataset: ${label.summary}`}
                 style={{
                   background: isSelected ? 'rgba(0,210,255,0.14)' : 'rgba(10,12,26,0.6)',
                   border: `1px solid ${isSelected ? ACCENT : 'rgba(255,255,255,0.08)'}`,
@@ -626,24 +702,34 @@ export default function TrainingBenchmark({ addToast }) {
                 }}
               >
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '6px' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px', minWidth: 0 }}>
                     {suiteMode === 'custom' && id !== 'all' ? (
                       selectedSuites.includes(id)
-                        ? <CheckSquare size={14} color={ACCENT} />
-                        : <Square size={14} color="var(--text-dark, #8b949e)" />
+                        ? <CheckSquare size={14} color={ACCENT} style={{ flexShrink: 0 }} />
+                        : <Square size={14} color="var(--text-dark, #8b949e)" style={{ flexShrink: 0 }} />
                     ) : null}
-                    <span style={{ fontSize: '0.82rem', fontWeight: 700, color: isSelected ? ACCENT : 'var(--text, #fff)' }}>
+                    <span style={{ fontSize: '0.82rem', fontWeight: 700, color: isSelected ? ACCENT : 'var(--text, #fff)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                       {label.name}
                     </span>
                   </div>
-                  <span style={{
-                    fontSize: '0.55rem', fontWeight: 700, padding: '2px 6px', borderRadius: '5px',
-                    background: isSelected ? 'rgba(0,210,255,0.25)' : 'rgba(255,255,255,0.06)',
-                    color: isSelected ? ACCENT : 'var(--text-dark, #8b949e)', whiteSpace: 'nowrap',
-                  }}>{label.badge}</span>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '4px', flexShrink: 0 }}>
+                    <span style={{
+                      fontSize: '0.55rem', fontWeight: 700, padding: '2px 6px', borderRadius: '5px',
+                      background: isSelected ? 'rgba(0,210,255,0.25)' : 'rgba(255,255,255,0.06)',
+                      color: isSelected ? ACCENT : 'var(--text-dark, #8b949e)', whiteSpace: 'nowrap',
+                    }}>{label.badge}</span>
+                    <HelpCircle size={12} style={{ color: isSelected ? ACCENT : 'var(--text-dark, #8b949e)', opacity: 0.6 }} />
+                  </div>
                 </div>
 
-                <div style={{ fontSize: '0.68rem', color: 'var(--text-dark, #8b949e)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <div style={{
+                  fontSize: '0.64rem', color: isSelected ? 'rgba(255,255,255,0.75)' : 'var(--text-dark, #8b949e)',
+                  lineHeight: '1.25', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                }}>
+                  {label.summary}
+                </div>
+
+                <div style={{ fontSize: '0.68rem', color: 'var(--text-dark, #8b949e)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '2px' }}>
                   {info.cached ? (
                     <span style={{ color: info.complete === false ? '#ffb86c' : 'var(--success, #3fb950)', fontWeight: 700 }}>
                       {fmt(info.count)} quesiti{info.complete === false ? ' · parziale' : ''}
@@ -763,7 +849,7 @@ export default function TrainingBenchmark({ addToast }) {
       </div>
 
       {/* Sezione 3: Cronologia Job & Ispezione Risultati */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'minmax(280px, 340px) 1fr', gap: '20px', alignItems: 'start' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'minmax(380px, 460px) 1fr', gap: '20px', alignItems: 'start' }}>
         {/* Lista Job Eseguiti */}
         <div style={{ ...card, padding: '16px', display: 'flex', flexDirection: 'column', gap: '10px', maxHeight: '820px', overflowY: 'auto' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid rgba(255,255,255,0.06)', paddingBottom: '10px' }}>
@@ -792,7 +878,18 @@ export default function TrainingBenchmark({ addToast }) {
                     <div style={{ fontSize: '0.8rem', fontWeight: 700, color: 'var(--text, #fff)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                       {j.model}
                     </div>
-                    <div style={{ fontSize: '0.68rem', color: ACCENT, fontWeight: 600 }}>{j.suite_name || j.suite}</div>
+                    {(() => {
+                      const sKey = (j.suite || '').toLowerCase().replace('-', '_');
+                      const sLabel = SUITE_LABELS[sKey] || (j.suite === 'all' ? SUITE_LABELS.all : null);
+                      return (
+                        <div
+                          style={{ fontSize: '0.68rem', color: ACCENT, fontWeight: 600, cursor: 'help' }}
+                          title={sLabel ? `${sLabel.name} (${sLabel.category}):\n${sLabel.description}` : (j.suite_name || j.suite)}
+                        >
+                          {j.suite_name || j.suite}
+                        </div>
+                      );
+                    })()}
                   </div>
                   <StatusPill job={j} />
                 </div>
@@ -863,9 +960,18 @@ export default function TrainingBenchmark({ addToast }) {
                 <div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '9px', flexWrap: 'wrap' }}>
                     <h3 style={{ margin: 0, fontSize: '1.05rem', fontWeight: 800, color: 'var(--text, #fff)' }}>{activeJob.model}</h3>
-                    <span style={{ fontSize: '0.68rem', padding: '2px 8px', borderRadius: '6px', background: 'rgba(0,210,255,0.15)', color: ACCENT, fontWeight: 700 }}>
-                      {activeJob.suite_name || activeJob.suite}
-                    </span>
+                    {(() => {
+                      const sKey = (activeJob.suite || '').toLowerCase().replace('-', '_');
+                      const sMeta = SUITE_LABELS[sKey] || (activeJob.suite === 'all' ? SUITE_LABELS.all : null);
+                      return (
+                        <span
+                          style={{ fontSize: '0.68rem', padding: '2px 8px', borderRadius: '6px', background: 'rgba(0,210,255,0.15)', color: ACCENT, fontWeight: 700, cursor: 'help' }}
+                          title={sMeta ? `${sMeta.name} (${sMeta.category}):\n\n${sMeta.description}` : undefined}
+                        >
+                          {activeJob.suite_name || activeJob.suite}
+                        </span>
+                      );
+                    })()}
                     {repro.reproducible_hash && (
                       <span style={{ fontSize: '0.62rem', padding: '2px 8px', borderRadius: '6px', background: 'rgba(63,185,80,0.15)', color: 'var(--success, #3fb950)', fontWeight: 600, fontFamily: 'monospace' }}>
                         {repro.reproducible_hash}
@@ -900,16 +1006,22 @@ export default function TrainingBenchmark({ addToast }) {
                       sono confrontabili, e questo e' il posto in cui si vede. */}
                   {repro.protocols && Object.keys(repro.protocols).length > 0 && (
                     <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px', marginTop: '5px' }}>
-                      {Object.values(repro.protocols).map((p) => (
-                        <span key={p.suite} title={p.note}
-                          style={{
-                            fontSize: '0.58rem', padding: '2px 6px', borderRadius: '5px',
-                            background: 'rgba(255,255,255,0.05)',
-                            color: 'var(--text-dark, #8b949e)', whiteSpace: 'nowrap',
-                          }}>
-                          {p.suite}: {p.metric}{p.shots ? ` · ${p.shots}-shot` : ''}{p.thinking ? ' · CoT' : ''}
-                        </span>
-                      ))}
+                      {Object.values(repro.protocols).map((p) => {
+                        const sKey = (p.suite || '').toLowerCase().replace('-', '_');
+                        const sMeta = SUITE_LABELS[sKey];
+                        return (
+                          <span key={p.suite}
+                            title={sMeta ? `${sMeta.name} (${sMeta.category}):\n${sMeta.description}\n\nProtocollo: ${p.note || p.metric}` : p.note}
+                            style={{
+                              fontSize: '0.58rem', padding: '2px 6px', borderRadius: '5px',
+                              background: 'rgba(255,255,255,0.05)',
+                              color: 'var(--text-dark, #8b949e)', whiteSpace: 'nowrap',
+                              cursor: 'help',
+                            }}>
+                            {p.suite}: {p.metric}{p.shots ? ` · ${p.shots}-shot` : ''}{p.thinking ? ' · CoT' : ''}
+                          </span>
+                        );
+                      })}
                     </div>
                   )}
                 </div>
@@ -938,7 +1050,11 @@ export default function TrainingBenchmark({ addToast }) {
                   <button
                     type="button"
                     disabled={isRunning || extending}
-                    onClick={() => { setExtendSuite('all'); setExtendModalOpen(true); }}
+                    onClick={() => {
+                      setExtendSuite('all');
+                      setExtendThinkingMode(activeJob?.thinking_mode === 'mixed' ? 'auto' : (activeJob?.thinking_mode || 'auto'));
+                      setExtendModalOpen(true);
+                    }}
                     style={{
                       ...btn(true, '#00d2ff'),
                       display: 'flex', alignItems: 'center', gap: '6px',
@@ -1067,7 +1183,7 @@ export default function TrainingBenchmark({ addToast }) {
                         <div
                           key={name}
                           onClick={() => setSuiteFilter((prev) => (prev.toLowerCase().replace('-', '_') === sKey ? 'all' : sKey))}
-                          title={`Clicca per filtrare solo i test di ${name}`}
+                          title={meta.description ? `${meta.name} (${meta.category}):\n\n${meta.description}\n\nClicca per filtrare i quesiti di questo dataset.` : `Clicca per filtrare solo i test di ${name}`}
                           style={{
                             background: isSelected ? 'rgba(0,210,255,0.22)' : 'rgba(10,12,26,0.75)',
                             border: `1px solid ${isSelected ? ACCENT : 'rgba(255,255,255,0.1)'}`,
@@ -1161,11 +1277,13 @@ export default function TrainingBenchmark({ addToast }) {
                     {Object.entries(detail.suite_breakdown).map(([name, stats]) => {
                       const sKey = name.toLowerCase().replace('-', '_');
                       const isSelected = suiteFilter.toLowerCase().replace('-', '_') === sKey;
+                      const sMeta = SUITE_LABELS[sKey];
                       return (
                         <button
                           key={name}
                           type="button"
                           onClick={() => setSuiteFilter(isSelected ? 'all' : sKey)}
+                          title={sMeta ? `${sMeta.name} (${sMeta.category}):\n${sMeta.description}` : undefined}
                           style={{
                             ...btn(isSelected),
                             fontSize: '0.66rem', padding: '3px 8px',
@@ -1248,10 +1366,12 @@ export default function TrainingBenchmark({ addToast }) {
         extendSamples={extendSamples}
         extendSuite={extendSuite}
         extendMode={extendMode}
+        extendThinkingMode={extendThinkingMode}
         extending={extending}
         onSamples={setExtendSamples}
         onSuite={setExtendSuite}
         onMode={setExtendMode}
+        onThinkingMode={setExtendThinkingMode}
         onClose={() => setExtendModalOpen(false)}
         onConfirm={handleExtendBenchmark}
       />
@@ -1541,9 +1661,18 @@ function QuestionCard({ result, model, number }) {
           <span style={{ fontSize: '0.6rem', fontWeight: 700, padding: '1px 6px', borderRadius: '4px', background: 'rgba(0,210,255,0.15)', color: ACCENT }}>
             #{number}
           </span>
-          {result.suite_name && (
-            <span style={{ fontSize: '0.64rem', color: 'var(--text-dark, #8b949e)', fontWeight: 600 }}>{result.suite_name}</span>
-          )}
+          {result.suite_name && (() => {
+            const sKey = (result.suite || result.suite_name || '').toLowerCase().replace('-', '_');
+            const qMeta = SUITE_LABELS[sKey];
+            return (
+              <span
+                style={{ fontSize: '0.64rem', color: 'var(--text-dark, #8b949e)', fontWeight: 600, cursor: 'help' }}
+                title={qMeta ? `${qMeta.name} (${qMeta.category}):\n${qMeta.description}` : result.suite_name}
+              >
+                {result.suite_name}
+              </span>
+            );
+          })()}
           {result.category && (
             <span style={{ fontSize: '0.64rem', color: 'var(--text-dark, #8b949e)' }}>· {result.category}</span>
           )}
@@ -1685,7 +1814,7 @@ function Badge({ color, children }) {
   );
 }
 
-function ExtendBenchmarkModal({ open, activeJob, extendSamples, extendSuite, extendMode, extending, onSamples, onSuite, onMode, onClose, onConfirm }) {
+function ExtendBenchmarkModal({ open, activeJob, extendSamples, extendSuite, extendMode, extendThinkingMode, extending, onSamples, onSuite, onMode, onThinkingMode, onClose, onConfirm }) {
   if (!open || !activeJob) return null;
 
   const currentTotal = activeJob.metrics?.tests_total || activeJob.reproducibility?.dataset_items_processed || 0;
@@ -1739,7 +1868,17 @@ function ExtendBenchmarkModal({ open, activeJob, extendSamples, extendSuite, ext
           <div>
             <div style={{ fontSize: '0.64rem', color: '#8b949e', textTransform: 'uppercase' }}>Modello & Stato Attuale</div>
             <div style={{ fontSize: '0.86rem', fontWeight: 800, color: '#fff', marginTop: '2px' }}>{activeJob.model}</div>
-            <div style={{ fontSize: '0.68rem', color: '#00f2fe', marginTop: '2px' }}>{activeJob.suite_name || activeJob.suite}</div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginTop: '3px' }}>
+              <span style={{ fontSize: '0.68rem', color: '#00f2fe' }}>{activeJob.suite_name || activeJob.suite}</span>
+              <span style={{
+                fontSize: '0.6rem', padding: '1px 6px', borderRadius: '4px',
+                background: activeJob.thinking_mode === 'no_thinking' ? 'rgba(255,184,108,0.15)' : activeJob.thinking_mode === 'thinking' ? 'rgba(188,140,255,0.15)' : activeJob.thinking_mode === 'mixed' ? 'rgba(0,210,255,0.2)' : 'rgba(0,210,255,0.12)',
+                color: activeJob.thinking_mode === 'no_thinking' ? '#ffb86c' : activeJob.thinking_mode === 'thinking' ? '#bc8cff' : activeJob.thinking_mode === 'mixed' ? '#00f2fe' : ACCENT,
+                fontWeight: 700,
+              }}>
+                {activeJob.thinking_mode === 'no_thinking' ? '⚡ No-Think' : activeJob.thinking_mode === 'thinking' ? '💡 CoT' : activeJob.thinking_mode === 'mixed' ? '🔀 Ibrido' : '🧠 Auto'}
+              </span>
+            </div>
           </div>
           <div style={{ textAlign: 'right' }}>
             <div style={{ fontSize: '0.64rem', color: '#8b949e', textTransform: 'uppercase' }}>Completati</div>
@@ -1779,6 +1918,59 @@ function ExtendBenchmarkModal({ open, activeJob, extendSamples, extendSuite, ext
           </div>
         </div>
 
+        {/* Scelta Modalità Thinking & Ragionamento */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+          <label style={{ fontSize: '0.72rem', fontWeight: 700, color: '#fff', display: 'flex', alignItems: 'center', gap: '6px' }}>
+            <Zap size={13} style={{ color: ACCENT }} /> Modalità Thinking & Ragionamento per i nuovi quesiti
+          </label>
+          <div style={{ display: 'flex', gap: '6px' }}>
+            <button
+              type="button"
+              onClick={() => onThinkingMode('auto')}
+              style={{
+                flex: 1, padding: '7px 8px', borderRadius: '8px', cursor: 'pointer',
+                border: `1px solid ${extendThinkingMode === 'auto' ? ACCENT : 'rgba(255,255,255,0.08)'}`,
+                background: extendThinkingMode === 'auto' ? 'rgba(0,210,255,0.15)' : 'rgba(0,0,0,0.25)',
+                color: extendThinkingMode === 'auto' ? ACCENT : 'var(--text-dark, #8b949e)',
+                fontSize: '0.72rem', fontWeight: 700,
+              }}
+            >
+              🧠 Auto (Suite)
+            </button>
+            <button
+              type="button"
+              onClick={() => onThinkingMode('no_thinking')}
+              style={{
+                flex: 1, padding: '7px 8px', borderRadius: '8px', cursor: 'pointer',
+                border: `1px solid ${extendThinkingMode === 'no_thinking' ? '#ffb86c' : 'rgba(255,255,255,0.08)'}`,
+                background: extendThinkingMode === 'no_thinking' ? 'rgba(255,184,108,0.15)' : 'rgba(0,0,0,0.25)',
+                color: extendThinkingMode === 'no_thinking' ? '#ffb86c' : 'var(--text-dark, #8b949e)',
+                fontSize: '0.72rem', fontWeight: 700,
+              }}
+            >
+              ⚡ No-Thinking
+            </button>
+            <button
+              type="button"
+              onClick={() => onThinkingMode('thinking')}
+              style={{
+                flex: 1, padding: '7px 8px', borderRadius: '8px', cursor: 'pointer',
+                border: `1px solid ${extendThinkingMode === 'thinking' ? 'var(--success, #3fb950)' : 'rgba(255,255,255,0.08)'}`,
+                background: extendThinkingMode === 'thinking' ? 'rgba(63,185,80,0.15)' : 'rgba(0,0,0,0.25)',
+                color: extendThinkingMode === 'thinking' ? 'var(--success, #3fb950)' : 'var(--text-dark, #8b949e)',
+                fontSize: '0.72rem', fontWeight: 700,
+              }}
+            >
+              💡 Thinking CoT
+            </button>
+          </div>
+          <div style={{ fontSize: '0.66rem', color: 'var(--text-dark, #8b949e)' }}>
+            {extendThinkingMode === 'auto' && 'Protocollo standard: CoT sui task di logica e matematica, risposta diretta sui compiti a scelta.'}
+            {extendThinkingMode === 'no_thinking' && 'Forza risposte dirette senza Chain-of-Thought per misurare velocità e istinto del modello.'}
+            {extendThinkingMode === 'thinking' && 'Forza catena di pensiero estesa (Chain-of-Thought) su tutti i quesiti aggiunti.'}
+          </div>
+        </div>
+
         {/* Scelta Suite da Ampliare */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
           <label style={{ fontSize: '0.72rem', fontWeight: 700, color: '#fff' }}>
@@ -1796,11 +1988,22 @@ function ExtendBenchmarkModal({ open, activeJob, extendSamples, extendSuite, ext
               <option key={s.id} value={s.id}>{s.label}</option>
             ))}
           </select>
+          {extendSuite && SUITE_LABELS[extendSuite]?.description && (
+            <div style={{
+              fontSize: '0.68rem', color: '#00d2ff', background: 'rgba(0,210,255,0.06)',
+              border: '1px solid rgba(0,210,255,0.2)', borderRadius: '6px', padding: '7px 10px',
+              lineHeight: 1.35,
+            }}>
+              ℹ️ <b>{SUITE_LABELS[extendSuite].category}:</b> {SUITE_LABELS[extendSuite].description}
+            </div>
+          )}
         </div>
 
         {/* Anteprima Totale */}
         <div style={{ fontSize: '0.72rem', color: '#8b949e', background: 'rgba(255, 255, 255, 0.03)', borderRadius: '8px', padding: '8px 12px' }}>
-          📈 Totale quesiti risultante: <b style={{ color: '#fff' }}>{fmt(currentTotal)}</b> ➔ <b style={{ color: '#00f2fe' }}>{newEstimate}</b>
+          📈 Totale quesiti risultante: <b style={{ color: '#fff' }}>{fmt(currentTotal)}</b> ➔ <b style={{ color: '#00f2fe' }}>{newEstimate}</b> · Modalità: <b style={{ color: extendThinkingMode === 'no_thinking' ? '#ffb86c' : extendThinkingMode === 'thinking' ? '#bc8cff' : '#00d2ff' }}>
+            {extendThinkingMode === 'no_thinking' ? '⚡ No-Thinking' : extendThinkingMode === 'thinking' ? '💡 Thinking CoT' : '🧠 Auto (Suite)'}
+          </b>
         </div>
 
         {/* Azioni */}

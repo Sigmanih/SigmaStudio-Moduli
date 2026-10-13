@@ -45,7 +45,7 @@ from core.engine.evaluation import (
 )
 from core.modules.sigma_benchmark_lab.protocols import (
     MODE_CODE, MODE_CONTINUATION, MODE_COT, MODE_LETTER,
-    describe as protocol_describe, protocol_for,
+    describe as protocol_describe, protocol_for, resolve_protocol,
 )
 from core.logger import get_logger
 from core.modules.sigma_benchmark_lab import paths as module_paths
@@ -145,7 +145,12 @@ def _load_benchmarks() -> list[dict]:
             return []
 
         changed = False
+        from core.modules.sigma_benchmark_lab.model_resolver import resolve_underlying_model, GENERIC_ALIASES
         for job in data:
+            current_m = str(job.get("model", "")).strip()
+            if not current_m or current_m.lower() in GENERIC_ALIASES or current_m.lower() in ("sigma", "test-model"):
+                job["model"] = resolve_underlying_model(current_m)
+                changed = True
             # I run salvati col vecchio schema portano il dettaglio inline: va
             # spostato nello store, altrimenti ogni polling rispedisce megabyte.
             if store.migrate_inline_results(job):
@@ -240,10 +245,15 @@ def get_available_models_for_benchmark() -> list[dict]:
 
     # 1. ⚡ SIGMAENGINE (Modelli Locali GGUF + Proxy 'sigma' + Residente in VRAM)
     try:
-        # Proxy "sigma"
+        # Proxy "sigma" risolto con il modello sottostante reale
+        from core.modules.sigma_benchmark_lab.model_resolver import resolve_underlying_model, clean_model_display_name
+        underlying = resolve_underlying_model("sigma")
+        underlying_clean = clean_model_display_name(underlying)
+        proxy_title = f"SigmaEngine ({underlying_clean})" if underlying_clean else 'SigmaEngine (Proxy "sigma")'
         models.append({
             "id": "sigma",
-            "name": 'SigmaEngine (Proxy "sigma")',
+            "name": proxy_title,
+            "resolved_target": underlying,
             "provider": "SigmaEngine",
             "provider_label": "⚡ SigmaEngine",
             "provider_key": "sigma_engine",
@@ -254,7 +264,10 @@ def get_available_models_for_benchmark() -> list[dict]:
             "category": "sigma_engine",
             "parameter_size": "Hardware Autotune",
             "quantization": "Native/FlashAttn",
-            "details": {"type": "proxy", "description": "Modello dinamico o attivo esposto da SigmaEngine"}
+            "details": {
+                "type": "proxy",
+                "description": f"Modello sottostante attivo: {underlying_clean or underlying}"
+            }
         })
         seen_ids.add("sigma")
 
@@ -299,6 +312,7 @@ def get_available_models_for_benchmark() -> list[dict]:
                 badge = "⚡ GGUF" if "GGUF" in fmt else ("⚡ SAFETENSORS" if "SAFETENSORS" in fmt else "⚡ LOCALE")
                 size_gb = lm.get("size_gb")
                 size_str = f"{size_gb} GB" if size_gb else (lm.get("size_label") or "")
+                param_label = lm.get("params_label") or lm.get("parameter_size") or ""
                 models.append({
                     "id": mid,
                     "name": m_name,
@@ -307,7 +321,9 @@ def get_available_models_for_benchmark() -> list[dict]:
                     "provider_key": "sigma_engine",
                     "badge": badge,
                     "family": lm.get("architecture") or lm.get("format_tag") or "Locale",
-                    "parameter_size": size_str,
+                    "parameter_size": param_label,
+                    "size_gb": size_gb,
+                    "size_label": size_str,
                     "quantization": lm.get("quantization") or "Standard",
                     "category": "sigma_engine",
                     "details": lm,
@@ -420,6 +436,44 @@ def get_available_models_for_benchmark() -> list[dict]:
                 })
     except Exception as err:
         log.warning("Errore caricamento cloud providers per benchmark: %s", err)
+
+    # 4. 🏆 Arricchimento con referti ufficiali di Benchmark e Tool Score
+    try:
+        from core.modules.sigma_training_lab.training.model_scores import (
+            normalizza, scores_by_model,
+        )
+        referti = scores_by_model(include_suites=True)
+        for m in models:
+            cand_names = [
+                m.get("resolved_target"),
+                m.get("id"),
+                m.get("name"),
+                (m.get("details") or {}).get("model_id"),
+                (m.get("details") or {}).get("filename"),
+                (m.get("details") or {}).get("display_name"),
+            ]
+            summary = None
+            for cn in cand_names:
+                if not cn:
+                    continue
+                chiave = normalizza(cn)
+                summary = referti.get(chiave)
+                if not summary and chiave:
+                    coda = chiave.split("/")[-1]
+                    summary = next((r for k, r in referti.items() if k.split("/")[-1] == coda), None)
+                if summary:
+                    break
+
+            m["benchmark_summary"] = summary or {"has_benchmarks": False}
+            if summary:
+                m["tool_score"] = summary.get("tool_score")
+                m["tool_passed"] = summary.get("tool_passed")
+                m["tool_total"] = summary.get("tool_total")
+                m["has_tool_benchmark"] = summary.get("has_tool_benchmark", False)
+                if summary.get("tokens_per_sec"):
+                    m["tokens_per_sec"] = summary.get("tokens_per_sec")
+    except Exception as err:
+        log.debug("Referti benchmark in get_available_models_for_benchmark non disponibili: %s", err)
 
     return models
 
@@ -1278,17 +1332,11 @@ def register_evaluated_ids(items: list[dict]) -> None:
             _fewshot_excluded.setdefault(suite, set()).add(item.get("id"))
 
 
-def _prepare_benchmark_payload(item: dict, model_name: str) -> dict:
-    """Prompt e parametri di generazione per un quesito, secondo il suo protocollo.
-
-    Il protocollo lo decide la suite, non il formato dell'item: MMLU-Pro e MMLU
-    hanno la stessa forma — domanda e opzioni — e vanno misurati in due modi
-    diversi, perche' MMLU-Pro esiste proprio per premiare il ragionamento che
-    MMLU non richiede.
-    """
+def _prepare_benchmark_payload(item: dict, model_name: str, thinking_mode: str = "auto") -> dict:
+    """Prompt e parametri di generazione per un quesito, secondo il suo protocollo e modalita' thinking."""
     suite = item.get("suite", "")
     options = item.get("options", [])
-    protocol = protocol_for(suite)
+    protocol = resolve_protocol(suite, thinking_mode=thinking_mode)
     base_options = {"temperature": 0.0, "seed": 42, "top_p": 1.0}
     budget = protocol.max_tokens or 1024
 
@@ -1326,15 +1374,23 @@ def _prepare_benchmark_payload(item: dict, model_name: str) -> dict:
         }
 
     if suite in ("gsm8k", "math"):
-        prompt = (f"Question: {item['prompt']}\n\n"
-                  "Solve the problem step by step. When you are done, write the final "
-                  "answer on its own last line, inside \\boxed{...} (e.g. \\boxed{49}). "
-                  "Give exactly one final answer and stop there.")
+        if thinking_mode == "no_thinking":
+            prompt = (f"Question: {item['prompt']}\n\n"
+                      "Provide only the final direct numerical answer inside \\boxed{...} (e.g. \\boxed{49}). "
+                      "Do NOT write reasoning steps or explanations. Give exactly one answer and stop.")
+            system = ("You are a direct mathematical solver. Output only the final answer inside \\boxed{...} "
+                      "with NO chain-of-thought or reasoning steps.")
+        else:
+            prompt = (f"Question: {item['prompt']}\n\n"
+                      "Solve the problem step by step. When you are done, write the final "
+                      "answer on its own last line, inside \\boxed{...} (e.g. \\boxed{49}). "
+                      "Give exactly one final answer and stop there.")
+            system = ("You are an expert mathematical problem solver. Reason step by step, "
+                      "then end your reply with the final result inside \\boxed{...} on the "
+                      "last line. Give exactly one final answer and write nothing after it.")
         return {
             "model": model_name,
-            "system": ("You are an expert mathematical problem solver. Reason step by step, "
-                       "then end your reply with the final result inside \\boxed{...} on the "
-                       "last line. Give exactly one final answer and write nothing after it."),
+            "system": system,
             "prompt": prompt,
             "stream": False,
             "think": protocol.thinking,
@@ -1345,7 +1401,12 @@ def _prepare_benchmark_payload(item: dict, model_name: str) -> dict:
     if options:
         shots = _fewshot_block(item, protocol.shots)
         prompt = (f"{shots}Question: {item['prompt']}\n\n" + "\n".join(options))
-        if protocol.mode == MODE_COT:
+        if thinking_mode == "no_thinking":
+            prompt += ("\n\nOutput only the letter of the correct option (e.g. A, B, C, D). "
+                       "Do NOT provide reasoning or explanations. Conclude on the last line with: Answer: <LETTER>")
+            system = ("You are a direct multiple-choice benchmark solver. Output only the chosen option letter "
+                      "as 'Answer: <LETTER>' with NO explanations.")
+        elif protocol.mode == MODE_COT:
             prompt += ("\n\nThink through the problem step by step, then finish "
                        "with the chosen option letter on its own last line as: "
                        "Answer: <LETTER>")
@@ -1365,6 +1426,19 @@ def _prepare_benchmark_payload(item: dict, model_name: str) -> dict:
             "think": protocol.thinking,
             "stop": STOP_MULTIPLE_CHOICE,
             "options": {**base_options, "num_predict": budget},
+        }
+
+    if thinking_mode == "no_thinking":
+        prompt = (f"Task: {item['prompt']}\n\n"
+                  "Give only the final answer directly with no explanation, on the last line prefixed with 'Answer:'.")
+        return {
+            "model": model_name,
+            "system": "You are a direct benchmark solver. Answer directly with 'Answer: <final answer>' on the last line without reasoning.",
+            "prompt": prompt,
+            "stream": False,
+            "think": False,
+            "stop": STOP_SHORT_ANSWER,
+            "options": {**base_options, "num_predict": min(budget, 256)},
         }
 
     if protocol.mode == MODE_COT:
@@ -1443,30 +1517,25 @@ def _empty_metrics() -> dict:
         "tests_passed": 0, "tests_failed": 0, "tests_total": 0,
         "tests_ambiguous": 0, "tests_unparsable": 0, "tests_error": 0,
         "tests_review": 0, "review_pct": 0,
+        "thinking_passed": 0, "thinking_total": 0, "thinking_accuracy": 0.0,
+        "no_thinking_passed": 0, "no_thinking_total": 0, "no_thinking_accuracy": 0.0,
     }
 
 
 def _compute_metrics(counts: dict, total_done: int, planned_total: int,
-                     total_tokens: int, total_duration: float, latency_sum_ms: int) -> dict:
-    """Aggrega i contatori in metriche, separando lo score dal giudizio sospeso.
-
-    Tre accuratezze, perche' misurano cose diverse:
-
-    * `overall_score` e' lo score ufficiale — giuste sul **totale previsto**, con
-      gli item da rivedere che pesano come non superati. E' il numero da
-      pubblicare, e vale solo a run finito.
-    * `progress_score` e' giuste sui quesiti **gia' fatti**. Serve durante il
-      run, dove lo score ufficiale e' garantito basso per un motivo che non
-      riguarda il modello: a meta' strada divide per il totale, quindi un run
-      perfetto a meta' mostra 50%. E' cosi' che un modello che rispondeva bene a
-      un quesito su due si e' presentato come "32%" con 32 risposte giuste su 61.
-    * `decided_accuracy_pct` guarda solo i quesiti in cui il modello ha
-      effettivamente scelto.
-    """
+                     total_tokens: int, total_duration: float, latency_sum_ms: int,
+                     thinking_counts: dict | None = None,
+                     no_thinking_counts: dict | None = None) -> dict:
+    """Aggrega i contatori in metriche, separando lo score dal giudizio sospeso e calcolando thinking vs no-thinking."""
     passed = counts.get(VERDICT_PASS, 0)
     failed = counts.get(VERDICT_FAIL, 0)
     review = sum(counts.get(v, 0) for v in REVIEW_VERDICTS)
     decided = passed + failed
+    th_p = (thinking_counts or {}).get("passed", 0)
+    th_t = (thinking_counts or {}).get("total", 0)
+    no_th_p = (no_thinking_counts or {}).get("passed", 0)
+    no_th_t = (no_thinking_counts or {}).get("total", 0)
+
     return {
         "overall_score": round((passed / planned_total) * 100, 2) if planned_total else 0,
         "progress_score": round((passed / total_done) * 100, 2) if total_done else 0,
@@ -1483,7 +1552,14 @@ def _compute_metrics(counts: dict, total_done: int, planned_total: int,
         "tests_error": counts.get(VERDICT_ERROR, 0),
         "tests_review": review,
         "review_pct": round((review / total_done) * 100, 2) if total_done else 0,
+        "thinking_passed": th_p,
+        "thinking_total": th_t,
+        "thinking_accuracy": round((th_p / th_t) * 100, 2) if th_t else 0.0,
+        "no_thinking_passed": no_th_p,
+        "no_thinking_total": no_th_t,
+        "no_thinking_accuracy": round((no_th_p / no_th_t) * 100, 2) if no_th_t else 0.0,
     }
+
 
 
 # ==============================================================================
@@ -1571,9 +1647,9 @@ def _continuation_question(item: dict) -> tuple[str, list[str]]:
     return context, [f" {body}" for body in bodies]
 
 
-def _generative_messages(item: dict, model_name: str) -> tuple[list[dict], dict]:
+def _generative_messages(item: dict, model_name: str, thinking_mode: str = "auto") -> tuple[list[dict], dict]:
     """Conversazione e parametri per un quesito da risolvere scrivendo."""
-    payload = _prepare_benchmark_payload(item, model_name)
+    payload = _prepare_benchmark_payload(item, model_name, thinking_mode=thinking_mode)
     messages = []
     if payload.get("system"):
         messages.append({"role": "system", "content": payload["system"]})
@@ -1702,7 +1778,8 @@ def _run_sigma_continuation(items: list[dict], target_model: str,
 
 
 def _run_sigma_generative(items: list[dict], model_name: str, target_model: str,
-                          batch_size: int, cancel=None, on_item=None) -> dict[int, dict]:
+                          batch_size: int, cancel=None, on_item=None,
+                          thinking_mode: str = "auto") -> dict[int, dict]:
     """Risposte scritte, ma in lotti: e' cio' che tiene occupata la GPU.
 
     A batch 1 un modello decoder-only e' limitato dalla banda con cui legge i
@@ -1715,7 +1792,7 @@ def _run_sigma_generative(items: list[dict], model_name: str, target_model: str,
     grouped: dict[tuple, list[int]] = {}
     prepared: dict[int, tuple] = {}
     for position, item in enumerate(items):
-        messages, payload = _generative_messages(item, model_name)
+        messages, payload = _generative_messages(item, model_name, thinking_mode=thinking_mode)
         budget = int(payload.get("options", {}).get("num_predict", 512))
         stop = tuple(payload.get("stop") or ())
         thinking = payload.get("think")
@@ -1838,13 +1915,14 @@ def _dispatch_benchmark_completion(
     item: dict,
     model_name: str,
     pool_endpoints=None,
-    timeout: int = 120
+    timeout: int = 120,
+    thinking_mode: str = "auto"
 ) -> tuple[str, float, int, str, str]:
     """Invia il prompt di benchmark al modello tramite il provider corretto.
     
     Ritorna: (output_text, tok_per_sec, tokens, transport_error, endpoint_used)
     """
-    payload = _prepare_benchmark_payload(item, model_name)
+    payload = _prepare_benchmark_payload(item, model_name, thinking_mode=thinking_mode)
     system_prompt = payload.get("system", "")
     user_prompt = payload.get("prompt", "")
     max_tokens = payload.get("options", {}).get("num_predict", 512)
@@ -2047,14 +2125,18 @@ def _dispatch_benchmark_completion(
 
 
 def start_benchmark_run(model_name: str, suite_id: str = "all", num_samples: int = 0,
-                        mode: str = "full", concurrency="auto") -> dict:
-    """Avvia un run di valutazione su worker paralleli.
+                        mode: str = "full", concurrency="auto", thinking_mode: str = "auto") -> dict:
+    """Avvia un run di valutazione su worker paralleli con opzione thinking selezionabile.
 
     `concurrency` accetta anche "auto": in quel caso il numero di richieste
     contemporanee lo decide `core.training.capacity`, dall'ultima misura del
     modello o, se manca, dalla stima sulla VRAM libera.
     """
     from core.modules.sigma_benchmark_lab.capacity import resolve_concurrency
+    from core.modules.sigma_benchmark_lab.model_resolver import resolve_underlying_model
+
+    resolved_model_name = resolve_underlying_model(model_name)
+    model_name = resolved_model_name
 
     job_id = f"bm_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:4]}"
     now = datetime.datetime.now().isoformat()
@@ -2069,6 +2151,7 @@ def start_benchmark_run(model_name: str, suite_id: str = "all", num_samples: int
         "suite": suite_id,
         "suite_name": suite_name,
         "execution_mode": mode,
+        "thinking_mode": thinking_mode,
         "concurrency": workers,
         "concurrency_source": concurrency_source,
         "status": "preparing",
@@ -2080,14 +2163,11 @@ def start_benchmark_run(model_name: str, suite_id: str = "all", num_samples: int
             "seed": 42,
             "reproducible_hash": "",
             "mode": "FULL_DATASET_100%_CLEAN" if is_full else "AUDIT_SAMPLE",
-            # Dichiarato all'avvio e non solo a fine run: per tutta la durata la
-            # UI mostrava "protocollo generativo su provider esterno" anche su
-            # un run in modalita' oggettiva, che e' l'opposto di cio' che stava
-            # succedendo.
             "objective_mode": _is_sigma_model(model_name),
             "answer_protocol": "",
             "prompt_protocol": PROMPT_PROTOCOL,
             "grader": GRADER_VERSION,
+            "thinking_mode": thinking_mode,
         },
         "metrics": _empty_metrics(),
     }
@@ -2099,7 +2179,7 @@ def start_benchmark_run(model_name: str, suite_id: str = "all", num_samples: int
 
     thread = threading.Thread(
         target=_worker_run_official_benchmark,
-        args=(job_id, model_name, suite_id, mode, num_samples, workers),
+        args=(job_id, model_name, suite_id, mode, num_samples, workers, False, thinking_mode),
         daemon=True,
     )
     _active_threads[job_id] = thread
@@ -2109,7 +2189,7 @@ def start_benchmark_run(model_name: str, suite_id: str = "all", num_samples: int
 
 def _worker_run_official_benchmark(job_id: str, model_name: str, suite_id: str,
                                    mode: str, num_samples: int, concurrency: int,
-                                   is_extension: bool = False):
+                                   is_extension: bool = False, thinking_mode: str | None = None):
     """Rete di sicurezza attorno al run: nessun guasto puo' restare invisibile.
 
     Un thread daemon che muore per un'eccezione non lascia niente dietro di se':
@@ -2121,10 +2201,10 @@ def _worker_run_official_benchmark(job_id: str, model_name: str, suite_id: str,
     try:
         if is_extension:
             _run_official_benchmark(job_id, model_name, suite_id, mode,
-                                    num_samples, concurrency, is_extension=True)
+                                    num_samples, concurrency, is_extension=True, thinking_mode=thinking_mode)
         else:
             _run_official_benchmark(job_id, model_name, suite_id, mode,
-                                    num_samples, concurrency)
+                                    num_samples, concurrency, thinking_mode=thinking_mode)
     except BaseException as err:                     # anche KeyboardInterrupt
         log.error("Job benchmark %s: worker terminato da %s",
                   job_id, type(err).__name__, exc_info=True)
@@ -2241,11 +2321,27 @@ def _avvia_caricamento(model_name: str) -> "_CaricamentoAnticipato | None":
 
 def _run_official_benchmark(job_id: str, model_name: str, suite_id: str,
                             mode: str, num_samples: int, concurrency: int,
-                            is_extension: bool = False):
+                            is_extension: bool = False, thinking_mode: str | None = None):
     """Esegue i quesiti su un pool di worker, versando gli esiti nello store."""
     import concurrent.futures
 
     from core.modules.sigma_benchmark_lab.endpoints import EndpointPool
+
+    original_thinking_mode = "auto"
+    with _benchmark_lock:
+        for _j in _load_benchmarks():
+            if _j.get("id") == job_id:
+                original_thinking_mode = _j.get("thinking_mode") or _j.get("reproducibility", {}).get("thinking_mode") or "auto"
+                break
+
+    if thinking_mode is None:
+        thinking_mode = original_thinking_mode
+    if not thinking_mode:
+        thinking_mode = "auto"
+
+    effective_job_thinking_mode = thinking_mode
+    if is_extension and original_thinking_mode and original_thinking_mode != thinking_mode:
+        effective_job_thinking_mode = "mixed"
 
     # Con piu' servitori Ollama (uno per GPU) le richieste si alternano fra loro:
     # e' cio' che mette al lavoro tutte le schede invece della sola prima.
@@ -2335,6 +2431,8 @@ def _run_official_benchmark(job_id: str, model_name: str, suite_id: str,
     #: Velocita' di una risposta sola su questo hardware, misurata prima del run.
     velocita_chat: dict = {}
     counts: dict[str, int] = dict(existing_counts) if is_extension else {}
+    thinking_counts: dict[str, int] = {"passed": 0, "total": 0}
+    no_thinking_counts: dict[str, int] = {"passed": 0, "total": 0}
     buffer: list[dict] = []
     #: Quali quesiti hanno prodotto una riga. Un quesito che sparisce fra un
     #: percorso e l'altro non lascia traccia da nessuna parte, e il run finisce
@@ -2351,6 +2449,10 @@ def _run_official_benchmark(job_id: str, model_name: str, suite_id: str,
                     if _j.get("id") == job_id:
                         _m = _j.get("metrics") or {}
                         tokens_total = int(_m.get("total_tokens") or 0)
+                        thinking_counts["passed"] = int(_m.get("thinking_passed") or 0)
+                        thinking_counts["total"] = int(_m.get("thinking_total") or 0)
+                        no_thinking_counts["passed"] = int(_m.get("no_thinking_passed") or 0)
+                        no_thinking_counts["total"] = int(_m.get("no_thinking_total") or 0)
                         break
         except Exception:
             pass
@@ -2364,19 +2466,21 @@ def _run_official_benchmark(job_id: str, model_name: str, suite_id: str,
             if not force and len(buffer) < _FLUSH_EVERY:
                 return
             pending, buffer = buffer, []
-            snapshot = (dict(counts), completed, tokens_total, duration_total, latency_sum)
+            snapshot = (dict(counts), completed, tokens_total, duration_total, latency_sum,
+                        dict(thinking_counts), dict(no_thinking_counts))
         if pending:
             store.append_results(job_id, pending)
         now = time.time()
         if force or now - last_progress >= _PROGRESS_INTERVAL_SEC:
             last_progress = now
-            done_counts, done, toks, dur, lat = snapshot
+            done_counts, done, toks, dur, lat, th_c, no_th_c = snapshot
             _update_job_state(job_id, {
                 "status": "running",
                 "status_message": f"⚡ Esecuzione: {done}/{total} quesiti completati ({min(100, int((done / total) * 100))}%)",
                 "progress": min(100, int((done / total) * 100)),
                 "updated_at": datetime.datetime.now().isoformat(),
-                "metrics": _compute_metrics(done_counts, done, total, toks, dur, lat),
+                "thinking_mode": effective_job_thinking_mode,
+                "metrics": _compute_metrics(done_counts, done, total, toks, dur, lat, th_c, no_th_c),
             })
 
     def record(index: int, item: dict, output_text: str, tok_per_sec: float,
@@ -2400,6 +2504,7 @@ def _run_official_benchmark(job_id: str, model_name: str, suite_id: str,
             latency_ms = int((tokens / max(tok_per_sec, 0.01)) * 1000) if tok_per_sec > 0 else 0
 
         recorded.add(index)
+        s_proto = resolve_protocol(item.get("suite", ""), thinking_mode)
         result = {
             "id": item.get("id", f"item_{index}"),
             "index": index,
@@ -2422,6 +2527,8 @@ def _run_official_benchmark(job_id: str, model_name: str, suite_id: str,
             "tokens_per_sec": tok_per_sec,
             "latency_ms": latency_ms,
             "tokens": tokens,
+            "thinking_mode": thinking_mode,
+            "is_thinking": s_proto.thinking,
         }
         if extra:
             result.update(extra)
@@ -2432,6 +2539,14 @@ def _run_official_benchmark(job_id: str, model_name: str, suite_id: str,
             duration_total += latency_ms / 1000.0
             latency_sum += latency_ms
             counts[graded["verdict"]] = counts.get(graded["verdict"], 0) + 1
+            if s_proto.thinking:
+                thinking_counts["total"] += 1
+                if graded["passed"]:
+                    thinking_counts["passed"] += 1
+            else:
+                no_thinking_counts["total"] += 1
+                if graded["passed"]:
+                    no_thinking_counts["passed"] += 1
             buffer.append(result)
         flush()
 
@@ -2447,7 +2562,8 @@ def _run_official_benchmark(job_id: str, model_name: str, suite_id: str,
             item=item,
             model_name=model_name,
             pool_endpoints=pool_endpoints,
-            timeout=_request_timeout(item.get("suite", ""))
+            timeout=_request_timeout(item.get("suite", "")),
+            thinking_mode=thinking_mode,
         )
         record(index, item, output_text, tok_per_sec, tokens,
                transport_error, endpoint_used)
@@ -2553,7 +2669,7 @@ def _run_official_benchmark(job_id: str, model_name: str, suite_id: str,
         # proprio per premiare il ragionamento che MMLU non chiede.
         by_mode: dict[str, list[int]] = {}
         for position, item in enumerate(items):
-            mode = protocol_for(item.get("suite", "")).mode
+            mode = resolve_protocol(item.get("suite", ""), thinking_mode).mode
             if mode in (MODE_LETTER, MODE_CONTINUATION) and not item.get("options"):
                 mode = MODE_COT      # un item senza opzioni non si puo' ordinare
             by_mode.setdefault(mode, []).append(position)
@@ -2666,7 +2782,8 @@ def _run_official_benchmark(job_id: str, model_name: str, suite_id: str,
                 )
 
             _run_sigma_generative(subset, model_name, target, batch,
-                                  cancel=cancel_token, on_item=_wrote)
+                                  cancel=cancel_token, on_item=_wrote,
+                                  thinking_mode=thinking_mode)
             # Il freno sul progresso salta l'ultima scrittura di un lotto, e
             # l'indice resta indietro di un quesito rispetto agli esiti su
             # disco: si vede come "61/100" accanto a 62 righe. A fine lotto si
@@ -2724,7 +2841,8 @@ def _run_official_benchmark(job_id: str, model_name: str, suite_id: str,
             "progress": min(100, int((completed / total) * 100)) if total else 0,
             "updated_at": datetime.datetime.now().isoformat(),
             "metrics": _compute_metrics(counts, completed, total, tokens_total,
-                                        duration_total, latency_sum),
+                                        duration_total, latency_sum,
+                                        thinking_counts, no_thinking_counts),
         })
         _active_threads.pop(job_id, None)
         log.error("Job benchmark %s interrotto: %s", job_id, unavailable or crash)
@@ -2749,7 +2867,8 @@ def _run_official_benchmark(job_id: str, model_name: str, suite_id: str,
     _cancel_requested.discard(job_id)
     _pause_requested.discard(job_id)
 
-    metrics = _compute_metrics(counts, completed, total, tokens_total, duration_total, latency_sum)
+    metrics = _compute_metrics(counts, completed, total, tokens_total, duration_total, latency_sum,
+                               thinking_counts, no_thinking_counts)
     # L'impronta copre modello, suite ed esito completo: due run identici la
     # riproducono, e un run con conteggi diversi no.
     fingerprint = (f"{model_name}:{suite_id}:{total}:{completed}:"
@@ -2764,6 +2883,7 @@ def _run_official_benchmark(job_id: str, model_name: str, suite_id: str,
         "error": None,
         "progress": min(100, int((completed / total) * 100)) if cancelled else 100,
         "updated_at": datetime.datetime.now().isoformat(),
+        "thinking_mode": effective_job_thinking_mode,
         "metrics": metrics,
         "reproducibility": {
             "temperature": 0.0,
@@ -2778,6 +2898,7 @@ def _run_official_benchmark(job_id: str, model_name: str, suite_id: str,
             "grader": GRADER_VERSION,
             "prompt_protocol": PROMPT_PROTOCOL,
             "answer_protocol": answer_protocol,
+            "thinking_mode": effective_job_thinking_mode,
             # Due velocita', tenute separate perche' misurano cose diverse:
             # `single_stream` e' cio' che sente chi chatta, `tokens_per_sec`
             # nelle metriche e' il totale del run, che con piu' richieste in
@@ -2976,7 +3097,7 @@ def audit_benchmark_job(job_id: str) -> dict:
 
 
 def extend_benchmark_job(job_id: str, added_samples: int = 25, additional_suite: str = "",
-                         mode: str = "sample", concurrency="auto") -> dict:
+                         mode: str = "sample", concurrency="auto", thinking_mode: str | None = None) -> dict:
     """Amplia un benchmark esistente aggiungendo nuovi quesiti senza rieseguire quelli già fatti."""
     from core.modules.sigma_benchmark_lab.capacity import resolve_concurrency
 
@@ -2992,10 +3113,23 @@ def extend_benchmark_job(job_id: str, added_samples: int = 25, additional_suite:
         suite_id = additional_suite.strip() if additional_suite.strip() else job.get("suite", "all")
         workers, concurrency_source = resolve_concurrency(model_name, concurrency)
 
+        orig_thinking_mode = job.get("thinking_mode") or job.get("reproducibility", {}).get("thinking_mode") or "auto"
+        eff_thinking_mode = thinking_mode if thinking_mode else orig_thinking_mode
+
         now = datetime.datetime.now().isoformat()
         job["status"] = "preparing"
-        job["status_message"] = f"Ampliamento benchmark ({added_samples if mode == 'sample' else 'full'} quesiti)..."
+        th_label = "Thinking CoT" if eff_thinking_mode == "thinking" else "No-Thinking" if eff_thinking_mode == "no_thinking" else "Auto"
+        job["status_message"] = f"Ampliamento benchmark ({added_samples if mode == 'sample' else 'full'} quesiti, {th_label})..."
         job["updated_at"] = now
+        if orig_thinking_mode != eff_thinking_mode:
+            job["thinking_mode"] = "mixed"
+            if "reproducibility" in job:
+                job["reproducibility"]["thinking_mode"] = "mixed"
+        else:
+            job["thinking_mode"] = eff_thinking_mode
+            if "reproducibility" in job:
+                job["reproducibility"]["thinking_mode"] = eff_thinking_mode
+
         if additional_suite.strip() and additional_suite.strip() != "all":
             curr_suites = [s.strip() for s in job.get("suite", "").split(",") if s.strip()]
             if additional_suite.strip() not in curr_suites and job.get("suite") != "all":
@@ -3006,7 +3140,7 @@ def extend_benchmark_job(job_id: str, added_samples: int = 25, additional_suite:
 
     thread = threading.Thread(
         target=_worker_run_official_benchmark,
-        args=(job_id, model_name, suite_id, mode, added_samples, workers, True),
+        args=(job_id, model_name, suite_id, mode, added_samples, workers, True, eff_thinking_mode),
         daemon=True,
     )
     _active_threads[job_id] = thread

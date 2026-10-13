@@ -8,6 +8,7 @@ import {
   Layers, ArrowRight, Zap, Code, Database, Play
 } from 'lucide-react';
 import './styles/network-lab.css';
+import TabHeader from '../../components/common/TabHeader';
 
 export default function NetworkLab() {
   const [activeTab, setActiveTab] = useState('search');
@@ -213,87 +214,54 @@ export default function NetworkLab() {
 
   return (
     <div className="netlab-container">
-      {/* Top Header */}
-      <header className="netlab-header">
-        <div className="netlab-title-group">
-          <div className="netlab-icon-box">
-            <Globe size={20} />
+      {/* Intestazione Universale Kernel Sigma Studio con Sub-Tab Switcher */}
+      <TabHeader
+        icon={Globe}
+        title="AI Web Browser"
+        highlight="WEB RESEARCH & MCP"
+        tabs={[
+          { id: 'search', label: 'Web Research', icon: Search, active: activeTab === 'search', onClick: () => setActiveTab('search') },
+          { id: 'http', label: 'HTTP API Client', icon: Send, active: activeTab === 'http', onClick: () => setActiveTab('http') },
+          { id: 'dns', label: 'DNS Diagnostics', icon: Database, active: activeTab === 'dns', onClick: () => setActiveTab('dns') },
+          { id: 'ping', label: 'Ping & Latency', icon: Activity, active: activeTab === 'ping', onClick: () => setActiveTab('ping') },
+          { id: 'mcp', label: 'AI Tools Tester', icon: Cpu, active: activeTab === 'mcp', onClick: () => setActiveTab('mcp') },
+        ]}
+        description="Ricerche web live, client HTTP REST, diagnostica DNS & tool MCP per agenti AI"
+        actions={
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <div className={`netlab-status-badge ${networkStatus?.internet_online ? '' : 'offline'}`} style={{ padding: '4px 10px', fontSize: '0.72rem' }}>
+              <div className="netlab-dot" />
+              <span>
+                {networkStatus?.internet_online
+                  ? `Online (${networkStatus.dns_latency_ms || '—'} ms)`
+                  : 'Offline'}
+              </span>
+            </div>
+
+            <button
+              type="button"
+              onClick={fetchNetworkStatus}
+              title="Verifica connessione di rete"
+              style={{
+                background: 'rgba(255,255,255,0.06)',
+                border: '1px solid rgba(255,255,255,0.12)',
+                borderRadius: '8px',
+                padding: '5px 10px',
+                color: '#8b949e',
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '5px',
+                fontSize: '0.72rem',
+                fontWeight: 600
+              }}
+            >
+              <RefreshCw size={12} className={statusLoading ? 'animate-spin' : ''} />
+              <span>Verifica</span>
+            </button>
           </div>
-          <div>
-            <h1 className="netlab-title">Network Lab</h1>
-            <p className="netlab-subtitle">Web Research, HTTP API Client, DNS Diagnostics & AI MCP</p>
-          </div>
-        </div>
-
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          <div className={`netlab-status-badge ${networkStatus?.internet_online ? '' : 'offline'}`}>
-            <div className="netlab-dot" />
-            <span>
-              {networkStatus?.internet_online
-                ? `Online (${networkStatus.dns_latency_ms || '—'} ms)`
-                : 'Offline'}
-            </span>
-          </div>
-
-          <button
-            type="button"
-            onClick={fetchNetworkStatus}
-            style={{
-              background: 'transparent',
-              border: '1px solid rgba(255,255,255,0.1)',
-              borderRadius: 8,
-              padding: '6px 8px',
-              color: '#8b949e',
-              cursor: 'pointer',
-            }}
-          >
-            <RefreshCw size={13} className={statusLoading ? 'animate-spin' : ''} />
-          </button>
-        </div>
-      </header>
-
-      {/* Tabs */}
-      <nav className="netlab-tabs">
-        <button
-          type="button"
-          onClick={() => setActiveTab('search')}
-          className={`netlab-tab-btn ${activeTab === 'search' ? 'active' : ''}`}
-        >
-          <Search size={14} /> Web Research
-        </button>
-
-        <button
-          type="button"
-          onClick={() => setActiveTab('http')}
-          className={`netlab-tab-btn ${activeTab === 'http' ? 'active' : ''}`}
-        >
-          <Send size={14} /> HTTP API Client
-        </button>
-
-        <button
-          type="button"
-          onClick={() => setActiveTab('dns')}
-          className={`netlab-tab-btn ${activeTab === 'dns' ? 'active' : ''}`}
-        >
-          <Database size={14} /> DNS Diagnostics
-        </button>
-
-        <button
-          type="button"
-          onClick={() => setActiveTab('ping')}
-          className={`netlab-tab-btn ${activeTab === 'ping' ? 'active' : ''}`}
-        >
-          <Activity size={14} /> Ping & Latency
-        </button>
-
-        <button
-          type="button"
-          onClick={() => setActiveTab('mcp')}
-          className={`netlab-tab-btn ${activeTab === 'mcp' ? 'active' : ''}`}
-        >
-          <Cpu size={14} /> AI Network MCP
-        </button>
-      </nav>
+        }
+      />
 
       {/* Main Content Area */}
       <main className="netlab-content">

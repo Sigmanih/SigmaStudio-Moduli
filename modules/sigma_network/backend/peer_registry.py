@@ -50,6 +50,7 @@ class PeerRegistry:
         public_key: str,
         name: str,
         models: Optional[List[str]] = None,
+        version: str = "",
     ) -> Dict[str, Any]:
         """Inserisce o aggiorna un peer in stato ``discovered``.
 
@@ -63,9 +64,12 @@ class PeerRegistry:
             if existing is not None:
                 existing["host"] = host
                 existing["port"] = port
-                existing["public_key"] = public_key
+                if public_key:
+                    existing["public_key"] = public_key
                 existing["name"] = name
                 existing["models"] = list(models) if models else []
+                if version:
+                    existing["version"] = version
                 existing["last_seen"] = now
             else:
                 peer: Dict[str, Any] = {
@@ -73,15 +77,39 @@ class PeerRegistry:
                     "name": name,
                     "host": host,
                     "port": port,
-                    "public_key": public_key,
+                    "public_key": public_key or "",
                     "state": "discovered",
                     "models": list(models) if models else [],
+                    "version": version or "1.0.0",
                     "accepting": True,
                     "last_seen": now,
                     "latency_ms": None,
                 }
                 self._peers[peer_id] = peer
             return dict(self._peers[peer_id])
+
+    def register(
+        self,
+        peer_id: str,
+        name: str,
+        host: str,
+        port: int,
+        models: Optional[List[str]] = None,
+        version: str = "",
+    ) -> Dict[str, Any]:
+        """Metodo invocato dal discovery per registrare un annuncio UDP ricevuto."""
+        with self._lock:
+            existing = self._peers.get(peer_id)
+            pub_key = existing.get("public_key", "") if existing else ""
+            return self.add_peer(
+                host=host,
+                port=port,
+                peer_id=peer_id,
+                public_key=pub_key,
+                name=name,
+                models=models,
+                version=version,
+            )
 
     def set_state(self, peer_id: str, state: str) -> Dict[str, Any]:
         """Cambia lo stato di un peer tra ``discovered``, ``trusted``, ``blocked``.
@@ -207,3 +235,80 @@ class PeerRegistry:
                     exc,
                 )
                 self._peers = {}
+
+    def get_network_map(self, local_info: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        """Restituisce la topologia completa della rete per il radar e la mappa dei peer."""
+        now = time.time()
+        local_info = local_info or {}
+        local_peer_id = local_info.get("peer_id", "local")
+
+        with self._lock:
+            peer_list = [dict(p) for p in self._peers.values()]
+
+        mapped_peers = []
+        all_models = set(local_info.get("models", []))
+        online_count = 1  # il nodo locale è sempre online
+
+        for p in peer_list:
+            if p.get("peer_id") == local_peer_id:
+                continue
+
+            last_seen = p.get("last_seen") or 0.0
+            is_online = (now - last_seen) < 120.0  # online se visto negli ultimi 2 minuti
+            latency = p.get("latency_ms")
+            if is_online and latency is None:
+                latency = 28.0  # stima default se non ancora pingato
+
+            if is_online:
+                online_count += 1
+                for m in p.get("models", []):
+                    all_models.add(m)
+
+            # Angolo fisso deterministico basato sull'hash del peer_id (0-360)
+            pid_hash = hash(p.get("peer_id", ""))
+            angle = abs(pid_hash) % 360
+
+            # Distanza dal centro basata su latenza (0.2 - 0.95)
+            effective_latency = latency if latency is not None else 150.0
+            distance_factor = min(0.95, max(0.25, effective_latency / 250.0))
+
+            mapped_peers.append({
+                "peer_id": p.get("peer_id"),
+                "name": p.get("name", "Peer"),
+                "host": p.get("host", "127.0.0.1"),
+                "port": p.get("port", 8000),
+                "state": p.get("state", "discovered"),
+                "models": p.get("models", []),
+                "version": p.get("version", "1.0.0"),
+                "accepting": p.get("accepting", True),
+                "last_seen": last_seen,
+                "latency_ms": latency,
+                "is_online": is_online,
+                "radar_angle": angle,
+                "radar_distance": distance_factor,
+            })
+
+        # Ordina per stato (trusted prima) e poi per online
+        mapped_peers.sort(key=lambda x: (x["state"] == "trusted", x["is_online"]), reverse=True)
+
+        return {
+            "local_node": {
+                "peer_id": local_peer_id,
+                "name": local_info.get("name", "Sigma Studio"),
+                "models": local_info.get("models", []),
+                "version": local_info.get("version", "0.1.0"),
+                "is_online": True,
+                "radar_angle": 0,
+                "radar_distance": 0.0,
+            },
+            "peers": mapped_peers,
+            "summary": {
+                "total_known": len(mapped_peers),
+                "online_count": online_count,
+                "trusted_count": sum(1 for p in mapped_peers if p["state"] == "trusted"),
+                "cluster_models_count": len(all_models),
+                "unique_models": sorted(list(all_models)),
+                "cluster_status": "active" if online_count > 1 else "solo",
+            },
+        }
+

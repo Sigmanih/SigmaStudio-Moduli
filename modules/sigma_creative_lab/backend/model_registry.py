@@ -247,6 +247,13 @@ MODELS: tuple[ModelSpec, ...] = (
 
     # ------------------------------------------------------------------ video
     ModelSpec(
+        id="minimax-h3", label="MiniMax H3 (video + audio)", family="minimax_h3",
+        tasks=("text_to_video", "image_to_video"), backends=("sigma_native",),
+        vram_gb=8.0, quality=5, speed=3,
+        strengths=("audio_nativo", "coerenza_temporale", "first_last_frame", "riferimenti_personaggio"),
+        notes="Worker nativo sd.cpp: pesi in RAM, gira anche su 8 GB. Genera audio stereo insieme al video.",
+    ),
+    ModelSpec(
         id="wan2.2", label="Wan 2.2", family="wan",
         tasks=("text_to_video", "image_to_video"), backends=("comfyui", "fal_ai"),
         vram_gb=16.0, quality=5, speed=2,

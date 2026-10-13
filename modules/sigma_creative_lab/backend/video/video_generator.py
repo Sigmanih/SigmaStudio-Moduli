@@ -16,8 +16,9 @@ from core.logger import get_logger
 log = get_logger("creative_video")
 
 NO_VIDEO_BACKEND = (
-    "Nessun backend video disponibile. Opzioni: ComfyUI con il workflow Wan/LTX "
-    "esportato in data/creative/workflows/, oppure una API key fal.ai."
+    "Nessun backend video disponibile. Opzioni: il worker nativo sigma-diffusion "
+    "(stable-diffusion.cpp in store/engine_runtime/sdcpp), ComfyUI con il workflow "
+    "Wan/LTX esportato in data/creative/workflows/, oppure una API key fal.ai."
 )
 
 VIDEO_EXTS = ("mp4", "webm", "gif")
@@ -73,6 +74,9 @@ class VideoGenerator:
             adapter = self.image_generator._get_adapter("comfyui")
         elif backend == "fal_ai":
             adapter = FalVideoAdapter(api_key=cfg.get("api_key", ""))
+        elif backend == "sigma_native":
+            from core.modules.sigma_creative_lab.native.adapter import NativeVideoAdapter
+            adapter = NativeVideoAdapter(cfg)
         else:
             return None
         return adapter if hasattr(adapter, capability) else None

@@ -10,6 +10,7 @@ engine is installed.
 
 from core.logger import get_logger
 from core.modules.sigma_voice_studio.tts.kokoro_engine import KokoroEngine
+from core.modules.sigma_voice_studio.tts.library_engine import LibraryEngine
 from core.modules.sigma_voice_studio.tts.xtts_engine import XttsEngine
 
 log = get_logger(__name__)
@@ -30,7 +31,9 @@ BROWSER_ENGINE = {
 
 # Ordered by preference: the first installed engine wins as default.
 _ENGINES = {}
-for engine_cls in (KokoroEngine, XttsEngine):
+# La libreria personale viene dopo Kokoro: resta un motore da scegliere in Voice
+# Studio, non il predefinito, perche' usa la GPU e il primo caricamento costa secondi.
+for engine_cls in (KokoroEngine, XttsEngine, LibraryEngine):
     instance = engine_cls()
     _ENGINES[instance.id] = instance
 

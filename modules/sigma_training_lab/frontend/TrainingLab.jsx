@@ -1,33 +1,31 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
-  BookOpen, Database, Cpu, BarChart2, Brain, Award, Hammer, Layers, Bot, Wrench, X,
+  BookOpen, Database, Cpu, BarChart2, Brain, Hammer, Layers, Bot, Wrench, X,
   Zap, Activity, CheckCircle2, ArrowRight, ShieldCheck
 } from 'lucide-react';
 import { useApp } from '../../contexts/AppContext';
-import { useModuleState } from '../../hooks/useModuleState';
-import ModuleNotInstalled from '../ModuleNotInstalled';
 import TechSpaceCanvas from '../common/TechSpaceCanvas';
+import TabHeader from '../../components/common/TabHeader';
 import TrainingDocs from './TrainingDocs';
 import DatasetBrowser from './DatasetBrowser';
 import TrainingConfigurator from './TrainingConfigurator';
 import TrainingMonitor from './TrainingMonitor';
 import TrainingStudio from './TrainingStudio';
 import AutopilotStudio from './AutopilotStudio';
-import TrainingBenchmark from './TrainingBenchmark';
 import SlmForge from './SlmForge';
 import './styles/training-lab.css';
 
 // ==============================================================================
 // TRAINING LAB — Sigma Studio v7.0
 // Main modes: Documentazione (1st) | Autopilota (2nd) | Semi-assistito (3rd) | Manuale (4th)
-// Inside Manuale: Dataset | Training | Forgia SLM | Benchmark Test | Monitor
+// Inside Manuale: Dataset | Training | Forgia SLM | Monitor
 // ==============================================================================
 
 const MAIN_MODES = [
   { id: 'docs', label: '📖 Documentazione', icon: BookOpen, desc: 'Guida completa al training' },
   { id: 'autopilot', label: '🤖 Autopilota', icon: Bot, desc: 'Scegli un modello e lascialo migliorare da solo' },
   { id: 'studio', label: '🎛️ Semi-assistito', icon: Layers, desc: 'Percorso guidato per il fine-tuning' },
-  { id: 'manual', label: '🧰 Manuale', icon: Wrench, desc: 'Dataset, Training, Forgia, Benchmark e Monitor' },
+  { id: 'manual', label: '🧰 Manuale', icon: Wrench, desc: 'Dataset, Training, Forgia SLM e Monitor' },
   { id: 'standby', label: '⚡ Moduli in Standby (6)', icon: Zap, desc: 'Funzionalità avanzate da attivare' },
 ];
 
@@ -35,7 +33,6 @@ const MANUAL_SUBMODES = [
   { id: 'dataset', label: '🗃️ Dataset', icon: Database, desc: 'HuggingFace + Import locale' },
   { id: 'training', label: '⚙️ Training', icon: Cpu, desc: 'Modello, metodo, iperparametri' },
   { id: 'forge', label: '🔨 Forgia SLM', icon: Hammer, desc: 'Modelli piccoli da zero, in italiano' },
-  { id: 'benchmark', label: '🧪 Benchmark Test', icon: Award, desc: 'Test & valutazione modelli' },
   { id: 'monitor', label: '📊 Monitor', icon: BarChart2, desc: 'Log live, loss chart, export' },
 ];
 
@@ -143,8 +140,6 @@ function Toast({ toast, onClose }) {
 
 export default function TrainingLab({ addToast: _addToast, onTasksUpdated, openTab }) {
   const { theme } = useApp();
-  const { modulesState } = useModuleState();
-  const isBenchmarkInstalled = modulesState.sigma_benchmark_lab === true;
   const [mode, setMode] = useState('docs');
   const [manualSubMode, setManualSubMode] = useState('dataset');
   const [selectedDatasetId, setSelectedDatasetId] = useState(null);
@@ -209,7 +204,7 @@ export default function TrainingLab({ addToast: _addToast, onTasksUpdated, openT
     if (onTasksUpdated) onTasksUpdated();
   };
 
-  const isManualActive = mode === 'manual' || ['dataset', 'training', 'forge', 'benchmark', 'monitor'].includes(mode);
+  const isManualActive = mode === 'manual' || ['dataset', 'training', 'forge', 'monitor'].includes(mode);
   const currentActiveTab = isManualActive ? manualSubMode : mode;
 
   const handleMainTabClick = (id) => {
@@ -234,179 +229,122 @@ export default function TrainingLab({ addToast: _addToast, onTasksUpdated, openT
 
       <Toast toast={toast} onClose={() => setToast(null)} />
 
-      {/* ── High-Tech Visual Hero Banner ── */}
-      <div style={{
-        position: 'relative',
-        zIndex: 1,
-        borderRadius: 0,
-        overflow: 'hidden',
-        padding: '24px 32px',
-        minHeight: '110px',
-        borderBottom: theme === 'light' ? '1px solid rgba(234, 88, 12, 0.35)' : '1px solid rgba(0, 210, 255, 0.25)',
-        boxShadow: theme === 'light' ? '0 8px 24px rgba(234, 88, 12, 0.08)' : '0 8px 32px rgba(0,0,0,0.4)',
-        backgroundImage: theme === 'light'
-          ? 'linear-gradient(135deg, rgba(254, 252, 247, 0.76) 0%, rgba(248, 242, 232, 0.70) 100%), url("/images/training_lab_hero.jpg")'
-          : 'linear-gradient(135deg, rgba(10, 14, 26, 0.85) 0%, rgba(14, 22, 42, 0.80) 100%), url("/images/training_lab_hero.jpg")',
-        backgroundSize: 'cover',
-        backgroundRepeat: 'no-repeat',
-        backgroundPosition: 'center center',
-        marginBottom: '20px',
-        display: 'flex',
-        flexDirection: 'column',
-        justifyContent: 'space-between',
-        gap: '16px',
-        flexShrink: 0
-      }}>
-        {/* Top Title & Subtitle with Right Action Buttons */}
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '16px', zIndex: 2 }}>
-          <div style={{ maxWidth: '680px' }}>
-            <div style={{
-              display: 'inline-flex', alignItems: 'center', gap: '6px',
-              padding: '3px 12px', borderRadius: '14px',
-              background: theme === 'light' ? 'rgba(234, 88, 12, 0.12)' : 'rgba(0, 210, 255, 0.15)', 
-              border: theme === 'light' ? '1px solid rgba(234, 88, 12, 0.35)' : '1px solid rgba(0, 210, 255, 0.35)',
-              color: theme === 'light' ? '#ea580c' : '#00d2ff', 
-              fontSize: '0.68rem', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '1px', marginBottom: '6px'
-            }}>
-              <Activity size={14} /> UNSLOTH QLORA & SLM MODEL FINE-TUNING LAB
-            </div>
-            <h1 style={{ margin: '0 0 6px 0', fontSize: '1.4rem', fontWeight: 800, color: theme === 'light' ? '#111111' : '#fff', letterSpacing: '-0.3px', textShadow: 'none' }}>
-              🎓 Training & <span style={{
-                color: theme === 'light' ? '#c2410c' : '#00d2ff',
-                fontWeight: 800
-              }}>Fine-Tuning Lab</span>
-            </h1>
-            <p style={{ margin: 0, fontSize: '0.82rem', color: theme === 'light' ? '#4b5563' : '#cbd5e0', lineHeight: 1.45 }}>
-              Ambiente integrato per l'addestramento QLoRA 4-bit, la gestione dei dataset e la valutazione dei benchmark LLM.
-            </p>
-          </div>
-
-          <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+      {/* Intestazione Universale Kernel Sigma Studio */}
+      <TabHeader
+        icon={Brain}
+        title="Training Lab"
+        highlight="QLORA & SLM FORGE"
+        tabs={MAIN_MODES.map(m => ({
+          id: m.id,
+          label: m.label.replace(/^[\p{Emoji}\s]+/u, ''),
+          icon: m.icon,
+          active: (m.id === 'manual' && isManualActive) || (m.id === mode && !isManualActive),
+          onClick: () => handleMainTabClick(m.id)
+        }))}
+        description="Ambiente per addestramento QLoRA 4-bit, SLM Forge da zero, gestione dataset e benchmark"
+        actions={
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
             <button
               onClick={() => { setMode('manual'); setManualSubMode('training'); }}
+              title="Avvia configuratore addestramento QLoRA"
               style={{
                 display: 'inline-flex',
                 alignItems: 'center',
-                gap: '6px',
-                padding: '10px 18px',
-                borderRadius: '12px',
-                background: (mode === 'manual' && manualSubMode === 'training') 
-                  ? (theme === 'light' ? '#ea580c' : '#00d2ff') 
-                  : (theme === 'light' ? '#fffdf9' : '#181b28'),
-                color: (mode === 'manual' && manualSubMode === 'training') ? (theme === 'light' ? '#fff' : '#0a0d14') : (theme === 'light' ? '#111' : '#fff'),
-                border: (mode === 'manual' && manualSubMode === 'training') ? 'none' : (theme === 'light' ? '1px solid rgba(190, 160, 110, 0.4)' : '1px solid rgba(255, 255, 255, 0.15)'),
-                fontSize: '0.82rem',
-                fontWeight: 800,
+                gap: '5px',
+                padding: '4px 10px',
+                borderRadius: '6px',
+                background: (mode === 'manual' && manualSubMode === 'training')
+                  ? (theme === 'light' ? '#ea580c' : '#00d2ff')
+                  : (theme === 'light' ? 'rgba(0,0,0,0.05)' : 'rgba(255, 255, 255, 0.08)'),
+                color: (mode === 'manual' && manualSubMode === 'training') ? '#fff' : 'inherit',
+                border: 'none',
+                fontSize: '0.72rem',
+                fontWeight: 700,
                 cursor: 'pointer'
               }}
             >
-              <Cpu size={14} /> Training QLoRA
+              <Cpu size={12} />
+              <span>Training QLoRA</span>
             </button>
             <button
               onClick={() => { setMode('manual'); setManualSubMode('dataset'); }}
+              title="Esplora dataset e forgia SLM"
               style={{
                 display: 'inline-flex',
                 alignItems: 'center',
-                gap: '6px',
-                padding: '10px 18px',
-                borderRadius: '12px',
-                background: (mode === 'manual' && manualSubMode === 'dataset') 
-                  ? (theme === 'light' ? '#ea580c' : '#00d2ff') 
-                  : (theme === 'light' ? '#fffdf9' : '#181b28'),
-                color: (mode === 'manual' && manualSubMode === 'dataset') ? (theme === 'light' ? '#fff' : '#0a0d14') : (theme === 'light' ? '#111' : '#fff'),
-                border: (mode === 'manual' && manualSubMode === 'dataset') ? 'none' : (theme === 'light' ? '1px solid rgba(190, 160, 110, 0.4)' : '1px solid rgba(255, 255, 255, 0.15)'),
-                fontSize: '0.82rem',
-                fontWeight: 800,
+                gap: '5px',
+                padding: '4px 10px',
+                borderRadius: '6px',
+                background: (mode === 'manual' && manualSubMode === 'dataset')
+                  ? (theme === 'light' ? '#ea580c' : '#00d2ff')
+                  : (theme === 'light' ? 'rgba(0,0,0,0.05)' : 'rgba(255, 255, 255, 0.08)'),
+                color: (mode === 'manual' && manualSubMode === 'dataset') ? '#fff' : 'inherit',
+                border: 'none',
+                fontSize: '0.72rem',
+                fontWeight: 700,
                 cursor: 'pointer'
               }}
             >
-              <Database size={14} /> Dataset & SLM Forge
+              <Database size={12} />
+              <span>Dataset & Forge</span>
             </button>
           </div>
-        </div>
+        }
+      />
 
-        {/* Live Telemetry Metrics Cards inside Hero (Solid Non-Transparent) */}
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '12px', zIndex: 2 }}>
+      {/* Main Workspace Body Wrapper */}
+      <div style={{ padding: '16px 24px 24px 24px', display: 'flex', flexDirection: 'column', gap: '16px', flex: 1 }}>
+        {/* Live Telemetry Metrics Cards (Compatta) */}
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '10px' }}>
           <div style={{
-            padding: '10px 14px', borderRadius: '12px',
+            padding: '8px 12px', borderRadius: '10px',
             background: theme === 'light' ? '#fffdf9' : '#121622',
             border: theme === 'light' ? '1px solid rgba(190, 160, 110, 0.32)' : '1px solid rgba(0, 210, 255, 0.3)', 
-            boxShadow: theme === 'light' ? '0 4px 14px rgba(190, 160, 110, 0.1)' : '0 4px 18px rgba(0, 210, 255, 0.1)'
+            boxShadow: theme === 'light' ? '0 2px 8px rgba(190, 160, 110, 0.08)' : '0 2px 10px rgba(0, 210, 255, 0.08)'
           }}>
-            <div style={{ fontSize: '0.65rem', color: theme === 'light' ? '#554e42' : '#8b8fa3', fontWeight: 800, textTransform: 'uppercase', marginBottom: '2px' }}>
+            <div style={{ fontSize: '0.62rem', color: theme === 'light' ? '#554e42' : '#8b8fa3', fontWeight: 800, textTransform: 'uppercase', marginBottom: '1px' }}>
               DATASET CARICATI
             </div>
-            <div style={{ fontSize: '1.05rem', fontWeight: 900, color: '#00d2ff', fontFamily: 'JetBrains Mono, monospace' }}>
+            <div style={{ fontSize: '0.95rem', fontWeight: 900, color: '#00d2ff', fontFamily: 'JetBrains Mono, monospace' }}>
               {myDatasets.length} Dataset Pronti
             </div>
-            <div style={{ fontSize: '0.65rem', color: '#6b7080', marginTop: '1px' }}>
+            <div style={{ fontSize: '0.62rem', color: '#6b7080', marginTop: '1px' }}>
               HuggingFace & JSONL locali
             </div>
           </div>
 
           <div style={{
-            padding: '10px 14px', borderRadius: '12px',
-            background: 'rgba(10, 14, 24, 0.85)', backdropFilter: 'blur(12px)',
-            border: '1px solid rgba(188, 140, 255, 0.3)', boxShadow: '0 4px 18px rgba(188, 140, 255, 0.1)'
+            padding: '8px 12px', borderRadius: '10px',
+            background: theme === 'light' ? '#fffdf9' : 'rgba(10, 14, 24, 0.85)',
+            border: '1px solid rgba(188, 140, 255, 0.3)', boxShadow: '0 2px 8px rgba(188, 140, 255, 0.08)'
           }}>
-            <div style={{ fontSize: '0.65rem', color: '#8b8fa3', fontWeight: 800, textTransform: 'uppercase', marginBottom: '2px' }}>
-              METODO ADDETRAMENTO
+            <div style={{ fontSize: '0.62rem', color: '#8b8fa3', fontWeight: 800, textTransform: 'uppercase', marginBottom: '1px' }}>
+              METODO ADDESTRAMENTO
             </div>
-            <div style={{ fontSize: '1.05rem', fontWeight: 900, color: '#bc8cff', fontFamily: 'JetBrains Mono, monospace' }}>
+            <div style={{ fontSize: '0.95rem', fontWeight: 900, color: '#bc8cff', fontFamily: 'JetBrains Mono, monospace' }}>
               Unsloth QLoRA 4-bit
             </div>
-            <div style={{ fontSize: '0.65rem', color: '#6b7080', marginTop: '1px' }}>
+            <div style={{ fontSize: '0.62rem', color: '#6b7080', marginTop: '1px' }}>
               Risparmio VRAM 70% • Gradient Checkpoint
             </div>
           </div>
 
           <div style={{
-            padding: '10px 14px', borderRadius: '12px',
-            background: 'rgba(10, 14, 24, 0.85)', backdropFilter: 'blur(12px)',
-            border: '1px solid rgba(16, 185, 129, 0.3)', boxShadow: '0 4px 18px rgba(16, 185, 129, 0.1)'
+            padding: '8px 12px', borderRadius: '10px',
+            background: theme === 'light' ? '#fffdf9' : 'rgba(10, 14, 24, 0.85)',
+            border: '1px solid rgba(16, 185, 129, 0.3)', boxShadow: '0 2px 8px rgba(16, 185, 129, 0.08)'
           }}>
-            <div style={{ fontSize: '0.65rem', color: '#8b8fa3', fontWeight: 800, textTransform: 'uppercase', marginBottom: '2px' }}>
+            <div style={{ fontSize: '0.62rem', color: '#8b8fa3', fontWeight: 800, textTransform: 'uppercase', marginBottom: '1px' }}>
               PIPELINE STATO
             </div>
-            <div style={{ fontSize: '1.05rem', fontWeight: 900, color: '#10b981', fontFamily: 'JetBrains Mono, monospace' }}>
+            <div style={{ fontSize: '0.95rem', fontWeight: 900, color: '#10b981', fontFamily: 'JetBrains Mono, monospace' }}>
               {activeJobId ? `Job ${activeJobId} ▶` : 'Pronto per Training'}
             </div>
-            <div style={{ fontSize: '0.65rem', color: '#6b7080', marginTop: '1px' }}>
+            <div style={{ fontSize: '0.62rem', color: '#6b7080', marginTop: '1px' }}>
               {selectedDs ? `✓ ${selectedDs.name}` : 'Seleziona un dataset'}
             </div>
           </div>
         </div>
-      </div>
-
-      {/* Main Workspace Body Wrapper */}
-      <div style={{ padding: '0 24px 24px 24px', display: 'flex', flexDirection: 'column', gap: '20px', flex: 1 }}>
-      <div style={{ display: 'flex', gap: '10px', borderBottom: '1px solid rgba(255, 255, 255, 0.08)', paddingBottom: '8px', flexWrap: 'wrap' }}>
-        {MAIN_MODES.map(m => {
-          const active = (m.id === 'manual' && isManualActive) || (m.id === mode && !isManualActive);
-          return (
-            <button
-              key={m.id}
-              onClick={() => handleMainTabClick(m.id)}
-              style={{
-                background: active ? 'rgba(188, 140, 255, 0.15)' : 'transparent',
-                border: active ? '1px solid rgba(188, 140, 255, 0.35)' : 'none',
-                color: active ? '#bc8cff' : '#8b8fa3',
-                padding: '8px 18px', borderRadius: '8px', cursor: 'pointer',
-                fontWeight: 700, fontSize: '0.82rem', display: 'flex', alignItems: 'center', gap: '8px',
-                transition: 'all 0.15s ease'
-              }}
-            >
-              <m.icon size={14} />
-              <span>{m.label}</span>
-              {m.id === 'manual' && (
-                <span style={{ fontSize: '0.65rem', background: 'rgba(188,140,255,0.15)', color: '#bc8cff', padding: '1px 6px', borderRadius: '10px', fontWeight: 700 }}>
-                  5 strumenti
-                </span>
-              )}
-            </button>
-          );
-        })}
-      </div>
 
       {/* ── Sub-navigation Bar per la modalità Manuale ── */}
       {isManualActive && (
@@ -479,44 +417,6 @@ export default function TrainingLab({ addToast: _addToast, onTasksUpdated, openT
 
         {isManualActive && currentActiveTab === 'forge' && (
           <SlmForge addToast={showToast} onJobCreated={handleJobCreated} />
-        )}
-
-        {isManualActive && currentActiveTab === 'benchmark' && (
-          isBenchmarkInstalled ? (
-            <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
-              <div style={{
-                background: 'rgba(0, 210, 255, 0.05)',
-                borderBottom: '1px solid rgba(0, 210, 255, 0.15)',
-                padding: '8px 16px',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'space-between',
-                fontSize: '0.7rem',
-                color: 'var(--text-dim)',
-                flexWrap: 'wrap',
-                gap: '8px',
-              }}>
-                <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                  <Award size={14} style={{ color: 'var(--primary)' }} />
-                  La suite di valutazione è ora un <b>modulo a sé stante</b> (Benchmark Lab) con workspace e MCP dedicato.
-                </span>
-                {openTab && (
-                  <button
-                    className="training-btn primary"
-                    style={{ fontSize: '0.66rem', padding: '4px 10px' }}
-                    onClick={() => openTab({ name: 'Benchmark Lab' }, 'benchmark_lab')}
-                  >
-                    Apri Modulo Dedicato ↗
-                  </button>
-                )}
-              </div>
-              <div style={{ flex: 1, overflow: 'auto' }}>
-                <TrainingBenchmark addToast={showToast} />
-              </div>
-            </div>
-          ) : (
-            <ModuleNotInstalled tabType="benchmark_lab" openTab={openTab} />
-          )
         )}
 
         {isManualActive && currentActiveTab === 'monitor' && (

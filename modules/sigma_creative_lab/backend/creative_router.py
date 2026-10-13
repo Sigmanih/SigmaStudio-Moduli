@@ -1,5 +1,6 @@
 from core.sse import sse_frame
 import json
+import os
 import asyncio
 from urllib.parse import parse_qs, urlparse
 from core.logger import get_logger
@@ -32,16 +33,27 @@ log = get_logger("creative_router")
 
 # Istanziamo i singleton per il router creativo
 def get_config():
+    # La configurazione sta in config/config.json: il vecchio percorso relativo
+    # "config.json" non esiste piu', e il Creative partiva sempre senza backend
+    # ne' token configurati.
+    from core import paths
     try:
-        with open("config.json", "r", encoding="utf-8") as f:
+        with open(paths.config_file(), "r", encoding="utf-8") as f:
             return json.load(f)
-    except Exception:
+    except Exception as e:
+        log.warning(f"Configurazione non leggibile ({paths.config_file()}): {e}")
         return {}
 
 def save_config(cfg):
+    from core import paths
+    target = paths.config_file()
     try:
-        with open("config.json", "w", encoding="utf-8") as f:
+        # Scrittura atomica: un crash a meta' lascerebbe un config.json troncato,
+        # e con lui tutte le credenziali dell'installazione.
+        tmp = target.with_suffix(".json.tmp")
+        with open(tmp, "w", encoding="utf-8") as f:
             json.dump(cfg, f, indent=2)
+        os.replace(tmp, target)
     except Exception as e:
         log.error(f"Errore salvataggio config: {e}")
 
@@ -63,7 +75,7 @@ pipeline_engine = CreativePipelineEngine(asset_graph, model_router, blender_brid
 register_creative_agents()
 
 
-def _send_creative_send_creative_sse(self, payload: dict):
+def _send_creative_sse(self, payload: dict):
     """Invia un evento SSE se la richiesta è in streaming."""
     if hasattr(self, "sse_queue"):
         self.sse_queue.put(sse_frame(payload).decode("utf-8"))
@@ -73,7 +85,7 @@ def _fail(self, err: Exception, context: str, status: int = 500):
     """Log + risposta JSON + evento SSE con lo stesso messaggio d'errore."""
     log.error(f"Errore {context}: {err}")
     self.send_json_response({"success": False, "error": str(err)}, status)
-    _send_creative_send_creative_sse(self, {"status": "error", "error": str(err)})
+    _send_creative_sse(self, {"status": "error", "error": str(err)})
 
 
 def handle_creative_assets(self):
@@ -278,7 +290,8 @@ def handle_creative_backends_config(self):
                     cfg["creative"]["backends"][backend_name] = {}
                 cfg["creative"]["backends"][backend_name].update(backend_cfg)
                 
-        for key in ("default_output_dir", "auto_route", "max_resolution", "default_format"):
+        for key in ("default_output_dir", "auto_route", "max_resolution", "default_format",
+                    "hf_token", "civitai_token"):
             if key in data:
                 cfg["creative"][key] = data[key]
 

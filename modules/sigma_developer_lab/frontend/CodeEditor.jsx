@@ -70,7 +70,12 @@ export default function CodeEditor({
   const [imageZoom, setImageZoom] = useState(1);
   const textareaRef = useRef(null);
 
-  const activeFile = openFiles.find(f => f.path === activeFilePath) || openFiles[0];
+  const norm = (p) => String(p || '').replace(/\\/g, '/').toLowerCase();
+  const activeFile = openFiles.find(f => 
+    norm(f.path) === norm(activeFilePath) || 
+    norm(f.path).endsWith(norm(activeFilePath)) || 
+    norm(activeFilePath).endsWith(norm(f.path))
+  ) || openFiles[0];
 
   // Auto-switch to diff view if activeDiff is provided
   useEffect(() => {
@@ -207,7 +212,7 @@ export default function CodeEditor({
         gap: '4px'
       }}>
         {openFiles.map(file => {
-          const isActive = file.path === activeFilePath;
+          const isActive = activeFile && norm(file.path) === norm(activeFile.path);
           const isDirty = file.dirty;
           return (
             <div

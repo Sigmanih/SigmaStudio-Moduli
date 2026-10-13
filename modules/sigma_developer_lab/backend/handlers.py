@@ -270,8 +270,11 @@ async def handle_agent_chat(request: Request):
     thinking = False if thinking is None else bool(thinking)
     # A real development goal needs many more tool round-trips than a chat
     # answer: read, edit, re-read, test, fix. Capping at a handful of turns is
-    # what made the agent stop half-way through its own plan.
-    max_turns = max(1, min(int(body.get("max_turns") or 30), 100))
+    req_turns = body.get("max_turns")
+    if req_turns is not None and int(req_turns) > 0:
+        max_turns = min(int(req_turns), 1000)
+    else:
+        max_turns = 500
     # L'identificativo di sessione lega il run allo stato salvato su disco:
     # senza, ogni richiesta riparte da un ledger vuoto e l'agente rilegge
     # quello che aveva gia' letto un minuto prima.

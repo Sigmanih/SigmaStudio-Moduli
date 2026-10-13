@@ -439,7 +439,26 @@ def _detect_model_config(local_path: str) -> Dict[str, Any]:
 
 def _find_benchmark_for_model(local_path: str, repo_id: str,
                               model_id: Optional[str] = None) -> Optional[Dict[str, Any]]:
-    """Recupera il referto dei benchmark ufficiali del modello da sigma_benchmark_lab o training_lab."""
+    """Recupera il referto dei benchmark ufficiali del modello da training_lab o benchmark_lab."""
+    # 1. Prova prima con scores_for_model del Training Lab (gestisce normalizzazioni canoniche e per-suite)
+    try:
+        from core.modules.sigma_training_lab.training.model_scores import scores_for_model
+        for q in [local_path, repo_id, model_id, os.path.basename(local_path.rstrip("/\\"))]:
+            if not q:
+                continue
+            ref = scores_for_model(q, include_suites=True)
+            if ref and ref.get("has_benchmarks"):
+                return ref
+            # Prova con lo slug isolato (es. 'Qwen3.8-27B-GGUF-Q4_K_S' senza prefisso autore)
+            slug = str(q).replace("\\", "/").rstrip("/").split("/")[-1].split("--")[-1]
+            if slug and slug != q:
+                ref = scores_for_model(slug, include_suites=True)
+                if ref and ref.get("has_benchmarks"):
+                    return ref
+    except Exception as err:
+        log.debug("scores_for_model non disponibile: %s", err)
+
+    # 2. Ricerca nei job di benchmark_lab con supporto slug e matching bidirezionale
     try:
         from core.modules.sigma_benchmark_lab.benchmarks import list_benchmark_jobs
         from core.modules.sigma_benchmark_lab import benchmark_store as store
@@ -448,16 +467,21 @@ def _find_benchmark_for_model(local_path: str, repo_id: str,
         return None
 
     import re as _re
-    candidati = {
-        repo_id.lower(),
-        os.path.basename(local_path.rstrip("/\\")).lower(),
-        os.path.basename(local_path.rstrip("/\\")).replace("--", "/").lower(),
-    }
-    if model_id:
-        mid = model_id.lower()
-        candidati.add(mid)
-        candidati.add(mid.replace("/", "--"))
-        candidati.add(mid.replace("--", "/"))
+    candidati = set()
+    for raw in [repo_id, local_path, model_id]:
+        if not raw:
+            continue
+        s = str(raw).strip().lower().replace("\\", "/")
+        base = os.path.basename(s.rstrip("/"))
+        candidati.add(s)
+        candidati.add(base)
+        candidati.add(base.replace("--", "/"))
+        candidati.add(base.replace("/", "--"))
+        if "--" in base:
+            candidati.add(base.split("--")[-1])
+        if "/" in s:
+            candidati.add(s.split("/")[-1])
+
     for c in list(candidati):
         c_clean = _re.sub(r"-gguf(-[a-z0-9_]+)?$", "", c)
         c_clean = _re.sub(r"[.]gguf$", "", c_clean)
@@ -471,8 +495,9 @@ def _find_benchmark_for_model(local_path: str, repo_id: str,
         m_name = (j.get("model") or "").lower()
         if m_name.startswith("sigma:"):
             m_name = m_name[6:]
-        m_base = os.path.basename(m_name)
-        if any(c in m_name or m_name in c or c in m_base for c in candidati if c):
+        m_base = os.path.basename(m_name.rstrip("/\\"))
+        m_slug = m_base.split("--")[-1].split("/")[-1]
+        if any(c in m_name or m_name in c or c in m_base or m_base in c or c in m_slug or m_slug in c for c in candidati if c):
             matching_jobs.append(j)
 
     if not matching_jobs:
@@ -529,7 +554,39 @@ def _find_benchmark_for_model(local_path: str, repo_id: str,
 
 def _find_protocol_benchmark_for_model(local_path: str, repo_id: str,
                                        model_id: Optional[str] = None) -> Optional[Dict[str, Any]]:
-    """Recupera il referto del benchmark di aderenza al protocollo dei tool da sigma_benchmark_lab."""
+    """Recupera il referto del benchmark di aderenza al protocollo dei tool da sigma_benchmark_lab o training_lab."""
+    try:
+        from core.modules.sigma_training_lab.training.model_scores import scores_for_model
+        for q in [local_path, repo_id, model_id, os.path.basename(local_path.rstrip("/\\"))]:
+            if not q:
+                continue
+            ref = scores_for_model(q, include_suites=False)
+            if ref and ref.get("has_tool_benchmark"):
+                return {
+                    "results": {
+                        "punteggio": ref.get("tool_score", 0.0),
+                        "superati": ref.get("tool_passed", 0),
+                        "totali": ref.get("tool_total", 0),
+                        "turni": ref.get("tool_turns", 0),
+                    },
+                    "job_id": ref.get("tool_job_id"),
+                }
+            slug = str(q).replace("\\", "/").rstrip("/").split("/")[-1].split("--")[-1]
+            if slug and slug != q:
+                ref = scores_for_model(slug, include_suites=False)
+                if ref and ref.get("has_tool_benchmark"):
+                    return {
+                        "results": {
+                            "punteggio": ref.get("tool_score", 0.0),
+                            "superati": ref.get("tool_passed", 0),
+                            "totali": ref.get("tool_total", 0),
+                            "turni": ref.get("tool_turns", 0),
+                        },
+                        "job_id": ref.get("tool_job_id"),
+                    }
+    except Exception as err:
+        log.debug("Verifica tool benchmark da scores_for_model fallita: %s", err)
+
     try:
         from core.modules.sigma_benchmark_lab.protocol_runner import list_protocol_history
     except Exception as err:
@@ -537,16 +594,21 @@ def _find_protocol_benchmark_for_model(local_path: str, repo_id: str,
         return None
 
     import re as _re
-    candidati = {
-        repo_id.lower(),
-        os.path.basename(local_path.rstrip("/\\")).lower(),
-        os.path.basename(local_path.rstrip("/\\")).replace("--", "/").lower(),
-    }
-    if model_id:
-        mid = model_id.lower()
-        candidati.add(mid)
-        candidati.add(mid.replace("/", "--"))
-        candidati.add(mid.replace("--", "/"))
+    candidati = set()
+    for raw in [repo_id, local_path, model_id]:
+        if not raw:
+            continue
+        s = str(raw).strip().lower().replace("\\", "/")
+        base = os.path.basename(s.rstrip("/"))
+        candidati.add(s)
+        candidati.add(base)
+        candidati.add(base.replace("--", "/"))
+        candidati.add(base.replace("/", "--"))
+        if "--" in base:
+            candidati.add(base.split("--")[-1])
+        if "/" in s:
+            candidati.add(s.split("/")[-1])
+
     for c in list(candidati):
         c_clean = _re.sub(r"-gguf(-[a-z0-9_]+)?$", "", c)
         c_clean = _re.sub(r"[.]gguf$", "", c_clean)
@@ -560,8 +622,9 @@ def _find_protocol_benchmark_for_model(local_path: str, repo_id: str,
         m = (item.get("model") or "").lower()
         if m.startswith("sigma:"):
             m = m[6:]
-        m_base = os.path.basename(m)
-        if any(c in m or m in c or c in m_base for c in candidati if c):
+        m_base = os.path.basename(m.rstrip("/\\"))
+        m_slug = m_base.split("--")[-1].split("/")[-1]
+        if any(c in m or m in c or c in m_base or m_base in c or c in m_slug or m_slug in c for c in candidati if c):
             res = item.get("results") or {}
             if res and res.get("totali", 0) > 0:
                 matching.append(item)
@@ -569,7 +632,6 @@ def _find_protocol_benchmark_for_model(local_path: str, repo_id: str,
     if not matching:
         return None
 
-    # Prendi quello con punteggio maggiore o più recente
     return max(matching, key=lambda x: (x.get("results", {}).get("punteggio", 0.0), x.get("created_at", "")))
 
 
@@ -1508,7 +1570,8 @@ def update_model_card(local_ref: str, repo_id: Optional[str] = None,
         return {"success": False, "error": "Token Hugging Face mancante"}
 
     testo = card
-    if testo is None:
+    include_bm = bool(card_options.get("include_benchmarks", True))
+    if testo is None or (include_bm and "Official Benchmark Performance" not in str(testo)):
         testo = generate_model_card(local_ref, destinazione, model_id=model_id, **card_options)
     if not str(testo).strip():
         return {"success": False, "error": "La scheda è vuota"}
@@ -1537,6 +1600,165 @@ def update_model_card(local_ref: str, repo_id: Optional[str] = None,
     return {"success": True, "repo_id": destinazione,
             "url": f"https://huggingface.co/{destinazione}",
             "characters": len(str(testo))}
+
+
+def batch_update_all_cards(token: Optional[str] = None,
+                           models: Optional[List[Dict[str, Any]]] = None) -> Dict[str, Any]:
+    """Riscrive e aggiorna le schede (README.md) di tutti i modelli pubblicati su Hugging Face.
+
+    Recupera tutti i modelli locali già pubblicati su HF (tramite il registro
+    delle pubblicazioni ed eventuale discovery), rigenera per ciascuno la scheda
+    completa con i benchmark ufficiali aggiornati, metriche hardware correnti,
+    tag e descrizioni bilingue, ed esegue un commit su Hugging Face.
+    Questo fa riapparire i modelli fra i primi aggiornati su HF e ne stimola la
+    visibilità e i download.
+    """
+    from core.modules.sigma_model_hub.backend import publications
+    from core.modules.sigma_model_hub.backend.model_inventory import scan_local_models
+
+    local_models = models if models is not None else scan_local_models()
+
+    # 1. Prova a scoprire automaticamente eventuali repository HF corrispondenti non ancora collegati
+    try:
+        disc = discover_publications(local_models, token=token)
+        for prop in disc.get("proposte") or []:
+            if prop.get("repo_id") and prop.get("local_ref"):
+                publications.record_publication(
+                    prop["local_ref"], prop["repo_id"], prop.get("url", "")
+                )
+    except Exception as disc_err:
+        log.debug("Auto-discovery preliminare saltata o non riuscita: %s", disc_err)
+
+    # 2. Raccoglie tutti i modelli pubblicati da noi con un repo_id valido
+    tutte_pub = publications.all_publications()
+
+    our_namespaces = {"sigmanih"}
+    try:
+        from core.modules.sigma_model_hub.backend.uploader_engine import uploader_manager
+        who = uploader_manager.get_whoami(token=token)
+        if who.get("authenticated") and who.get("username"):
+            our_namespaces.add(who["username"].lower())
+            for o in who.get("orgs") or []:
+                if isinstance(o, str):
+                    our_namespaces.add(o.lower())
+                elif isinstance(o, dict) and o.get("name"):
+                    our_namespaces.add(o["name"].lower())
+    except Exception:
+        pass
+
+    # Mappa i modelli locali per identificativo / path / filename per estrarne le info recenti
+    loc_by_key: Dict[str, Dict[str, Any]] = {}
+    for m in local_models:
+        for k in (m.get("path"), m.get("model_id"), m.get("filename"), m.get("clean_name")):
+            if k:
+                loc_by_key[str(k).strip().lower()] = m
+                loc_by_key[str(k).replace("--", "/").strip().lower()] = m
+
+    # Raccogli target da aggiornare (univoci per repo_id, solo repos di nostra proprietà)
+    targets: Dict[str, Dict[str, Any]] = {}
+    for k, v in tutte_pub.items():
+        if not isinstance(v, dict):
+            continue
+        repo_id = (v.get("repo_id") or "").strip()
+        if not repo_id or "/" not in repo_id:
+            continue
+        owner = repo_id.split("/")[0].lower()
+        if owner not in our_namespaces:
+            continue
+        local_ref = v.get("local_ref") or k
+
+        # Trova il modello locale associato se esiste
+        matched_model = (
+            loc_by_key.get(str(local_ref).strip().lower())
+            or loc_by_key.get(str(k).strip().lower())
+            or loc_by_key.get(repo_id.split("/")[-1].lower())
+            or {}
+        )
+
+        targets[repo_id] = {
+            "repo_id": repo_id,
+            "local_ref": local_ref,
+            "model_id": matched_model.get("model_id") or repo_id.split("/")[-1],
+            "clean_name": matched_model.get("clean_name") or "",
+            "benchmark_summary": matched_model.get("benchmark_summary") or None,
+            "path": matched_model.get("path") or local_ref,
+        }
+
+    # Se ci sono modelli locali con publication che non erano nel registro principale
+    for m in local_models:
+        pub = m.get("publication")
+        if isinstance(pub, dict) and pub.get("repo_id"):
+            rid = pub["repo_id"].strip()
+            if rid and rid not in targets:
+                targets[rid] = {
+                    "repo_id": rid,
+                    "local_ref": m.get("path") or m.get("model_id") or m.get("filename"),
+                    "model_id": m.get("model_id") or rid.split("/")[-1],
+                    "clean_name": m.get("clean_name") or "",
+                    "benchmark_summary": m.get("benchmark_summary") or None,
+                    "path": m.get("path") or m.get("filename"),
+                }
+
+    if not targets:
+        return {
+            "success": True,
+            "total_found": 0,
+            "updated_count": 0,
+            "error_count": 0,
+            "updated": [],
+            "errors": [],
+            "message": "Nessun modello risulta attualmente pubblicato o collegato a Hugging Face."
+        }
+
+    updated = []
+    errors = []
+
+    for repo_id, info in targets.items():
+        try:
+            res = update_model_card(
+                info["local_ref"],
+                repo_id=repo_id,
+                token=token,
+                model_id=info["model_id"],
+                include_benchmarks=True,
+                include_hardware=True,
+                benchmark_summary=info["benchmark_summary"],
+            )
+            if res.get("success"):
+                updated.append({
+                    "repo_id": repo_id,
+                    "model_id": info["model_id"],
+                    "url": res.get("url") or f"https://huggingface.co/{repo_id}",
+                    "characters": res.get("characters", 0),
+                })
+            else:
+                errors.append({
+                    "repo_id": repo_id,
+                    "model_id": info["model_id"],
+                    "error": res.get("error") or "Errore sconosciuto",
+                })
+        except Exception as e:
+            errors.append({
+                "repo_id": repo_id,
+                "model_id": info["model_id"],
+                "error": str(e),
+            })
+
+    total_up = len(updated)
+    total_err = len(errors)
+    msg = f"Aggiornati con successo {total_up} modelli su Hugging Face con benchmark e specifiche recenti."
+    if total_err > 0:
+        msg += f" ({total_err} errori riscontrati)."
+
+    return {
+        "success": total_up > 0 or total_err == 0,
+        "total_found": len(targets),
+        "updated_count": total_up,
+        "error_count": total_err,
+        "updated": updated,
+        "errors": errors,
+        "message": msg,
+    }
 
 
 def rename_hf_repo(from_id: str, to_id: str,

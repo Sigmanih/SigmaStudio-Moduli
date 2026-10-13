@@ -1,5 +1,5 @@
 {
-  "id": "audio_studio",
+  "id": "sigma_audio_studio",
   "name": "Hi-Fi Sound & FM Radio Studio",
   "version": "1.0.0",
   "category": "Audio & Streaming",
@@ -7,7 +7,7 @@
   "color": "#00f2fe",
   "tabType": "music",
   "description": "Modulo ufficiale open-source di streaming audio Hi-Fi con dirette radiofoniche FM nazionali (Mediaset, Rai, Gruppo 24 ORE, Kiss Kiss, Global UK), motore YouTube Live, lettore MP3 locale e generatore DSP 432Hz.",
-  "repository": "https://github.com/Sigmanih/SigmaStudio-Moduli/tree/main/modules/sigma_audio_studio",
+  "repository": "https://github.com/Sigmanih/SigmaStudio-Moduli",
   "author": "Sigma Core Team",
   "license": "MIT",
   "tags": [
@@ -19,7 +19,6 @@
     "Audiophile"
   ],
   "frontend": {
-    "entrypoint": "frontend/index.js",
     "components": {
       "Tab": "frontend/AudioStudioTab.jsx",
       "FloatingWidget": "frontend/AudioFloatingWidget.jsx",
@@ -34,5 +33,7 @@
       "/api/modules/audio_studio/stations",
       "/api/modules/audio_studio/recommendations"
     ]
-  }
+  },
+  "branch": "main",
+  "path": "modules/sigma_audio_studio"
 }

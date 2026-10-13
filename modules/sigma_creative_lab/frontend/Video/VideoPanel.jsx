@@ -15,8 +15,9 @@ export default function VideoPanel({ asset, assets = [], busy, canVideo, onVideo
         <div className="cs-banner warn">
           <AlertTriangle size={16} />
           <span>
-            Nessun backend video attivo. Servono ComfyUI con il workflow Wan/LTX esportato
-            in <code>data/creative/workflows/</code>, oppure una API key fal.ai.
+            Nessun backend video attivo. Servono il worker nativo sigma-diffusion
+            (stable-diffusion.cpp in <code>store/engine_runtime/sdcpp</code>), ComfyUI con il
+            workflow Wan/LTX esportato in <code>works/creative/workflows/</code>, oppure una API key fal.ai.
           </span>
         </div>
       )}

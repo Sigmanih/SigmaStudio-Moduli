@@ -168,12 +168,14 @@ def handle_benchmark_endpoint_remove(self):
 def handle_benchmark_run(self):
     from core.modules.sigma_benchmark_lab.benchmarks import start_benchmark_run
     body = self.read_json_body()
+    thinking_mode = body.get("thinking_mode") or body.get("thinking") or "auto"
     job = start_benchmark_run(
         model_name=body.get("model", "qwen2.5-coder:14b"),
         suite_id=body.get("suite", "all"),
         num_samples=int(body.get("samples", 0)),
         mode=body.get("mode", "full"),
         concurrency=body.get("concurrency", "auto"),
+        thinking_mode=thinking_mode,
     )
     self.send_json_response({"success": True, "job": job})
 
@@ -187,6 +189,7 @@ def handle_benchmark_extend(self):
         additional_suite=body.get("suite", ""),
         mode=body.get("mode", "sample"),
         concurrency=body.get("concurrency", "auto"),
+        thinking_mode=body.get("thinking_mode"),
     )
     self.send_json_response(res)
 
@@ -241,6 +244,59 @@ def handle_benchmark_download(self):
     self.send_json_response(download_suite(body.get("suite", "all"), limit=limit))
 
 
+def handle_benchmark_protocol_scenarios(self):
+    from core.modules.sigma_benchmark_lab.protocol_runner import get_protocol_scenarios
+    self.send_json_response({"success": True, "scenarios": get_protocol_scenarios()})
+
+
+def handle_benchmark_protocol_run(self):
+    from core.modules.sigma_benchmark_lab.protocol_runner import start_protocol_bench
+    body = self.read_json_body()
+    model = body.get("model", "")
+    if not model:
+        return self.send_json_response({"success": False, "error": "Parametro 'model' mancante"}, 400)
+    scenarios = body.get("scenarios")
+    livello = body.get("livello")
+    if livello is not None:
+        try:
+            livello = int(livello)
+        except (ValueError, TypeError):
+            livello = None
+    self.send_json_response(start_protocol_bench(model_name=model, scenarios=scenarios, livello=livello))
+
+
+def handle_benchmark_protocol_status(self):
+    from core.modules.sigma_benchmark_lab.protocol_runner import get_protocol_status
+    job_id = _query(self, "job_id") or _query(self, "id") or None
+    self.send_json_response({"success": True, "job": get_protocol_status(job_id)})
+
+
+def handle_benchmark_protocol_cancel(self):
+    from core.modules.sigma_benchmark_lab.protocol_runner import cancel_protocol_bench
+    body = self.read_json_body()
+    job_id = body.get("job_id") or body.get("id") or ""
+    if not job_id:
+        return self.send_json_response({"success": False, "error": "Parametro 'job_id' mancante"}, 400)
+    ok = cancel_protocol_bench(job_id)
+    self.send_json_response({"success": ok})
+
+
+def handle_benchmark_protocol_delete(self):
+    from core.modules.sigma_benchmark_lab.protocol_runner import delete_protocol_job
+    body = self.read_json_body()
+    job_id = body.get("job_id") or body.get("id") or ""
+    if not job_id:
+        return self.send_json_response({"success": False, "error": "Parametro 'job_id' o 'id' mancante"}, 400)
+    ok = delete_protocol_job(job_id)
+    self.send_json_response({"success": ok})
+
+
+def handle_benchmark_protocol_history(self):
+    from core.modules.sigma_benchmark_lab.protocol_runner import list_protocol_history
+    self.send_json_response({"success": True, "history": list_protocol_history()})
+
+
+
 # ---------------------------------------------------------------- route tables
 
 GET_ROUTES = {
@@ -254,6 +310,9 @@ GET_ROUTES = {
     "/api/benchmark/capacity": handle_benchmark_capacity,
     "/api/benchmark/capacity/status": handle_benchmark_capacity_status,
     "/api/benchmark/endpoints": handle_benchmark_endpoints,
+    "/api/benchmark/protocol/scenarios": handle_benchmark_protocol_scenarios,
+    "/api/benchmark/protocol/status": handle_benchmark_protocol_status,
+    "/api/benchmark/protocol/history": handle_benchmark_protocol_history,
     # Alias retrocompatibili
     "/api/training/benchmark/models": handle_benchmark_models,
     "/api/training/benchmark/jobs": handle_benchmark_jobs,
@@ -264,6 +323,9 @@ GET_ROUTES = {
     "/api/training/benchmark/capacity": handle_benchmark_capacity,
     "/api/training/benchmark/capacity/status": handle_benchmark_capacity_status,
     "/api/training/benchmark/endpoints": handle_benchmark_endpoints,
+    "/api/training/benchmark/protocol/scenarios": handle_benchmark_protocol_scenarios,
+    "/api/training/benchmark/protocol/status": handle_benchmark_protocol_status,
+    "/api/training/benchmark/protocol/history": handle_benchmark_protocol_history,
 }
 
 POST_ROUTES = {
@@ -281,6 +343,9 @@ POST_ROUTES = {
     "/api/benchmark/endpoints/stop": handle_benchmark_endpoint_stop,
     "/api/benchmark/endpoints/add": handle_benchmark_endpoint_add,
     "/api/benchmark/endpoints/remove": handle_benchmark_endpoint_remove,
+    "/api/benchmark/protocol/run": handle_benchmark_protocol_run,
+    "/api/benchmark/protocol/cancel": handle_benchmark_protocol_cancel,
+    "/api/benchmark/protocol/delete": handle_benchmark_protocol_delete,
     # Alias retrocompatibili
     "/api/training/benchmark/run": handle_benchmark_run,
     "/api/training/benchmark/extend": handle_benchmark_extend,
@@ -295,6 +360,9 @@ POST_ROUTES = {
     "/api/training/benchmark/endpoints/stop": handle_benchmark_endpoint_stop,
     "/api/training/benchmark/endpoints/add": handle_benchmark_endpoint_add,
     "/api/training/benchmark/endpoints/remove": handle_benchmark_endpoint_remove,
+    "/api/training/benchmark/protocol/run": handle_benchmark_protocol_run,
+    "/api/training/benchmark/protocol/cancel": handle_benchmark_protocol_cancel,
+    "/api/training/benchmark/protocol/delete": handle_benchmark_protocol_delete,
 }
 
 

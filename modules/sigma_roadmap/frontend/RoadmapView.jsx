@@ -1,10 +1,11 @@
-﻿import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { 
   Plus, Edit, PlusCircle, CheckCircle2, Clock, ChevronRight, ChevronLeft, Trash2, 
   AlertCircle, Filter, X, FileText, BookOpen, Terminal, PieChart, Calendar, History,
   ListTodo, Activity, Check, Sparkles, Search, FileCode, Tag, User, Cpu, RefreshCw, Layers
 } from 'lucide-react';
 import { useApp } from '../../contexts/AppContext';
+import TabHeader from '../../components/common/TabHeader';
 
 // â”€â”€ Shared style tokens (crema / dark) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 const getThemeTokens = (isLight) => ({
@@ -165,147 +166,73 @@ export default function RoadmapView({ tasks, onEdit, onAdd, onDelete, onToggleSt
   };
 
   return (
-    <div className="roadmap-view" style={{ height: '100%', display: 'flex', flexDirection: 'column', padding: 0, background: T.bg, color: T.text, boxSizing: 'border-box', overflow: 'hidden' }}>
-      
-      {/* Hero Visual Banner with Standardized Theme System & Dimensions */}
-      <div style={{
-        position: 'relative',
-        borderRadius: 0,
-        overflow: 'hidden',
-        padding: '24px 32px',
-        minHeight: '110px',
-        borderBottom: theme === 'light' ? '1px solid rgba(234, 88, 12, 0.35)' : '1px solid rgba(0, 210, 255, 0.25)',
-        boxShadow: theme === 'light' ? '0 8px 24px rgba(234, 88, 12, 0.08)' : '0 8px 32px rgba(0,0,0,0.4)',
-        backgroundImage: theme === 'light'
-          ? 'linear-gradient(135deg, rgba(254, 252, 247, 0.76) 0%, rgba(248, 242, 232, 0.70) 100%), url("/images/roadmap_plan_banner.jpg")'
-          : 'linear-gradient(135deg, rgba(10, 14, 26, 0.85) 0%, rgba(14, 22, 42, 0.80) 100%), url("/images/roadmap_plan_banner.jpg")',
-        backgroundSize: 'cover',
-        backgroundRepeat: 'no-repeat',
-        backgroundPosition: 'center center',
-        marginBottom: '20px',
-        flexShrink: 0
-      }}>
-        <div style={{ position: 'relative', zIndex: 2, display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '16px' }}>
-          <div style={{ maxWidth: '680px' }}>
-            <div style={{
-              display: 'inline-flex', alignItems: 'center', gap: '6px',
-              padding: '3px 12px', borderRadius: '14px',
-              background: theme === 'light' ? 'rgba(234, 88, 12, 0.12)' : 'rgba(0, 210, 255, 0.15)', 
-              border: theme === 'light' ? '1px solid rgba(234, 88, 12, 0.35)' : '1px solid rgba(0, 210, 255, 0.35)',
-              color: theme === 'light' ? '#ea580c' : '#00d2ff', 
-              fontSize: '0.68rem', fontWeight: 800, letterSpacing: '1px', textTransform: 'uppercase', marginBottom: '6px'
-            }}>
-              <Calendar size={14} /> SYSTEM ROADMAP & DEVELOPMENT MILESTONES
-            </div>
-            <h1 style={{ margin: '0 0 6px 0', fontSize: '1.4rem', fontWeight: 800, color: theme === 'light' ? '#111111' : '#fff', letterSpacing: '-0.3px', textShadow: 'none' }}>
-              ðŸ—“ï¸ Pianificazione & <span style={{
-                color: theme === 'light' ? '#c2410c' : '#00d2ff',
-                fontWeight: 800
-              }}>Roadmap di Sviluppo</span>
-            </h1>
-            <p style={{ margin: 0, fontSize: '0.82rem', color: theme === 'light' ? '#4b5563' : '#cbd5e0', lineHeight: 1.45 }}>
-              Calendario AttivitÃ , Kanban Task, Registro Modifiche AI e Controllo Esecuzioni.
-            </p>
-          </div>
-
-          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+    <div style={{ width: '100%', height: '100%', display: 'flex', flexDirection: 'column', overflowY: 'auto' }}>
+      {/* Intestazione Universale Kernel Sigma Studio con Sub-Tab Switcher */}
+      <TabHeader
+        icon={Activity}
+        title="Pianificazione & Task"
+        highlight="ROADMAP & KANBAN"
+        tabs={[
+          { id: 'calendar', label: 'Calendario & Timeline', icon: Calendar, active: activeTab === 'calendar', onClick: () => setActiveTab('calendar') },
+          { id: 'kanban', label: `Gestione Task (${tasks.length})`, icon: ListTodo, active: activeTab === 'kanban', onClick: () => setActiveTab('kanban') },
+          { id: 'audit', label: `Registro Modifiche (${auditLogs.length})`, icon: History, active: activeTab === 'audit', onClick: () => setActiveTab('audit') }
+        ]}
+        description="Pianificazione milestone, kanban board interattivo e cronologia delle attività del sistema"
+        actions={
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
             {tasks.length > 1 && (
               <button 
                 onClick={() => {
-                  if (confirm(`Eliminare TUTTI i ${tasks.length} task? Opera irreversibile.`)) {
+                  if (confirm(`Eliminare TUTTI i ${tasks.length} task? Operazione irreversibile.`)) {
                     onClearAll && onClearAll();
                   }
                 }} 
+                title="Elimina tutti i task"
                 style={{
-                  display: 'flex', alignItems: 'center', gap: '6px', padding: '10px 16px', borderRadius: '12px',
-                  fontSize: '0.82rem', fontWeight: 800, background: 'rgba(255,85,85,0.15)', border: '1px solid rgba(255,85,85,0.35)',
+                  display: 'flex', alignItems: 'center', gap: '5px', padding: '4px 10px', borderRadius: '6px',
+                  fontSize: '0.72rem', fontWeight: 700, background: 'rgba(255,85,85,0.15)', border: '1px solid rgba(255,85,85,0.35)',
                   color: '#ff5555', cursor: 'pointer'
                 }}
               >
-                <Trash2 size={15} /> Cancella Tutti
+                <Trash2 size={12} /> Cancella Tutti
               </button>
             )}
             <button 
               onClick={onAdd} 
+              title="Crea un nuovo task"
               style={{
-                display: 'flex', alignItems: 'center', gap: '6px', padding: '10px 18px', borderRadius: '12px',
-                fontSize: '0.82rem', fontWeight: 800, background: 'linear-gradient(135deg, #00d2ff, #0072ff)',
-                border: 'none', color: '#fff', cursor: 'pointer', boxShadow: '0 4px 14px rgba(0,210,255,0.25)'
+                display: 'flex', alignItems: 'center', gap: '5px', padding: '4px 12px', borderRadius: '6px',
+                fontSize: '0.72rem', fontWeight: 800, background: 'linear-gradient(135deg, #00d2ff, #0072ff)',
+                border: 'none', color: '#fff', cursor: 'pointer', boxShadow: '0 2px 8px rgba(0,210,255,0.25)'
               }}
             >
-              <Plus size={16} /> Nuovo Task
+              <Plus size={13} /> Nuovo Task
             </button>
           </div>
-        </div>
-      </div>
+        }
+      />
 
       {/* Main Workspace Body Wrapper */}
-      <div style={{ padding: '0 24px 16px 24px', display: 'flex', flexDirection: 'column', gap: '12px', flex: 1, minHeight: 0 }}>
+      <div style={{ padding: '16px 24px 16px 24px', display: 'flex', flexDirection: 'column', gap: '12px', flex: 1, minHeight: 0 }}>
 
-      {/* 2. STATS WIDGETS BAR â€” COMPACT & MODERN */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: '8px', marginBottom: '8px', flexShrink: 0 }}>
-        <div style={{ background: T.cardBg, border: `1px solid ${T.border}`, borderRadius: '10px', padding: '10px 14px', display: 'flex', alignItems: 'center', gap: '10px', boxShadow: '0 2px 8px rgba(0,0,0,0.08)' }}>
-          <span style={{ fontSize: '1.4rem' }}>ðŸ“‹</span>
-          <div><span style={{ fontSize: '0.62rem', color: T.muted, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px', display: 'block' }}>Totale</span><span style={{ fontSize: '1.2rem', fontWeight: 700, color: T.text }}>{stats.total}</span></div>
+      {/* 2. STATS WIDGETS BAR — COMPACT & MODERN */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: '8px', marginBottom: '4px', flexShrink: 0 }}>
+        <div style={{ background: T.cardBg, border: `1px solid ${T.border}`, borderRadius: '10px', padding: '8px 12px', display: 'flex', alignItems: 'center', gap: '10px', boxShadow: '0 2px 8px rgba(0,0,0,0.06)' }}>
+          <span style={{ fontSize: '1.2rem' }}>📋</span>
+          <div><span style={{ fontSize: '0.62rem', color: T.muted, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px', display: 'block' }}>Totale</span><span style={{ fontSize: '1.1rem', fontWeight: 700, color: T.text }}>{stats.total}</span></div>
         </div>
-        <div style={{ background: T.cardBg, border: `1px solid ${T.border}`, borderRadius: '10px', padding: '10px 14px', display: 'flex', alignItems: 'center', gap: '10px', boxShadow: '0 2px 8px rgba(0,0,0,0.08)' }}>
-          <span style={{ fontSize: '1.4rem' }}>âœ…</span>
-          <div><span style={{ fontSize: '0.62rem', color: '#3fb950', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px', display: 'block' }}>Completati {stats.progress}%</span><span style={{ fontSize: '1.2rem', fontWeight: 700, color: '#3fb950' }}>{stats.done}</span></div>
+        <div style={{ background: T.cardBg, border: `1px solid ${T.border}`, borderRadius: '10px', padding: '8px 12px', display: 'flex', alignItems: 'center', gap: '10px', boxShadow: '0 2px 8px rgba(0,0,0,0.06)' }}>
+          <span style={{ fontSize: '1.2rem' }}>✅</span>
+          <div><span style={{ fontSize: '0.62rem', color: '#3fb950', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px', display: 'block' }}>Completati {stats.progress}%</span><span style={{ fontSize: '1.1rem', fontWeight: 700, color: '#3fb950' }}>{stats.done}</span></div>
         </div>
-        <div style={{ background: T.cardBg, border: `1px solid ${T.border}`, borderRadius: '10px', padding: '10px 14px', display: 'flex', alignItems: 'center', gap: '10px', boxShadow: '0 2px 8px rgba(0,0,0,0.08)' }}>
-          <span style={{ fontSize: '1.4rem' }}>âš¡</span>
-          <div><span style={{ fontSize: '0.62rem', color: '#00d2ff', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px', display: 'block' }}>In Corso</span><span style={{ fontSize: '1.2rem', fontWeight: 700, color: '#00d2ff' }}>{stats.inCorso}</span></div>
+        <div style={{ background: T.cardBg, border: `1px solid ${T.border}`, borderRadius: '10px', padding: '8px 12px', display: 'flex', alignItems: 'center', gap: '10px', boxShadow: '0 2px 8px rgba(0,0,0,0.06)' }}>
+          <span style={{ fontSize: '1.2rem' }}>⚡</span>
+          <div><span style={{ fontSize: '0.62rem', color: '#00d2ff', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px', display: 'block' }}>In Corso</span><span style={{ fontSize: '1.1rem', fontWeight: 700, color: '#00d2ff' }}>{stats.inCorso}</span></div>
         </div>
-        <div style={{ background: T.cardBg, border: `1px solid ${T.border}`, borderRadius: '10px', padding: '10px 14px', display: 'flex', alignItems: 'center', gap: '10px', boxShadow: '0 2px 8px rgba(0,0,0,0.08)' }}>
-          <span style={{ fontSize: '1.4rem' }}>ðŸ“œ</span>
-          <div><span style={{ fontSize: '0.62rem', color: '#bc8cff', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px', display: 'block' }}>Registro</span><span style={{ fontSize: '1.2rem', fontWeight: 700, color: '#bc8cff' }}>{auditLogs.length}</span></div>
+        <div style={{ background: T.cardBg, border: `1px solid ${T.border}`, borderRadius: '10px', padding: '8px 12px', display: 'flex', alignItems: 'center', gap: '10px', boxShadow: '0 2px 8px rgba(0,0,0,0.06)' }}>
+          <span style={{ fontSize: '1.2rem' }}>📜</span>
+          <div><span style={{ fontSize: '0.62rem', color: '#bc8cff', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px', display: 'block' }}>Registro</span><span style={{ fontSize: '1.1rem', fontWeight: 700, color: '#bc8cff' }}>{auditLogs.length}</span></div>
         </div>
-      </div>
-
-      {/* 3. SUB-TAB SWITCHER */}
-      <div style={{ display: 'flex', gap: '8px', marginBottom: '8px', borderBottom: `1px solid ${T.divider}`, paddingBottom: '8px', flexShrink: 0 }}>
-        <button
-          onClick={() => setActiveTab('calendar')}
-          style={{
-            display: 'flex', alignItems: 'center', gap: '8px', padding: '8px 16px', borderRadius: '8px',
-            fontSize: '0.78rem', fontWeight: 700, cursor: 'pointer',
-            background: activeTab === 'calendar' ? 'rgba(0, 210, 255, 0.15)' : T.tabBg,
-            border: activeTab === 'calendar' ? '1px solid rgba(0, 210, 255, 0.4)' : `1px solid ${T.tabBorder}`,
-            color: activeTab === 'calendar' ? '#00d2ff' : T.muted,
-            transition: 'all 0.2s ease'
-          }}
-        >
-          <Calendar size={15} />
-          <span>ðŸ“… Calendario & Timeline</span>
-        </button>
-        <button
-          onClick={() => setActiveTab('kanban')}
-          style={{
-            display: 'flex', alignItems: 'center', gap: '8px', padding: '8px 16px', borderRadius: '8px',
-            fontSize: '0.78rem', fontWeight: 700, cursor: 'pointer',
-            background: activeTab === 'kanban' ? 'rgba(188, 140, 255, 0.15)' : T.tabBg,
-            border: activeTab === 'kanban' ? '1px solid rgba(188, 140, 255, 0.4)' : `1px solid ${T.tabBorder}`,
-            color: activeTab === 'kanban' ? '#bc8cff' : T.muted,
-            transition: 'all 0.2s ease'
-          }}
-        >
-          <ListTodo size={15} />
-          <span>ðŸ“‹ Gestione Task ({tasks.length})</span>
-        </button>
-        <button
-          onClick={() => setActiveTab('audit')}
-          style={{
-            display: 'flex', alignItems: 'center', gap: '8px', padding: '8px 16px', borderRadius: '8px',
-            fontSize: '0.78rem', fontWeight: 700, cursor: 'pointer',
-            background: activeTab === 'audit' ? 'rgba(63, 185, 80, 0.15)' : T.tabBg,
-            border: activeTab === 'audit' ? '1px solid rgba(63, 185, 80, 0.4)' : `1px solid ${T.tabBorder}`,
-            color: activeTab === 'audit' ? '#3fb950' : T.muted,
-            transition: 'all 0.2s ease'
-          }}
-        >
-          <History size={15} />
-          <span>ðŸ“œ Registro Modifiche ({auditLogs.length})</span>
-        </button>
       </div>
 
       {/* TAB 1: CALENDARIO INTERATTIVO */}

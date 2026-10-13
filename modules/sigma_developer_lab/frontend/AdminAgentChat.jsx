@@ -57,12 +57,27 @@ const isAutoLoopPrompt = (msg) => {
   );
 };
 
+const getInitialModel = () => {
+  try {
+    const savedFavs = localStorage.getItem('sigma_favorite_models') || localStorage.getItem('sigma_developer_favorite_models');
+    if (savedFavs) {
+      const parsed = JSON.parse(savedFavs);
+      if (Array.isArray(parsed) && parsed.length > 0 && parsed[0]) {
+        return parsed[0];
+      }
+    }
+    const lastSelected = localStorage.getItem('sigma_developer_last_model');
+    if (lastSelected && lastSelected !== 'sigmaengine') return lastSelected;
+  } catch (e) {}
+  return '';
+};
+
 const createNewTask = (title = 'Nuovo Task') => ({
   id: `task_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
   title,
   createdAt: new Date().toISOString(),
   updatedAt: new Date().toISOString(),
-  model: 'sigmaengine',
+  model: getInitialModel(),
   autoExecuteTools: true,
   autoLoop: true,
   // Spenta di default: il comportamento storico resta quello, e un run
@@ -131,7 +146,7 @@ const cleanMessageText = (text) => {
   cleaned = cleaned.replace(/```tool(?::\w+)?[\s\S]*?(?:```|$)/gi, '');
   cleaned = cleaned.replace(/```(?:json|bash|sh|powershell)?\s*\{[\s\S]*?"(?:tool|action|command|path|name|tasks)"[\s\S]*?(?:```|$)/gi, '');
   // Remove completed or in-progress XML tool tags
-  cleaned = cleaned.replace(/<(?:tool_call|execute_command|shell|terminal|read_file|write_file|write_to_file|list_dir|search_code|tool|pipeline|complete_goal)>[\s\S]*?(?:<\/(?:tool_call|execute_command|shell|terminal|read_file|write_file|write_to_file|list_dir|search_code|tool|pipeline|complete_goal)>|$)/gi, '');
+  cleaned = cleaned.replace(/<(?:tool_call|execute_command|shell|terminal|read_file|write_file|write_to_file|list_dir|search_code|tool|pipeline|complete_goal|finish_task|task_complete)>[\s\S]*?(?:<\/(?:tool_call|execute_command|shell|terminal|read_file|write_file|write_to_file|list_dir|search_code|tool|pipeline|complete_goal|finish_task|task_complete)>|$)/gi, '');
 
   // Deduplicazione di ripetizioni identiche in coda precedute da 🏆
   const trophyMatch = cleaned.match(/(?:\n|^)🏆\s*(?:##\s*Obiettivo\s+completato[\s\S]*)/i);
@@ -143,8 +158,12 @@ const cleanMessageText = (text) => {
   }
 
   // Se la pulizia ha svuotato completamente il testo ma c'erano token nel messaggio originale,
-  // conserviamo il testo affinché la bolla dell'assistente non resti priva di contenuto.
+  // conserviamo il testo solo se non era esclusivamente un blocco tool/chiamata XML o JSON grezzo
   if (!cleaned.trim() && text.trim()) {
+    const isPureToolBlock = /^\s*(?:<[^>]+>|```(?:json|tool|bash|sh|powershell)?\s*\{[\s\S]*\}?\s*```?|\{[\s\S]*"(?:tool|action|command)"[\s\S]*\})\s*$/i.test(text.trim());
+    if (isPureToolBlock) {
+      return '';
+    }
     return text.trim();
   }
 
@@ -380,7 +399,7 @@ export default function AdminAgentChat({
   // Active Task Resolution
   const activeTask = tasks.find(t => t.id === activeTaskId) || tasks[0] || createNewTask();
   const messages = activeTask.messages || [];
-  const selectedModel = activeTask.model || 'sigmaengine';
+  const selectedModel = activeTask.model || getInitialModel() || '';
   const autoExecuteTools = activeTask.autoExecuteTools ?? true;
   const autoLoop = activeTask.autoLoop ?? true;
   const reviewWrites = activeTask.reviewWrites ?? false;
@@ -793,6 +812,11 @@ export default function AdminAgentChat({
 
   const handleModelChange = (newModel) => {
     setTasks(prev => prev.map(t => t.id === activeTask.id ? { ...t, model: newModel, updatedAt: new Date().toISOString() } : t));
+    try {
+      if (newModel && newModel !== 'sigmaengine') {
+        localStorage.setItem('sigma_developer_last_model', newModel);
+      }
+    } catch (e) {}
   };
 
   const handleToggleAutoExecute = (val) => {
@@ -1994,32 +2018,6 @@ ${event.diff || ''}`,
             );
           })()}
 
-          {/* Auto-Loop Toggle */}
-          <label style={{
-            fontSize: '0.65rem',
-            fontWeight: 700,
-            color: autoLoop ? '#00f2fe' : textMuted,
-            cursor: 'pointer',
-            display: 'flex',
-            alignItems: 'center',
-            gap: '4px',
-            padding: '3px 8px',
-            borderRadius: '6px',
-            background: autoLoop ? (isLight ? 'rgba(0, 242, 254, 0.12)' : 'rgba(0, 242, 254, 0.1)') : bgCard,
-            border: autoLoop ? '1px solid rgba(0, 242, 254, 0.4)' : `1px solid ${borderCol}`,
-            whiteSpace: 'nowrap'
-          }}
-            title="Esegue automaticamente la catena dei task della pipeline fino al completamento"
-          >
-            <input
-              type="checkbox"
-              checked={autoLoop}
-              onChange={toggleAutoLoop}
-              style={{ accentColor: '#00f2fe' }}
-            />
-            🔁 Loop
-          </label>
-
           {/* "+ Nuovo Task" Button */}
           <button
             type="button"
@@ -2808,6 +2806,46 @@ ${event.diff || ''}`,
               <span>SigmaEngine O(1)</span>
             </span>
 
+            {/* Flash Attention Badge */}
+            <span
+              title="Flash Attention (FA-2/FA-3) abilitato su GPU: accelerazione calcolo KV-Cache"
+              style={{
+                fontSize: '0.58rem',
+                fontWeight: 800,
+                padding: '2px 6px',
+                borderRadius: '4px',
+                background: 'rgba(0, 242, 254, 0.15)',
+                border: '1px solid rgba(0, 242, 254, 0.35)',
+                color: '#00f2fe',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '3px'
+              }}
+            >
+              <Zap size={10} color="#00f2fe" />
+              <span>FA: ON</span>
+            </span>
+
+            {/* Context Window Badge */}
+            <span
+              title={`Finestra di Contesto allocata: ${contextTokens.toLocaleString()} token`}
+              style={{
+                fontSize: '0.58rem',
+                fontWeight: 800,
+                padding: '2px 6px',
+                borderRadius: '4px',
+                background: 'rgba(163, 113, 247, 0.15)',
+                border: '1px solid rgba(163, 113, 247, 0.35)',
+                color: '#a371f7',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '3px'
+              }}
+            >
+              <Brain size={10} color="#a371f7" />
+              <span>{contextTokens >= 1024 ? `${Math.round(contextTokens / 1024)}K Ctx` : `${contextTokens} tok`}</span>
+            </span>
+
             {/* Live TPS if active */}
             {contextMetrics?.tps != null && contextMetrics.tps > 0 && (
               <span
@@ -3062,7 +3100,20 @@ ${event.diff || ''}`,
 
               {/* Message Bubble Content */}
               {(() => {
-                const contentText = msg.role === 'user' ? msg.content : cleanMessageText(msg.content);
+                const hasGoalTool = (msg.tools || []).some(t => ['complete_goal', 'finish_task', 'task_complete'].includes(t.tool) && t.result);
+                let contentText = msg.role === 'user' ? msg.content : cleanMessageText(msg.content);
+                if (hasGoalTool && contentText) {
+                  // Quando il tool complete_goal è presente con il suo risultato formattato,
+                  // sopprimiamo la duplicazione testuale o la proclamazione grezza dell'obiettivo
+                  // nella bolla: la GoalCompletionCard sottostante mostrerà criteri, prove e riepilogo puliti.
+                  contentText = contentText.replace(/(?:🏆\s*)?##\s*Obiettivo\s+completato[\s\S]*/i, '').trim();
+                  contentText = contentText.replace(/^\s*Obiettivo\s+completato[\s\S]*/i, '').trim();
+                  const goalTool = (msg.tools || []).find(t => ['complete_goal', 'finish_task', 'task_complete'].includes(t.tool) && t.result);
+                  const toolSummary = goalTool?.result?.summary || goalTool?.result?.message || '';
+                  if (toolSummary && contentText.includes(toolSummary.trim().slice(0, 50))) {
+                    contentText = '';
+                  }
+                }
                 const showLoadingBanner = msg.isStreaming && msg.role === 'assistant' && !contentText && (!msg.thought || !msg.thought.trim());
 
                 if (!contentText && (!msg.attachments || msg.attachments.length === 0) && !showLoadingBanner) {
@@ -3148,7 +3199,7 @@ ${event.diff || ''}`,
                       </div>
                     )}
                     {contentText && (() => {
-                      const isGoalCompletion = msg.role === 'assistant' && eBollaObiettivo(contentText);
+                      const isGoalCompletion = msg.role === 'assistant' && !hasGoalTool && eBollaObiettivo(contentText);
 
                       if (isGoalCompletion) {
                         let goalTitle = '';
@@ -3255,8 +3306,6 @@ ${event.diff || ''}`,
                     const hasDiff = !!t.result?.diff;
                     const toolKey = `${idx}_${tIdx}_${t.tool}`;
                     const isExpanded = expandedTools[toolKey] ?? true;
-                    // Se la bolla ha gia' reso la scheda, il tool non ripete il riepilogo.
-                    const bollaObiettivo = msg.role === 'assistant' && eBollaObiettivo(cleanMessageText(msg.content));
 
                     return (
                       <div
@@ -3428,7 +3477,7 @@ ${event.diff || ''}`,
                                 result={t.result}
                                 isLight={isLight}
                                 onOpenFile={onOpenFile}
-                                mostraRiepilogo={!bollaObiettivo}
+                                mostraRiepilogo={true}
                               />
                             )}
 

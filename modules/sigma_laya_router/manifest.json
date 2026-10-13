@@ -1,0 +1,27 @@
+{
+  "id": "sigma_laya_router",
+  "name": "Laya Decision Router",
+  "version": "v1.0.0",
+  "category": "AI & Infrastruttura",
+  "tabType": "laya_router",
+  "sidebarLabel": "Laya Router",
+  "sidebarIcon": "Zap",
+  "sidebarBadge": "S1",
+  "sidebarBadgeColor": "rgba(120,220,120,0.15)",
+  "sidebarCategory": "Infrastruttura & Sistema",
+  "description": "Modello di decisione System-1 (Laya): classifica intenti, guardia di sicurezza, scoring qualità e routing dei prompt — in una singola forward pass da ~30 ms.",
+  "author": "Sigma Core Team",
+  "repository": "https://github.com/Sigmanih/SigmaStudio-Moduli",
+  "branch": "main",
+  "path": "modules/sigma_laya_router",
+  "tags": [
+    "Laya",
+    "Decision Model",
+    "System 1",
+    "Router",
+    "Guardrail"
+  ],
+  "size": "~1 MB",
+  "icon": "Zap",
+  "color": "#78dc78"
+}

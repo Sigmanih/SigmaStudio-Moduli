@@ -281,6 +281,25 @@ class CreativeMCPServer(BaseMCPServer):
             safety=SAFE, category="creative",
         )
 
+        # Tool video specializzati delegati al provider di Video Studio
+        try:
+            from core.modules.sigma_creative_lab.video.tool_schemas import SCHEMI as VIDEO_SCHEMI
+            from core.modules.sigma_creative_lab.video.tools import esegui as esegui_video
+            for schema in VIDEO_SCHEMI:
+                fn_decl = schema.get("function") or {}
+                fn_name = fn_decl.get("name")
+                if fn_name:
+                    self.register_tool(
+                        name=fn_name,
+                        description=fn_decl.get("description", ""),
+                        input_schema=fn_decl.get("parameters") or {"type": "object", "properties": {}},
+                        handler=lambda _n=fn_name, **kwargs: esegui_video(_n, kwargs),
+                        safety=SAFE,
+                        category="video",
+                    )
+        except Exception as exc:
+            log.warning(f"[CreativeMCPServer] Registrazione tool video non riuscita: {exc}")
+
     def _init_resources(self):
         self.register_resource(
             uri="creative://assets",

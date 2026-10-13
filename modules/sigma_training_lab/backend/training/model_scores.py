@@ -40,6 +40,7 @@ from core.modules.sigma_training_lab import paths as module_paths
 log = get_logger(__name__)
 
 RISULTATI = str(module_paths.OFFICIAL_BENCHMARK_FILE)
+PROTOCOL_RISULTATI = str(module_paths.TRAINING_LAB_DIR / "protocol_benchmark_history.json")
 
 #: Prefissi di provider che non fanno parte del nome del modello.
 _PREFISSI = re.compile(r"^(?:sigma|ollama|lmstudio|openai|deepseek|anthropic|"
@@ -82,6 +83,42 @@ def _referto(job: Dict[str, Any]) -> Dict[str, Any]:
     punteggio = (metriche.get("overall_score") if completo
                  else metriche.get("progress_score", 0))
 
+    th_p = metriche.get("thinking_passed")
+    th_t = metriche.get("thinking_total")
+    no_th_p = metriche.get("no_thinking_passed")
+    no_th_t = metriche.get("no_thinking_total")
+    th_acc = metriche.get("thinking_accuracy")
+    no_th_acc = metriche.get("no_thinking_accuracy")
+    thinking_mode = job.get("thinking_mode") or riproducibilita.get("thinking_mode", "auto")
+
+    # Se non calcolati in metriche (es. job eseguiti in precedenza):
+    if th_t is None or no_th_t is None or (th_t == 0 and no_th_t == 0):
+        suites = _suite_per_job(job.get("id"))
+        protocols = riproducibilita.get("protocols") or {}
+        p_th, t_th = 0, 0
+        p_noth, t_noth = 0, 0
+        for sid, s in suites.items():
+            sp = int(s.get("passed", 0))
+            st = int(s.get("total", 0))
+            is_th = protocols.get(sid, {}).get("thinking")
+            if is_th is None:
+                is_th = sid in ("gsm8k", "math", "mmlu_pro", "gpqa", "bbh")
+            if is_th:
+                p_th += sp
+                t_th += st
+            else:
+                p_noth += sp
+                t_noth += st
+        th_p, th_t = p_th, t_th
+        no_th_p, no_th_t = p_noth, t_noth
+        th_acc = round(p_th / t_th * 100, 2) if t_th else 0.0
+        no_th_acc = round(p_noth / t_noth * 100, 2) if t_noth else 0.0
+
+    if th_acc is None and th_t:
+        th_acc = round(float(th_p or 0) / float(th_t) * 100, 1)
+    if no_th_acc is None and no_th_t:
+        no_th_acc = round(float(no_th_p or 0) / float(no_th_t) * 100, 1)
+
     return {
         "has_benchmarks": True,
         "job_id": job.get("id"),
@@ -110,6 +147,16 @@ def _referto(job: Dict[str, Any]) -> Dict[str, Any]:
         "protocols": riproducibilita.get("protocols") or {},
         "temperature": riproducibilita.get("temperature", 0.0),
         "seed": riproducibilita.get("seed", 42),
+        "thinking_mode": thinking_mode,
+        "thinking_eval": {
+            "thinking_score": th_acc,
+            "thinking_passed": th_p,
+            "thinking_total": th_t,
+            "no_thinking_score": no_th_acc,
+            "no_thinking_passed": no_th_p,
+            "no_thinking_total": no_th_t,
+            "thinking_mode": thinking_mode,
+        },
         # Le due velocita' restano distinte fin qui. `tokens_per_sec` e' il
         # totale del run — con piu' richieste in volo e' sempre piu' alto di
         # quanto veda chi aspetta una risposta sola — e `single_stream` e' la
@@ -169,21 +216,86 @@ def scores_for_model(model_id: str, include_suites: bool = True) -> Optional[Dic
     referto["runs_completed"] = len(conclusi)
     if include_suites:
         referto["suites"] = _suite_per_job(referto.get("job_id"))
+
+    # Rilevamento di eventuali run dedicati per Thinking vs No-Thinking
+    dedicated_th = [j for j in conclusi if (j.get("thinking_mode") or (j.get("reproducibility") or {}).get("thinking_mode")) == "thinking"]
+    dedicated_no_th = [j for j in conclusi if (j.get("thinking_mode") or (j.get("reproducibility") or {}).get("thinking_mode")) == "no_thinking"]
+    if dedicated_th and dedicated_no_th:
+        best_th = max(dedicated_th, key=lambda j: (j.get("metrics") or {}).get("overall_score", 0))
+        best_no_th = max(dedicated_no_th, key=lambda j: (j.get("metrics") or {}).get("overall_score", 0))
+        m_th = best_th.get("metrics") or {}
+        m_noth = best_no_th.get("metrics") or {}
+        referto["thinking_eval"]["thinking_score"] = m_th.get("overall_score", 0)
+        referto["thinking_eval"]["thinking_passed"] = m_th.get("tests_passed", 0)
+        referto["thinking_eval"]["thinking_total"] = m_th.get("tests_total", 0)
+        referto["thinking_eval"]["no_thinking_score"] = m_noth.get("overall_score", 0)
+        referto["thinking_eval"]["no_thinking_passed"] = m_noth.get("tests_passed", 0)
+        referto["thinking_eval"]["no_thinking_total"] = m_noth.get("tests_total", 0)
+        referto["thinking_eval"]["has_dedicated_runs"] = True
+
+    # Arricchimento con il punteggio del benchmark dei tools / protocollo
+    t_scores = tool_scores_by_model()
+    t_info = t_scores.get(cercato)
+    if not t_info:
+        coda = cercato.split("/")[-1]
+        t_info = next((v for k, v in t_scores.items() if k.split("/")[-1] == coda), None)
+    if t_info:
+        referto.update(t_info)
+
     return referto
 
 
-def scores_by_model(include_suites: bool = False) -> Dict[str, Dict[str, Any]]:
-    """Il referto migliore di ogni modello che ne ha almeno uno.
+def _carica_protocol_job() -> List[Dict[str, Any]]:
+    """Carica i test di aderenza al protocollo dei tool da protocol_benchmark_history.json."""
+    if not os.path.exists(PROTOCOL_RISULTATI):
+        return []
+    try:
+        with open(PROTOCOL_RISULTATI, "r", encoding="utf-8") as fh:
+            data = json.load(fh)
+        return data if isinstance(data, list) else []
+    except Exception as err:
+        log.warning("Storico protocollo illeggibile: %s", err)
+        return []
 
-    Serve all'inventario, che deve arricchire decine di modelli in una volta
-    sola: chiedere il referto uno per uno rileggerebbe il file una volta per
-    modello.
-    """
+
+def tool_scores_by_model() -> Dict[str, Dict[str, Any]]:
+    """Restituisce il miglior punteggio del benchmark tools per ciascun modello."""
+    per_modello: Dict[str, List[Dict[str, Any]]] = {}
+    for job in _carica_protocol_job():
+        nome = normalizza(job.get("model") or "")
+        if nome:
+            per_modello.setdefault(nome, []).append(job)
+
+    risultati: Dict[str, Dict[str, Any]] = {}
+    for nome, jobs in per_modello.items():
+        conclusi = [j for j in jobs if j.get("status") == "completed"]
+        best = (max(conclusi, key=lambda j: (j.get("results") or {}).get("punteggio", 0))
+                if conclusi else max(jobs, key=lambda j: j.get("created_at") or ""))
+        res = best.get("results") or {}
+        punteggio = res.get("punteggio")
+        superate = res.get("superate")
+        totali = res.get("totali")
+        risultati[nome] = {
+            "tool_score": round(float(punteggio), 1) if punteggio is not None else None,
+            "tool_passed": int(superate) if superate is not None else 0,
+            "tool_total": int(totali) if totali is not None else 0,
+            "tool_turns": res.get("turni_totali"),
+            "tool_job_id": best.get("id"),
+            "has_tool_benchmark": punteggio is not None,
+        }
+    return risultati
+
+
+def scores_by_model(include_suites: bool = False) -> Dict[str, Dict[str, Any]]:
+    """Il referto migliore di ogni modello che ne ha almeno uno (ufficiale e/o tools)."""
     per_modello: Dict[str, List[Dict[str, Any]]] = {}
     for job in _carica_job():
         nome = normalizza(job.get("model") or job.get("model_id") or "")
         if nome:
             per_modello.setdefault(nome, []).append(job)
+
+    if not per_modello:
+        return {}
 
     referti: Dict[str, Dict[str, Any]] = {}
     for nome, job in per_modello.items():
@@ -196,4 +308,25 @@ def scores_by_model(include_suites: bool = False) -> Dict[str, Dict[str, Any]]:
         if include_suites:
             referto["suites"] = _suite_per_job(referto.get("job_id"))
         referti[nome] = referto
+
+    # Fonde i risultati dei test di aderenza ai tool per ogni modello
+    t_scores = tool_scores_by_model()
+    for nome, t_info in t_scores.items():
+        if nome in referti:
+            referti[nome].update(t_info)
+        else:
+            # Match sul nome terminale se mancava l'autore
+            coda = nome.split("/")[-1]
+            matched = next((k for k in referti.keys() if k.split("/")[-1] == coda), None)
+            if matched:
+                referti[matched].update(t_info)
+            else:
+                # Modello valutato esclusivamente sul banco di prova dei tools
+                referti[nome] = {
+                    "model": nome,
+                    "has_benchmarks": False,
+                    "has_tool_benchmark": True,
+                    **t_info
+                }
+
     return referti
