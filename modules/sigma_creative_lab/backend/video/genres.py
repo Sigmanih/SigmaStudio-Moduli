@@ -13,6 +13,10 @@ mantiene meglio l'identita' dei personaggi.
 
 from __future__ import annotations
 
+from core.logger import get_logger
+
+log = get_logger(__name__)
+
 GENRES = {
     "realistic": {
         "label": "Film realistico",
@@ -155,6 +159,9 @@ def keyframe_plan(prod: dict, shot: dict) -> tuple[str, str, list[str]]:
     from core.modules.sigma_creative_lab.video import image_gen
     if not image_gen.installed("klein"):
         return genre_of(prod)["image_model"], keyframe_prompt(prod, shot), []
+    panel = str(shot.get("source_panel") or "")
+    if panel and Path(panel).is_file():
+        return "klein", *panel_keyframe(prod, shot, panel)
     style_ref = style_reference(prod)
     room = image_gen.MAX_REFS - (1 if style_ref else 0)
     present = [c for c in shot_characters(prod, shot) if c.get("ref_image") and Path(c["ref_image"]).is_file()][:room]
@@ -184,6 +191,63 @@ def keyframe_plan(prod: dict, shot: dict) -> tuple[str, str, list[str]]:
     parts.append("Single frame of the scene, each character appears once. No text, no letters, no speech bubbles, "
                  "no captions.")
     return "klein", " ".join(parts), refs
+
+def panel_keyframe(prod: dict, shot: dict, panel: str) -> tuple[str, list[str]]:
+    """Fotogramma chiave ridisegnato da una vignetta di fumetto: stessa inquadratura, a colori.
+
+    Nella trasposizione di un manga l'inquadratura e' gia' decisa dall'autore:
+    descriverla a parole e farla ridisegnare da zero la perde (prova Mx0: dal
+    testo usciva un'altra scena). Data la vignetta come immagine 1, klein ne
+    tiene composizione, pose ed espressioni e aggiunge solo colore e i lati
+    del 16:9. I personaggi della bibbia vanno come immagini successive per i
+    colori di capelli e divisa, che il bianco e nero non dice.
+    """
+    from pathlib import Path
+    from core.modules.sigma_creative_lab.video import image_gen
+    # Le comparse non hanno un aspetto fisso: dato il loro ritratto, klein lo
+    # disegnava in primo piano (collaudo Mx0, 005_03: una ragazza dai capelli
+    # grigi al posto della figurina lontana sul ponte). La vignetta basta.
+    present = [c for c in shot_characters(prod, shot)
+               if c.get("ref_image") and Path(c["ref_image"]).is_file()
+               and not any(w in c.get("name", "").lower() for w in ("compars", "extra"))][:image_gen.MAX_REFS - 1]
+    # Una vignetta gia' a colori dice da sola capelli e vestiti; il foglio del
+    # personaggio, dato comunque, veniva incollato come persona in piu' qualunque
+    # cosa dicesse il prompt (collaudo Mx0, 005_03: secondo Kuzumi in giacca bianca,
+    # due volte di fila con lo stesso seme). Serve solo al bianco e nero.
+    try:
+        from .manga import classifica_pagina
+        if Path(panel).is_file() and classifica_pagina(Path(panel)) == "colore":
+            present = []
+    except Exception as exc:
+        log.debug(f"colore della vignetta non stimato: {exc}")
+    g = genre_of(prod)
+    style = ((prod.get("bible") or {}).get("style") or g["style"]).strip().rstrip(".")
+    parts = [
+        "Image 1 is a black-and-white manga panel. Redraw exactly this panel as one full-color frame: "
+        f"{style}. Keep the same camera framing and angle, the same composition, the same poses, gestures and "
+        "facial expressions, the same background elements.",
+        "Widescreen frame: extend the background naturally at the sides, do not add new characters.",
+    ]
+    color = str(shot.get("panel_colors") or "").strip().rstrip(".")
+    if color:
+        parts.append(f"Colors: {color}.")
+    # Detto "X e' il personaggio dell'immagine k", klein incollava la figura intera
+    # del foglio di riferimento come persona in piu' (collaudo Mx0, 005_03: un
+    # secondo Kuzumi in giacca bianca dove c'era la didascalia). Il riferimento
+    # serve solo ai colori; chi c'e' e dove lo decide la vignetta.
+    parts += [f"Image {k} is only a color reference for {c['name']}, who is already drawn in image 1: use its "
+              "hair and eye colors; do not copy its figure, pose or outfit into the frame."
+              for k, c in enumerate(present, 2)]
+    if present:
+        parts.append("Draw exactly the people that image 1 shows, each once, where image 1 shows them; "
+                     "if image 1 already has colors, keep its clothes colors.")
+    for fix in [f.get("text", "") for f in shot.get("fixes") or []] + list(shot.get("keyframe_fixes") or []):
+        parts.append(f"{str(fix).strip().rstrip('.')}.")
+    parts.append("Remove all text, speech bubbles, caption boxes, sound effects, screentone and the panel borders: "
+                 "the drawing fills the whole frame edge to edge, no letters anywhere. Where a caption box covered "
+                 "the drawing, continue the background; do not put a character there.")
+    return " ".join(parts), [panel] + [c["ref_image"] for c in present]
+
 
 def keyframe_prompt(prod: dict, shot: dict) -> str:
     """Prompt del fotogramma chiave: l'istante iniziale dell'inquadratura, con l'aspetto dei personaggi."""

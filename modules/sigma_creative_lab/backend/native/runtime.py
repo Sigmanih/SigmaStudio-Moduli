@@ -382,7 +382,18 @@ def release_llm_vram() -> None:
     try:
         from core.engine.unified_runtime import sigma_engine
         if getattr(sigma_engine, "loaded_model_name", None):
-            result = sigma_engine.unload()
+            # Si aspetta la fine della risposta in corso: scaricato a meta', l'agente
+            # che aveva appena avviato il render perdeva la connessione (collaudo Mx0,
+            # ConnectionResetError subito dopo video_shot_fix con rerender).
+            lock = getattr(sigma_engine, "_generation_lock", None)
+            if lock is not None and not lock.acquire(timeout=120):
+                log.warning("LLM ancora occupato dopo 120 s: lo scarico comunque")
+                lock = None
+            try:
+                result = sigma_engine.unload()
+            finally:
+                if lock is not None:
+                    lock.release()
             log.info(f"LLM scaricato per liberare la GPU: {result.get('unloaded')}")
     except Exception as e:
         log.warning(f"Impossibile scaricare l'LLM prima del render: {e}")

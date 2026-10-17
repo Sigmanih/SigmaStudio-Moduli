@@ -892,11 +892,15 @@ async def job_lesson(self: EditorJobs, job: dict) -> dict:
 
 CPU_KINDS = {"import", "title"}
 
+from core.modules.sigma_creative_lab.video import manga  # noqa: E402  (i job da fumetto)
+
 HANDLERS = {
     "regen_range": job_regen_range, "redo": job_redo, "extend": job_extend, "insert": job_insert,
     "dialogue": job_dialogue, "voice_line": job_voice_line, "music_range": job_music_range,
     "export": job_export, "subtitles": job_subtitles, "import": job_import, "title": job_title,
     "scene": job_scene, "lesson": job_lesson, "scene_redo": job_scene_redo,
+    "manga_read": manga.job_manga_read, "manga_direct": manga.job_manga_direct,
+    "manga_speakers": manga.job_manga_speakers,
 }
 
 _editor: EditorJobs | None = None

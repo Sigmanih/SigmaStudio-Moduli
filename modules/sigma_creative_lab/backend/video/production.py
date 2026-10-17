@@ -1311,7 +1311,14 @@ def compose_prompt(prod: dict, shot: dict, use_refs: bool) -> str:
         parts.append(MOTION_GUARD)
     if shot.get("dialogue"):
         d = shot["dialogue"]
-        if is_ltx(prod.get("settings") or {}) and d.get("text"):
+        if is_ltx(prod.get("settings") or {}) and d.get("text") and (d.get("kind") in ("pensiero", "didascalia")
+                                                                 or d.get("off_screen")):
+            # Un pensiero, la narrazione o chi parla fuori campo si sentono soltanto: chi e'
+            # in scena non parla, e un labiale su quella voce sarebbe un errore di regia.
+            who = d.get("character", "")
+            parts.append("Nobody in the shot speaks: the words are a voice-over and every mouth stays closed. "
+                         "Subtle natural movement, breathing, small changes of expression.")
+        elif is_ltx(prod.get("settings") or {}) and d.get("text"):
             # L'audio della battuta e' gia' dato (voce del personaggio): LTX deve solo muovere le labbra a tempo.
             who = d.get("character", "")
             others = [n for n in shot.get("refs") or [] if n != who]
@@ -2551,14 +2558,18 @@ class ProductionRunner:
                 self.store.save(prod)
                 raise
             from core.modules.sigma_creative_lab.native.runtime import release_llm_vram
-            release_llm_vram()
+            # In un thread: l'attesa della risposta in corso non deve fermare il server.
+            await asyncio.to_thread(release_llm_vram)
         prod["lanes"] = [l["label"] for l in lanes]
         if uses_keyframes(prod["settings"]) and keyframe_targets(prod, missing_only=True) and self._engine is None:
             self._emit(type="keyframes", message="Fotogrammi chiave mancanti")
             first_gpu = next((l["devices"][0] for l in lanes if l["devices"]), 0)
             try:
+                # Col segnale di annullamento: senza, "ferma" lasciava proseguire la
+                # fase dei fotogrammi per tutte le inquadrature mancanti (collaudo Mx0).
                 await generate_keyframes(self.store, self.pid, missing_only=True, gpu=first_gpu,
-                                         note=lambda m: self._emit(type="keyframes", message=m))
+                                         note=lambda m: self._emit(type="keyframes", message=m),
+                                         cancel=self.cancelled)
             except Exception as e:
                 # Senza fotogrammi si genera comunque: lo stile sara' quello di H3.
                 log.error(f"fotogrammi chiave non generati: {e}")

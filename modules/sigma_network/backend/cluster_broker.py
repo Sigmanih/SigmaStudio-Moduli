@@ -39,8 +39,8 @@ class ClusterBroker:
         self._get_settings = settings_getter
         self._http_session = requests.Session()
 
-    def get_cluster_models(self) -> List[Dict[str, Any]]:
-        """Restituisce il catalogo unificato dei modelli disponibili nell'intero cluster."""
+    def get_cluster_models(self, include_local: bool = False) -> List[Dict[str, Any]]:
+        """Restituisce il catalogo dei modelli disponibili nel cluster (offerti dai nodi remoti)."""
         registry = self._get_registry()
         identity = self._get_identity()
         settings = self._get_settings()
@@ -48,40 +48,39 @@ class ClusterBroker:
 
         models_catalog: List[Dict[str, Any]] = []
 
-        # 1. Modelli locali condivisi di questa istanza
-        local_sharing = bool(settings.get("sharing_enabled", False))
-        local_rate = float(settings.get("rate_tokens_per_coin", 1000))
+        # 1. Modelli locali condivisi (solo se esplicitamente richiesto con include_local=True)
+        if include_local:
+            local_sharing = bool(settings.get("sharing_enabled", False))
+            local_rate = float(settings.get("rate_tokens_per_coin", 1000))
 
-        # Recupera modelli reali disponibili in locale
-        local_models_list: List[str] = []
-        try:
-            from core.engine.provider_server import get_all_available_models
-            for m in get_all_available_models():
-                mid = m.get("id") or m.get("name")
-                if mid:
-                    local_models_list.append(mid)
-        except Exception:
-            local_models_list = list(settings.get("shared_models", []))
+            local_models_list: List[str] = []
+            try:
+                from core.engine.provider_server import get_all_available_models
+                for m in get_all_available_models():
+                    mid = m.get("id") or m.get("name")
+                    if mid:
+                        local_models_list.append(mid)
+            except Exception:
+                local_models_list = list(settings.get("shared_models", []))
 
-        # Se ci sono modelli condivisi configurati, filtra, altrimenti esponi quelli rilevati
-        configured_shared = set(settings.get("shared_models", []))
-        active_local_models = [m for m in local_models_list if not configured_shared or m in configured_shared]
+            configured_shared = set(settings.get("shared_models", []))
+            active_local_models = [m for m in local_models_list if not configured_shared or m in configured_shared]
 
-        for m_id in active_local_models:
-            models_catalog.append({
-                "model_id": m_id,
-                "name": m_id.split("/")[-1].replace(".gguf", ""),
-                "provider_id": local_peer_id,
-                "provider_name": str(settings.get("display_name") or "Il tuo nodo (Locale)"),
-                "host": "127.0.0.1",
-                "port": 8000,
-                "is_local": True,
-                "is_trusted": True,
-                "sharing_active": local_sharing,
-                "rate_tokens_per_coin": local_rate,
-                "latency_ms": 0.0,
-                "status": "ready",
-            })
+            for m_id in active_local_models:
+                models_catalog.append({
+                    "model_id": m_id,
+                    "name": m_id.split("/")[-1].replace(".gguf", ""),
+                    "provider_id": local_peer_id,
+                    "provider_name": str(settings.get("display_name") or "Il tuo nodo (Locale)"),
+                    "host": "127.0.0.1",
+                    "port": 8000,
+                    "is_local": True,
+                    "is_trusted": True,
+                    "sharing_active": local_sharing,
+                    "rate_tokens_per_coin": local_rate,
+                    "latency_ms": 0.0,
+                    "status": "ready",
+                })
 
         # 2. Modelli dei peer remoti
         now = time.time()
@@ -91,8 +90,9 @@ class ClusterBroker:
                 continue
 
             last_seen = p.get("last_seen", 0.0)
-            is_online = (now - last_seen) < 120.0
-            is_trusted = (p.get("state") == "trusted")
+            is_online = (now - last_seen) < 180.0
+            auto_trust = bool(settings.get("cluster_auto_trust", True))
+            is_trusted = (p.get("state") == "trusted") or (auto_trust and is_online)
 
             for m_id in p.get("models", []):
                 models_catalog.append({
@@ -114,7 +114,7 @@ class ClusterBroker:
 
     def execute_cluster_inference(
         self,
-        prompt: str,
+        prompt: Any,
         model: str,
         max_tokens: int = 1024,
         preferred_peer_id: Optional[str] = None,
@@ -123,6 +123,7 @@ class ClusterBroker:
         identity = self._get_identity()
         wallet = self._get_wallet()
         registry = self._get_registry()
+        settings = self._get_settings()
         local_peer_id = identity.get("peer_id", "")
         priv_key_str = identity.get("private_key")
         private_key_bytes: Optional[bytes] = None
@@ -134,10 +135,19 @@ class ClusterBroker:
 
         # Identifica il provider adatto
         cluster_models = self.get_cluster_models()
+        clean_model_name = model.split("]")[-1].strip() if "]" in model else model
         candidates = [
             m for m in cluster_models
             if m["model_id"] == model or m["name"] == model
+            or m["model_id"] == clean_model_name or m["name"] == clean_model_name
+            or clean_model_name.lower() in m["model_id"].lower()
         ]
+
+        if "]" in model and "[" in model:
+            prov_tag = model.split("]")[0].replace("[", "").replace("Cluster:", "").strip()
+            prov_match = [m for m in candidates if prov_tag.lower() in m.get("provider_name", "").lower()]
+            if prov_match:
+                candidates = prov_match
 
         if preferred_peer_id:
             candidates = [m for m in candidates if m["provider_id"] == preferred_peer_id]
@@ -172,13 +182,22 @@ class ClusterBroker:
 
         token_count = 0
 
+        # Normalizza prompt testuale
+        prompt_text = prompt
+        if isinstance(prompt, list):
+            prompt_text = "\n".join(
+                f"{m.get('role', 'user')}: {m.get('content', '')}" for m in prompt if isinstance(m, dict)
+            )
+        elif not isinstance(prompt, str):
+            prompt_text = str(prompt)
+
         # CASO 1: Nodo Locale
         if is_local:
             try:
                 from core.engine.unified_runtime import sigma_engine
                 from core.engine.provider_server import is_notice
                 for chunk in sigma_engine.generate_stream(
-                    prompt=prompt,
+                    prompt=prompt_text,
                     model_name=selected["model_id"],
                     max_tokens=max_tokens,
                 ):
@@ -207,7 +226,7 @@ class ClusterBroker:
             yield "data: [DONE]\n\n"
             return
 
-        # CASO 2: Peer Remoto P2P con regolamento AiloCoin
+        # CASO 2: Peer Remoto P2P con regolamento AiloToken
         if not private_key_bytes:
             err = {
                 "error": "Chiave privata del wallet assente o bloccata. Effettua l'accesso con password o importa il tuo wallet per firmare le richieste P2P."
@@ -216,11 +235,20 @@ class ClusterBroker:
             yield "data: [DONE]\n\n"
             return
 
-        # Verifica saldo disponibile
+        # Verifica saldo disponibile con auto-erogazione Genesis Faucet
         current_balance = wallet.balance(local_peer_id).get("balance", 0.0)
         if current_balance <= 0.0:
+            try:
+                wallet.mint_faucet(local_peer_id, amount=100.0, force=False)
+                current_balance = 100.0
+                logger.info("[ClusterBroker] Genesis Faucet accreditato automaticamente a %s (100 AiloToken)", local_peer_id)
+            except Exception as f_err:
+                logger.debug("Tentativo faucet: %s", f_err)
+                current_balance = wallet.balance(local_peer_id).get("balance", 0.0)
+
+        if current_balance <= 0.0:
             err = {
-                "error": "Saldo AiloCoin insufficiente. Richiedi AiloCoin dal Faucet o avvia il Mining per guadagnare token."
+                "error": "Saldo AiloToken insufficiente. Richiedi AiloToken dal Faucet o avvia il Mining per guadagnare token."
             }
             yield f"data: {json.dumps(err)}\n\n"
             yield "data: [DONE]\n\n"
@@ -256,6 +284,11 @@ class ClusterBroker:
             for line in resp.iter_lines(decode_unicode=True):
                 if not line:
                     continue
+                if isinstance(line, bytes):
+                    try:
+                        line = line.decode("utf-8")
+                    except Exception:
+                        continue
                 if line.startswith("data: "):
                     content = line[6:].strip()
                     if content == "[DONE]":

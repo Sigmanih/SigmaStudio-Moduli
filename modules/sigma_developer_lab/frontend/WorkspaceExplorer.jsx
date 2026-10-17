@@ -2,9 +2,10 @@ import React, { useState } from 'react';
 import { 
   Folder, FolderOpen, File, FileCode, FileText, ChevronRight, ChevronDown, 
   Plus, Trash2, Edit2, RefreshCw, Search, HardDrive, CornerDownRight,
-  Box, ExternalLink 
+  Box, ExternalLink, PieChart, Sparkles 
 } from 'lucide-react';
 import DockerViewerModal from './DockerViewerModal';
+import WorkspaceContextMenu from './WorkspaceContextMenu';
 
 export const getFileIcon = (filename = '') => {
   const ext = filename.split('.').pop().toLowerCase();
@@ -35,10 +36,23 @@ const TreeNode = ({
   onFileSelect, 
   onDeleteEntry, 
   onCreateEntry, 
+  onOpenGraph,
+  onAiCreate,
+  onContextMenu,
   theme, 
-  isLight 
+  isLight,
+  depth = 0
 }) => {
-  const [expanded, setExpanded] = useState(node.name === 'Sigma_Studio' || node.name === 'data' || node.name === 'core' || node.name === 'sigma_studio');
+  const isRoot = depth === 0;
+  const [expanded, setExpanded] = useState(
+    isRoot ||
+    node.name === 'Sigma_Studio' || 
+    node.name === 'data' || 
+    node.name === 'roles' || 
+    node.name === 'projects' || 
+    node.name === 'agent_memory' || 
+    node.name === 'sigma_studio'
+  );
 
   if (!node) return null;
 
@@ -58,6 +72,11 @@ const TreeNode = ({
     <div style={{ userSelect: 'none', fontSize: '0.74rem' }}>
       <div 
         onClick={handleRowClick}
+        onContextMenu={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          onContextMenu?.(e, node);
+        }}
         style={{
           display: 'flex',
           alignItems: 'center',
@@ -94,8 +113,26 @@ const TreeNode = ({
           </span>
         </div>
 
-        {/* Hover quick action buttons for delete/create */}
+        {/* Hover quick action buttons for graph / ai / create / delete */}
         <div className="node-actions" style={{ display: 'flex', alignItems: 'center', gap: '3px', opacity: 0.6 }} onClick={e => e.stopPropagation()}>
+          {isDir && (
+            <button
+              onClick={() => onOpenGraph?.(node)}
+              title="Visualizza Grafo Relazionale D3"
+              style={{ background: 'none', border: 'none', color: '#00f2fe', cursor: 'pointer', padding: '2px' }}
+            >
+              <PieChart size={11} />
+            </button>
+          )}
+          {isDir && (
+            <button
+              onClick={() => onAiCreate?.(node)}
+              title="Crea file o documento con AI"
+              style={{ background: 'none', border: 'none', color: '#eab308', cursor: 'pointer', padding: '2px' }}
+            >
+              <Sparkles size={11} />
+            </button>
+          )}
           {isDir && (
             <button
               onClick={() => onCreateEntry(node.path)}
@@ -128,8 +165,12 @@ const TreeNode = ({
                 onFileSelect={onFileSelect}
                 onDeleteEntry={onDeleteEntry}
                 onCreateEntry={onCreateEntry}
+                onOpenGraph={onOpenGraph}
+                onAiCreate={onAiCreate}
+                onContextMenu={onContextMenu}
                 theme={theme}
                 isLight={isLight}
+                depth={depth + 1}
               />
             ))
           )}
@@ -150,12 +191,49 @@ export default function WorkspaceExplorer({
   onCreateFile,
   onCreateFolder,
   onDeletePath,
+  onOpenGraph,
+  onAiCreate,
+  onOpenStudy,
+  onShowDiff,
   theme,
   isLight
 }) {
   const [searchFilter, setSearchFilter] = useState('');
   const [showDockerModal, setShowDockerModal] = useState(false);
+  const [contextMenu, setContextMenu] = useState({ visible: false, x: 0, y: 0, node: null });
   const textMuted = isLight ? '#57606a' : '#8b949e';
+
+  const normPath = (p) => String(p || '').replace(/\\/g, '/').replace(/\/+$/, '');
+  const studioRootObj = workspaceRoots.find(r => r.kind === 'studio');
+  const projectsRootObj = workspaceRoots.find(r => r.kind === 'projects_root');
+
+  let studioRoot = studioRootObj ? normPath(studioRootObj.path) : '';
+  let projectsRoot = projectsRootObj ? normPath(projectsRootObj.path) : '';
+
+  if (!studioRoot && projectsRoot) {
+    studioRoot = projectsRoot.replace(/\/projects$/, '');
+  }
+  if (!projectsRoot && studioRoot) {
+    projectsRoot = `${studioRoot}/projects`;
+  }
+  if (!studioRoot) {
+    const cur = normPath(workspaceRoot);
+    const idx = cur.toLowerCase().indexOf('/sigma_studio');
+    studioRoot = idx !== -1 ? cur.slice(0, idx + '/sigma_studio'.length) : cur;
+  }
+  if (!projectsRoot) {
+    projectsRoot = `${studioRoot}/projects`;
+  }
+
+  const handleContextMenu = (e, node) => {
+    e.preventDefault();
+    setContextMenu({
+      visible: true,
+      x: e.clientX,
+      y: e.clientY,
+      node: node || displayTree
+    });
+  };
 
   const filterTree = (node, query) => {
     if (!query) return node;
@@ -238,6 +316,11 @@ export default function WorkspaceExplorer({
               {r.label}
             </option>
           ))}
+          {!workspaceRoots.some(r => normPath(r.path).toLowerCase() === normPath(workspaceRoot).toLowerCase()) && workspaceRoot && (
+            <option key={workspaceRoot} value={workspaceRoot}>
+              📍 {workspaceRoot.replace(/\\/g, '/').split('/').filter(Boolean).pop() || workspaceRoot}
+            </option>
+          )}
         </select>
 
         {/* Rimodernizzata Development Map & Quick Pinned Bookmarks */}
@@ -271,25 +354,28 @@ export default function WorkspaceExplorer({
             msOverflowStyle: 'none'
           }}>
             {[
-              { label: '🏠 Home', path: '' },
-              { label: '📌 data/', path: 'data' },
-              { label: '🧠 Memoria', path: 'data/models' },
-              { label: '🎭 Ruoli', path: 'Ruoli' },
-              { label: '🧬 Core', path: 'core' },
+              { id: 'studio', label: '🏠 SigmaStudio', path: studioRoot },
+              { id: 'projects', label: '📁 Progetti', path: projectsRoot },
+              { id: 'userdata', label: '📌 User Data', path: `${studioRoot}/data` },
+              { id: 'roles', label: '🎭 Ruoli', path: `${studioRoot}/roles` },
+              { id: 'memory', label: '🧠 Memoria', path: `${studioRoot}/var/agent_memory` },
+              { id: 'docker', label: '🐳 Docker', isDocker: true },
             ].map(pin => {
-              const isPinnedActive = pin.path === '' 
-                ? (workspaceRoot === (workspaceRoots[0]?.path || ''))
-                : (workspaceRoot.replace(/\\/g, '/').endsWith(pin.path));
+              const isPinnedActive = pin.isDocker
+                ? Boolean(workspaceRoot?.startsWith('docker://'))
+                : (Boolean(pin.path) && normPath(workspaceRoot).toLowerCase() === normPath(pin.path).toLowerCase());
 
               return (
                 <button
                   key={pin.label}
                   type="button"
+                  title={pin.isDocker ? 'Apri e naviga container Docker' : `Passa alla cartella: ${pin.path}`}
                   onClick={() => {
-                    const base = workspaceRoots[0]?.path || '';
-                    const matched = workspaceRoots.find(r => r.path.replace(/\\/g, '/').endsWith(pin.path));
-                    const target = matched ? matched.path : (base ? `${base.replace(/[/\\]+$/, '')}/${pin.path}` : pin.path);
-                    onSelectWorkspaceRoot(target);
+                    if (pin.isDocker) {
+                      setShowDockerModal(true);
+                    } else if (pin.path) {
+                      onSelectWorkspaceRoot(pin.path);
+                    }
                   }}
                   style={{
                     padding: '3px 7px',
@@ -381,11 +467,14 @@ export default function WorkspaceExplorer({
       </div>
 
       {/* Tree Content */}
-      <div style={{
-        flex: 1,
-        overflowY: 'auto',
-        padding: '8px 6px'
-      }}>
+      <div 
+        onContextMenu={(e) => handleContextMenu(e, displayTree)}
+        style={{
+          flex: 1,
+          overflowY: 'auto',
+          padding: '8px 6px'
+        }}
+      >
         {displayTree ? (
           <TreeNode
             node={displayTree}
@@ -393,6 +482,9 @@ export default function WorkspaceExplorer({
             onFileSelect={onFileSelect}
             onDeleteEntry={onDeletePath}
             onCreateEntry={onCreateFile}
+            onOpenGraph={onOpenGraph}
+            onAiCreate={onAiCreate}
+            onContextMenu={handleContextMenu}
             theme={theme}
             isLight={isLight}
           />
@@ -402,6 +494,25 @@ export default function WorkspaceExplorer({
           </div>
         )}
       </div>
+
+      {/* Menu Contestuale Tasto Destro */}
+      {contextMenu.visible && (
+        <WorkspaceContextMenu
+          x={contextMenu.x}
+          y={contextMenu.y}
+          node={contextMenu.node}
+          onClose={() => setContextMenu({ visible: false, x: 0, y: 0, node: null })}
+          onOpenGraph={onOpenGraph}
+          onAiCreate={onAiCreate}
+          onOpenFile={onFileSelect}
+          onOpenStudy={onOpenStudy}
+          onNewFile={(n) => onCreateFile?.(n?.is_dir ? n.path : (n?.path?.replace(/\/[^/]+$/, '') || workspaceRoot))}
+          onNewFolder={(n) => onCreateFolder ? onCreateFolder(n?.is_dir ? n.path : (n?.path?.replace(/\/[^/]+$/, '') || workspaceRoot)) : onCreateFile?.(n?.path || workspaceRoot)}
+          onDelete={(n) => onDeletePath?.(n.path, n.is_dir)}
+          onShowDiff={onShowDiff}
+          isLight={isLight}
+        />
+      )}
 
       {/* Modale Visualizza Docker & Sandbox Monitor */}
       <DockerViewerModal 

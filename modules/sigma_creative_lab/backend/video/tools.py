@@ -423,6 +423,16 @@ def video_shot_fix(prod_id: str, shot_index: int, fix: str, rerender: bool = Fal
         return _esito("video_shot_fix", False, error="serve un indice valido e una correzione non vuota")
     shot = shots[shot_index]
     add_prompt_fix(shot, {"prompt_fix": str(fix).strip()})
+    if shot.get("keyframe"):
+        # LTX parte dal fotogramma chiave: se il difetto e' gia' li', correggere solo
+        # il prompt del video lo lascia nella clip (collaudo Mx0, 005_03: il doppione
+        # di Kuzumi restava). Il fotogramma si rifa' con la stessa correzione.
+        kf = shot.setdefault("keyframe_fixes", [])
+        if str(fix).strip() not in kf:
+            kf.append(str(fix).strip())
+            del kf[:-2]
+        shot.pop("keyframe", None)
+        shot.pop("keyframe_check", None)
     shot.update(status="pending", attempts=0)
     manager.store.save(prod)
     if rerender:
@@ -470,11 +480,624 @@ def video_export(prod_id: str) -> dict:
     return _editor_job("video_export", prod_id, "export", {})
 
 
-def video_job_status(prod_id: str = "", job_id: str = "") -> dict:
+#: Attesa massima di una sola chiamata: abbastanza per non martellare, non tanto da bloccare il turno.
+ATTESA_MAX_S = 300
+
+
+def video_job_status(prod_id: str = "", job_id: str = "", wait_s: float = 0) -> dict:
+    """Stato dei job; con `wait_s` aspetta finche' qualcosa cambia o i job finiscono.
+
+    Senza attesa l'agente interrogava lo stato a raffica, o si arrangiava con
+    `Start-Sleep` dal terminale, per un job di lettura che dura un'ora.
+    """
+    import time
     from .editor_jobs import editor_jobs
+
+    def istantanea():
+        return [(j["id"], j["status"], j.get("message"), j.get("progress"))
+                for j in editor_jobs().list(prod_id or None) if not job_id or j["id"] == job_id][:8]
+
+    try:
+        attesa = max(0.0, min(float(wait_s or 0), ATTESA_MAX_S))
+    except (TypeError, ValueError):
+        attesa = 0.0
+    if attesa:
+        prima = istantanea()
+        scadenza = time.monotonic() + attesa
+        while time.monotonic() < scadenza:
+            ora = istantanea()
+            attivi = [x for x in ora if x[1] in ("queued", "running")]
+            # Un cambio di pagina o di stato basta: l'agente vede che il lavoro avanza.
+            if ora != prima and (not attivi or [x[1:3] for x in ora] != [x[1:3] for x in prima]):
+                break
+            if not attivi:
+                break
+            time.sleep(5)
     jobs = [j for j in editor_jobs().list(prod_id or None) if not job_id or j["id"] == job_id][:8]
     return _esito("video_job_status", True, jobs=[{k: j.get(k) for k in ("id", "kind", "status", "message", "progress",
                                                                           "error", "result")} for j in jobs])
+
+
+# ---------------------------------------------------------------------------
+# Esecutori: trasposizione da fumetto (manga vignetta per vignetta)
+# ---------------------------------------------------------------------------
+
+def _percorso(path: str) -> Path:
+    """Assoluto, o relativo alla radice del progetto: le scan stanno in data/, fuori dai worktree."""
+    from core import paths
+    p = Path(str(path or "").strip().strip('"'))
+    return p if p.is_absolute() else paths.project_root() / p
+
+
+def video_char_from_image(char_id: str, image_path: str, region: Optional[List[float]] = None,
+                          count: int = 2) -> dict:
+    """Proposte del riferimento ridisegnate da un'immagine dell'opera (copertina, tavola a colori, vignetta)."""
+    from . import character_library
+    try:
+        char = asyncio.run(character_library.candidates_from_image(
+            char_id, str(_percorso(image_path)), region=region, count=count))
+    except Exception as exc:
+        return _esito("video_char_from_image", False, error=str(exc))
+    folder = character_library.characters_dir() / char_id
+    nuove = [c for c in char.get("candidates") or [] if c.get("source")][:4]
+    return _esito("video_char_from_image", True, char_id=char_id,
+                  source_crop=str(folder / nuove[0]["source"]) if nuove else "",
+                  candidates=[{"file": c["file"], "path": str(folder / c["file"])}
+                              for c in char.get("candidates") or []][:4],
+                  clothes_visible=nuove[0].get("clothes_visible") if nuove else None,
+                  warning=("nel ritaglio non si vedono i vestiti: nelle proposte sono inventati dalla descrizione. "
+                           "Rifai da una vignetta a figura intera o mezza figura dove si vede come e' vestito"
+                           if nuove and nuove[0].get("clothes_visible") is False else ""),
+                  hint="guarda con view_image PRIMA source_crop (deve contenere proprio questo personaggio) e poi "
+                       "le proposte; scegli con video_char_pick solo se assomigliano al ritaglio")
+
+
+def video_manga_read(prod_id: str, folder: str, exclude_pages: Optional[List[str]] = None) -> dict:
+    """Collega un capitolo alla produzione e ne legge tutte le vignette (job lungo)."""
+    from .production import manager
+    prod = manager.store.get(prod_id)
+    if not prod:
+        return _esito("video_manga_read", False, error=f"Produzione non trovata: {prod_id}")
+    cartella = _percorso(folder)
+    if not cartella.is_dir():
+        return _esito("video_manga_read", False, error=f"Cartella non trovata: {cartella}")
+    escluse = [Path(str(x)).stem for x in exclude_pages or []]
+    prod["manga"] = {"folder": str(cartella), "exclude": escluse}
+    manager.store.save(prod)
+    return _editor_job("video_manga_read", prod_id, "manga_read", {"folder": str(cartella), "exclude": escluse})
+
+
+def _vignette(prod_id: str) -> tuple[dict, Path]:
+    from .production import manager
+    from . import manga
+    prod = manager.store.get(prod_id)
+    if not prod:
+        raise ValueError(f"Produzione non trovata: {prod_id}")
+    cartella = manga.cartella_di(prod)
+    file = cartella / "vignette.json"
+    if not file.is_file():
+        raise ValueError("il capitolo non e' ancora stato letto: controlla il job con video_job_status")
+    import json
+    return json.loads(file.read_text(encoding="utf-8")), cartella
+
+
+def video_manga_pages(prod_id: str) -> dict:
+    """Panoramica del capitolo letto: vignette per pagina, testi, regia, immagini di controllo."""
+    try:
+        stato, cartella = _vignette(prod_id)
+    except Exception as exc:
+        return _esito("video_manga_pages", False, error=str(exc))
+    pagine = []
+    for p in stato.get("pagine") or []:
+        vv = p.get("vignette") or []
+        pagine.append({
+            "page": p["pagina"], "panels": len(vv), "error": p.get("errore", ""),
+            "segmentation": p.get("segmentazione", ""),
+            "control_image": str(cartella / "vignette" / f"{Path(p['pagina']).stem}_controllo.png"),
+            "texts": sum(len(v.get("testi") or []) for v in vv),
+            "unreadable": [v["id"] for v in vv if v.get("errore")],
+            "directed": sum(1 for v in vv if (v.get("regia") or {}).get("shot_en")),
+        })
+    from . import manga
+    tipi = {}
+    for f in sorted(cartella.iterdir()):
+        if f.suffix.lower() in (".jpg", ".jpeg", ".png", ".webp"):
+            try:
+                tipi[f.name] = manga.classifica_pagina(f)
+            except Exception as exc:
+                log.debug("[video_tools] pagina %s non classificata: %s", f.name, exc)
+    foglio = cartella / "vignette" / "provino.png"
+    try:
+        if not foglio.is_file():
+            manga.provino(cartella, foglio)
+    except Exception as exc:
+        log.warning("[video_tools] provino non creato: %s", exc)
+    return _esito("video_manga_pages", True, folder=str(cartella), pages=pagine,
+                  total_panels=sum(p["panels"] for p in pagine),
+                  color_pages=[n for n, t in tipi.items() if t == "colore"],
+                  dark_pages=[n for n, t in tipi.items() if t == "nera"],
+                  contact_sheet=str(foglio) if foglio.is_file() else "",
+                  hint="guarda contact_sheet con view_image per riconoscere copertine e crediti; "
+                       "le color_pages danno i colori veri dei personaggi")
+
+
+def video_manga_panel(prod_id: str, panel_id: str) -> dict:
+    """Tutta la lettura di una vignetta, col percorso del ritaglio da guardare con view_image."""
+    try:
+        stato, cartella = _vignette(prod_id)
+    except Exception as exc:
+        return _esito("video_manga_panel", False, error=str(exc))
+    for p in stato.get("pagine") or []:
+        for v in p.get("vignette") or []:
+            if v["id"] == str(panel_id).strip():
+                return _esito("video_manga_panel", True, page=p["pagina"],
+                              panel={**v, "ritaglio": str(cartella / v["ritaglio"])})
+    return _esito("video_manga_panel", False, error=f"Vignetta non trovata: {panel_id} (formato: 008_04)")
+
+
+#: Caratteri per risposta del copione: sta nell'osservazione di un modello locale senza troncarla.
+COPIONE_MAX = 7000
+
+
+def video_manga_script(prod_id: str, from_page: str = "", to_page: str = "", query: str = "") -> dict:
+    """Il capitolo come copione compatto: una riga per testo, nell'ordine del manga.
+
+    Nel collaudo Mx0 l'agente cercava i nomi dei personaggi con search_code su
+    tutto il repository e poi leggeva vignette.json a blocchi di 200 righe:
+    migliaia di righe di riquadri e descrizioni per arrivare a trecento
+    battute. Qui ci sono solo le battute, con l'id della vignetta per tornare
+    a guardarla, e `query` filtra per parola (un nome, un onorifico).
+    """
+    import re
+    try:
+        stato, _cartella = _vignette(prod_id)
+    except Exception as exc:
+        return _esito("video_manga_script", False, error=str(exc))
+    da, a = Path(str(from_page or "")).stem, Path(str(to_page or "")).stem
+    cerca = str(query or "").strip().lower()
+    righe, prossima = [], ""
+    totale = 0
+    for p in stato.get("pagine") or []:
+        pagina = Path(p["pagina"]).stem
+        if (da and pagina < da) or (a and pagina > a):
+            continue
+        for v in p.get("vignette") or []:
+            for t in v.get("testi") or []:
+                if cerca and cerca not in t["testo"].lower():
+                    continue
+                chi = f" ({t['chi']})" if t.get("chi") and t["chi"] != "fuori campo" else ""
+                riga = f"{v['id']} [{t['tipo']}]{chi} {t['testo']}"
+                if totale + len(riga) > COPIONE_MAX:
+                    prossima = prossima or pagina
+                    continue
+                righe.append(riga)
+                totale += len(riga) + 1
+    if not righe and cerca:
+        return _esito("video_manga_script", True, lines=[], note=f"nessun testo contiene '{query}'")
+    nomi = sorted({m for r in righe for m in re.findall(r"\b[A-Z]{3,}-(?:SENSEI|SENPAI|SAMA|KUN|CHAN|SAN)\b", r)})
+    return _esito("video_manga_script", True, lines=righe, count=len(righe),
+                  honorific_names=nomi,
+                  next_from_page=prossima,
+                  hint=(f"testo troncato: continua con from_page='{prossima}'" if prossima else ""))
+
+
+#: Nomi che non sono nomi: con questi l'agente ha "creato" personaggi che nel fumetto non esistono.
+NOMI_GENERICI = ("eroe", "avversario", "protagonista", "antagonista", "hero", "villain", "nemico", "rivale",
+                 "personaggio", "character")
+#: Una parola romanizzata giapponese: sillabe (consonante)+vocale, o N finale. Filtra i candidati
+#: nomi fra le parole maiuscole dei balloon (AIKA, KUZUMI, TAIGA si', ANDARE no).
+_ROMAJI = None
+
+
+def _e_romaji(parola: str) -> bool:
+    import re
+    global _ROMAJI
+    if _ROMAJI is None:
+        _ROMAJI = re.compile(r"^(?:(?:SH|CH|TS|KY|SY|NY|HY|MY|RY|GY|BY|PY|[KSTNHMYRWGZDBPJF])?[AIUEO]|N)+$")
+    return bool(_ROMAJI.match(parola))
+
+
+#: Parole italiane frequenti che passano il filtro delle sillabe giapponesi.
+_NON_NOMI = frozenset("""MANO SONO SANO NOME TUTTO TUTTI MAI SEI HAI NOI LEI LUI CHE NON SUO SUA MIO MIA TUO TUA
+DOVE COME COSA ORA POI ANNO ANNI MESE GIORNO ZONA META MODO MURO MURA NUOVO NUOVA BUONO BUONA DONNA SEMBRA
+SEMPRE SAPERE ANDARE DIRE FARE AMORE AMICO AMICI AMICA PADRE MADRE MONTE PIANO TENERE VIENI VENIRE GUARDA TIPO
+DIAVOLO RAGAZZO RAGAZZA RAGAZZI SCUOLA SANTUARIO SEGUIRE SUBITO PURE MIRA RAMO SEGNO DITE DATO DATE RESTA
+UNA UNO UNE ANCHE BENE MENO PUNTI PUNTO MAGIA MAGIE MAGO MAGHI TANTO TANTI TANTA POCO POCHI MOLTO MOLTI MOLTA
+DOPO PRIMA SOPRA SOTTO DENTRO FUORI TUTTA TUTTE ANCORA PROPRIO SOLO SOLA NUOVI NUOVE STESSO STESSA ALTRO
+ALTRA ALTRI SUBITO PERO NIENTE NESSUNO NESSUNA DUNQUE INSOMMA DAVVERO VERO VERA PARE PARI FATTO FATTA DETTO
+DETTA DIRE SAI SAPPIAMO SIAMO SIETE ERANO ERA ERO SARA SARAI SARANNO STATO STATA TORNA TORNARE TEMPO MOMENTO
+MANI PIEDI TESTA BOCCA OCCHI CUORE VITA MORTE CASA PORTA FINE INIZIO SENSO MONDO TERRA CIELO PIANETA ZONA
+DIVENTARE DIVENTA DIVENTATO RIMANERE MANDARE MANGIARE PARLARE PORTARE TOCCARE TORNARE PENSARE TROVARE
+""".split())
+
+
+#: Davanti a un nome comune: articoli, preposizioni (anche articolate), possessivi.
+_ARTICOLI = frozenset("""IL LO LA I GLI LE UN UNO UNA L DI A DA IN CON SU PER TRA FRA DEL DELLO DELLA DEI DEGLI
+DELLE AL ALLO ALLA AI AGLI ALLE DAL DALLO DALLA DAI DAGLI DALLE NEL NELLO NELLA NEI NEGLI NELLE SUL SULLO
+SULLA SUI SUGLI SULLE COL QUESTA QUESTO QUELLA QUELLO MIA MIO TUA TUO SUA SUO NOSTRA NOSTRO""".split())
+_INTERIEZIONI = frozenset("EHI AHI OHI UHI HAI EH AH OH UH MAH BAH UFFA".split())
+
+
+def video_manga_cast(prod_id: str) -> dict:
+    """I nomi propri che compaiono nelle battute: chi e' nel capitolo, prima di creare personaggi.
+
+    Nel collaudo Mx0 l'agente ha creato «Mx0 (Eroe)» e «Mx0 (Avversario)»
+    senza aver trovato un nome, mentre il capitolo nominava AIKA, KUZUMI,
+    TAIGA e HIRAGI-SENSEI. Qui i candidati sono gia' contati, con le vignette
+    in cui compaiono e due righe di contesto: resta da decidere chi e' chi
+    guardando quelle vignette.
+    """
+    import re
+    from collections import defaultdict
+    try:
+        stato, _cartella = _vignette(prod_id)
+    except Exception as exc:
+        return _esito("video_manga_cast", False, error=str(exc))
+    from .production import manager
+    escluse = set(((manager.store.get(prod_id) or {}).get("manga") or {}).get("exclude") or [])
+    trovati = defaultdict(list)
+    didascalie, prima_persona = 0, 0
+    for p in stato.get("pagine") or []:
+        if Path(p["pagina"]).stem in escluse:
+            continue
+        for v in p.get("vignette") or []:
+            for t in v.get("testi") or []:
+                if t["tipo"] == "onomatopea":
+                    continue
+                if t["tipo"] == "didascalia":
+                    didascalie += 1
+                    if re.search(r"\b(MI|HO|SONO|MIO|MIA|NON L'HO|IO)\b", t["testo"]):
+                        prima_persona += 1
+                testo = t["testo"]
+                for m in re.finditer(r"\b([A-Z]{3,})(?:-(SENSEI|SENPAI|SAMA|KUN|CHAN|SAN))?\b", testo):
+                    parola, onorifico = m.group(1), m.group(2)
+                    if not (onorifico or (_e_romaji(parola) and parola not in _NON_NOMI
+                                          and parola not in _INTERIEZIONI)):
+                        continue
+                    nome = f"{parola}-{onorifico}" if onorifico else parola
+                    prima = re.findall(r"[A-Z']+", testo[:m.start()].upper())
+                    dopo = testo[m.end():m.end() + 2]
+                    seguente = re.match(r"\s+([A-Z]{3,})", testo[m.end():])
+                    trovati[nome].append((v["id"], testo, {
+                        # «LA MAGIA», «DI MAGIA»: con l'articolo o la preposizione e' un nome comune.
+                        "comune": bool(prima) and prima[-1].rstrip("'") in _ARTICOLI,
+                        # «AIKA!», «KUZUMI TAIGA!!», «, AIKA»: cosi' si chiama una persona.
+                        "vocativo": bool(re.match(r"\s*[!?,.]", dopo)) or testo[:m.start()].rstrip().endswith(","),
+                        "accanto": bool(seguente and _e_romaji(seguente.group(1))
+                                        and seguente.group(1) not in _NON_NOMI),
+                    }))
+    candidati = []
+    for nome, usi in sorted(trovati.items(), key=lambda x: -len(x[1])):
+        segni = [u[2] for u in usi]
+        onorifico = "-" in nome
+        comuni = sum(1 for s in segni if s["comune"])
+        da_nome = sum(1 for s in segni if s["vocativo"] or s["accanto"])
+        if not onorifico and (comuni * 2 > len(usi) or da_nome == 0):
+            continue
+        if len(usi) < 2 and not onorifico:
+            continue
+        candidati.append({"name": nome, "count": len(usi),
+                          "panels": list(dict.fromkeys(u[0] for u in usi))[:8],
+                          "context": [u[1] for u in usi[:2]]})
+    narratore = (f"{prima_persona} didascalie su {didascalie} sono in prima persona (MI, HO, SONO...): "
+                 "se sono la voce del protagonista, e' lui il narratore" if prima_persona else "")
+    return _esito("video_manga_cast", True, candidates=candidates_limit(candidati), captions=didascalie,
+                  narrator_hint=narratore,
+                  hint="i candidati possono essere luoghi o parole: guarda le vignette in 'panels' con "
+                       "video_manga_panel + view_image per capire chi e' chi, poi crea un personaggio per nome. "
+                       "Nomi e cognomi dello stesso personaggio (es. TAIGA e KUZUMI) vanno in un solo personaggio.")
+
+
+def candidates_limit(candidati: list, massimo: int = 15) -> list:
+    return candidati[:massimo]
+
+
+def _nomi_pagina(valori, cartella: Optional[Path]) -> List[str]:
+    """Pagine come le scrive l'agente (4, "4", "004.jpg") ricondotte al nome del file (004).
+
+    Nel collaudo l'agente ha passato 4 e 7: salvati cosi', non coincidevano con
+    nessuna pagina e le pagine nere restavano nel video.
+    """
+    stems = []
+    if cartella and Path(cartella).is_dir():
+        stems = [f.stem for f in Path(cartella).iterdir() if f.suffix.lower() in (".jpg", ".jpeg", ".png", ".webp")]
+    out = []
+    for x in valori or []:
+        s = Path(str(x).strip()).stem
+        if s.isdigit():
+            s = next((st for st in stems if st.isdigit() and int(st) == int(s)), s.zfill(3))
+        if s:
+            out.append(s)
+    return sorted(set(out))
+
+
+def video_manga_exclude(prod_id: str, pages: Optional[List[str]] = None,
+                        not_characters: Optional[List[str]] = None) -> dict:
+    """Le pagine fuori dalla storia e i nomi del cast che non sono personaggi (luoghi, parole)."""
+    from .production import manager
+    prod = manager.store.get(prod_id)
+    if not prod:
+        return _esito("video_manga_exclude", False, error=f"Produzione non trovata: {prod_id}")
+    info = prod.setdefault("manga", {})
+    if pages is not None:
+        info["exclude"] = _nomi_pagina(pages, Path(info["folder"]) if info.get("folder") else None)
+        info["esclusioni_decise"] = True
+    if not_characters is not None:
+        info["not_characters"] = sorted({str(x).strip().upper() for x in not_characters if str(x).strip()})
+    escluse = info.get("exclude") or []
+    manager.store.save(prod)
+    return _esito("video_manga_exclude", True, excluded=escluse,
+                  not_characters=info.get("not_characters") or [],
+                  hint="richiama video_manga_next per il passo successivo")
+
+
+def video_prod_remove_character(prod_id: str, name: str) -> dict:
+    """Toglie un personaggio dalla bibbia della produzione (non dalla libreria)."""
+    from .production import manager
+    prod = manager.store.get(prod_id)
+    if not prod:
+        return _esito("video_prod_remove_character", False, error=f"Produzione non trovata: {prod_id}")
+    bibbia = (prod.get("bible") or {}).get("characters") or []
+    resto = [c for c in bibbia if c.get("name") != name]
+    if len(resto) == len(bibbia):
+        return _esito("video_prod_remove_character", False,
+                      error=f"'{name}' non e' nella bibbia: {[c.get('name') for c in bibbia]}")
+    prod["bible"]["characters"] = resto
+    manager.store.save(prod)
+    return _esito("video_prod_remove_character", True, removed=name, bible=[c.get("name") for c in resto])
+
+
+def _job_attivo(prod_id: str, tipo: str) -> Optional[dict]:
+    from .editor_jobs import editor_jobs
+    for j in editor_jobs().list(prod_id):
+        if j["kind"] == tipo and j["status"] in ("queued", "running"):
+            return j
+    return None
+
+
+def _passo(fase: str, cosa: str, tool: str = "", **extra) -> dict:
+    return _esito("video_manga_next", True, phase=fase, next_step=cosa, next_tool=tool, **extra)
+
+
+def video_manga_next(prod_id: str) -> dict:
+    """Dove e' arrivata la trasposizione e qual e' il prossimo passo, ricavato dallo stato su disco.
+
+    La procedura scritta non bastava: nel collaudo Mx0 l'agente saltava la
+    ricognizione, creava personaggi prima di leggere i nomi e, dopo un
+    riavvio, ripartiva da un file sbagliato. Questo tool non ricorda niente:
+    guarda produzione, lettura, bibbia e storyboard e dice cosa manca, nello
+    stesso ordine ogni volta. Va chiamato a ogni passo.
+    """
+    import json
+    from .production import manager
+    from . import manga
+    prod = manager.store.get(prod_id)
+    if not prod:
+        return _esito("video_manga_next", False, error=f"Produzione non trovata: {prod_id}")
+    info = prod.get("manga") or {}
+    if not info.get("folder"):
+        return _passo("1 lettura", "collega il capitolo e leggi tutte le vignette", "video_manga_read",
+                      args={"prod_id": prod_id, "folder": "<cartella delle pagine>"})
+    job = _job_attivo(prod_id, "manga_read")
+    if job:
+        return _passo("1 lettura", f"lettura in corso: {job.get('message', '')}. Aspetta con "
+                      "video_job_status e wait_s=300, poi richiama video_manga_next; non fare altro sulla GPU.",
+                      "video_job_status", args={"prod_id": prod_id, "wait_s": 300})
+    cartella = Path(info["folder"])
+    if not (cartella / "vignette.json").is_file():
+        return _passo("1 lettura", "la lettura non e' stata fatta o e' fallita: rilancia", "video_manga_read",
+                      args={"prod_id": prod_id, "folder": str(cartella)})
+    stato = json.loads((cartella / "vignette.json").read_text(encoding="utf-8"))
+    pagine_cartella = [f for f in cartella.iterdir() if f.suffix.lower() in (".jpg", ".jpeg", ".png", ".webp")]
+    if len(stato.get("pagine") or []) < len(pagine_cartella):
+        return _passo("1 lettura", "mancano pagine da leggere: rilancia la lettura (riprende da dove era)",
+                      "video_manga_read", args={"prod_id": prod_id, "folder": str(cartella)})
+
+    if "exclude" not in info or info.get("exclude") is None or info.get("esclusioni_decise") is not True:
+        pagine = video_manga_pages(prod_id)
+        return _passo("2 ricognizione",
+                      "guarda contact_sheet con view_image e decidi le pagine fuori dalla storia "
+                      "(copertine, crediti, pagine nere, commento dell'autore), poi chiama video_manga_exclude "
+                      "anche con una lista vuota se non ce ne sono",
+                      "video_manga_exclude", contact_sheet=pagine.get("contact_sheet"),
+                      color_pages=pagine.get("color_pages"), dark_pages=pagine.get("dark_pages"))
+
+    escluse = set(_nomi_pagina(info.get("exclude") or [], cartella))
+    illeggibili = [v["id"] for p in stato["pagine"] if Path(p["pagina"]).stem not in escluse
+                   for v in p.get("vignette") or [] if v.get("errore")]
+
+    bibbia = [c for c in (prod.get("bible") or {}).get("characters") or [] if c.get("name")]
+    generici = [c["name"] for c in bibbia
+                if "(" in c["name"] or any(g in c["name"].lower() for g in NOMI_GENERICI)]
+    senza_rif = [c["name"] for c in bibbia if not c.get("ref_image") or not Path(str(c["ref_image"])).is_file()]
+    if generici:
+        return _passo("3 personaggi", f"nella bibbia ci sono nomi generici {generici}: non sono personaggi del "
+                      "fumetto. Toglili dalla produzione e crea i personaggi coi nomi trovati da video_manga_cast",
+                      "video_manga_cast", problems=generici)
+    from . import character_library
+    pagine_info = video_manga_pages(prod_id)
+    if len(bibbia) < 2:
+        return _passo("3 personaggi",
+                      "crea i personaggi del capitolo: nomi da video_manga_cast; per ognuno video_char_create "
+                      "(genre anime, descrizione in inglese con i colori delle color_pages), poi "
+                      "video_char_from_image su una color_page con region sul personaggio, view_image sulle "
+                      "proposte, video_char_pick, video_char_to_production. Aggiungi anche una 'Comparsa'.",
+                      "video_manga_cast", color_pages=pagine_info.get("color_pages"),
+                      in_bible=[c["name"] for c in bibbia],
+                      library_generic=[c["name"] for c in character_library.list_characters()
+                                       if any(g in c["name"].lower() for g in NOMI_GENERICI)][:6])
+    if senza_rif:
+        return _passo("3 personaggi", f"personaggi senza immagine di riferimento: {senza_rif}. Generala con "
+                      "video_char_from_image da una color_page e riportali con video_char_to_production",
+                      "video_char_from_image", color_pages=pagine_info.get("color_pages"))
+    # Ogni nome che il capitolo ripete deve avere il suo personaggio, e serve una
+    # comparsa per chi non ha nome: nel collaudo la regia e' partita con due soli
+    # personaggi, e le battute di Hiragi-sensei sarebbero finite a nessuno.
+    cast = video_manga_cast(prod_id).get("candidates") or []
+    nomi_bibbia = " ".join(c["name"].lower().replace("-", " ") for c in bibbia)
+    non_personaggi = set(info.get("not_characters") or [])
+    assenti = [c["name"] for c in cast if c["count"] >= 3 and c["name"].upper() not in non_personaggi
+               and not all(parte in nomi_bibbia for parte in c["name"].lower().replace("-", " ").split()
+                           if parte not in ("sensei", "senpai", "sama", "kun", "chan", "san"))]
+    if assenti:
+        return _passo("3 personaggi", f"nomi ricorrenti nelle battute senza personaggio in bibbia: {assenti}. "
+                      "Se sono persone del capitolo, crea il personaggio (o, se esiste gia' in libreria, portalo "
+                      "con video_char_to_production); se sono luoghi o parole, dichiaralo con "
+                      "video_manga_exclude(prod_id, not_characters=[...])", "video_char_to_production",
+                      in_bible=[c["name"] for c in bibbia], missing=assenti)
+    if not any("compars" in c["name"].lower() or "extra" in c["name"].lower() for c in bibbia):
+        return _passo("3 personaggi", "manca una comparsa generica per chi non ha nome (guardie, passanti, "
+                      "studenti): creala e portala nella bibbia con video_char_to_production",
+                      "video_char_to_production", in_bible=[c["name"] for c in bibbia])
+
+    job = _job_attivo(prod_id, "manga_direct")
+    if job:
+        return _passo("4 regia", f"regia in corso: {job.get('message', '')}. Aspetta con video_job_status "
+                      "e wait_s=300, poi richiama video_manga_next.", "video_job_status",
+                      args={"prod_id": prod_id, "wait_s": 300})
+    firma = manga._elenco_personaggi([{"name": c["name"], "description": c.get("description", "")}
+                                      for c in bibbia])
+    da_dirigere = [v["id"] for p in stato["pagine"] if Path(p["pagina"]).stem not in escluse
+                   for v in p.get("vignette") or [] if (v.get("regia") or {}).get("firma") != firma]
+    if da_dirigere:
+        return _passo("4 regia", f"{len(da_dirigere)} vignette senza regia coi personaggi attuali: lanciala",
+                      "video_manga_direct", args={"prod_id": prod_id}, unreadable_panels=illeggibili)
+
+    # Le pagine nere restano fuori in ogni caso: nel collaudo l'agente ha escluso solo il
+    # commento dell'autore, e copertine e separatori sarebbero diventati inquadrature.
+    nere = [Path(n).stem for n in (pagine_info.get("dark_pages") or [])]
+    mancanti = [n for n in nere if n not in escluse]
+    if mancanti:
+        return _passo("2 ricognizione", f"le pagine nere {mancanti} non sono escluse: nel video diventerebbero "
+                      "inquadrature vuote. Guarda contact_sheet con view_image (prime e ultime pagine: copertine, "
+                      "crediti, commento dell'autore) e richiama video_manga_exclude con la lista completa",
+                      "video_manga_exclude", contact_sheet=pagine_info.get("contact_sheet"),
+                      excluded=sorted(escluse), dark_pages=nere)
+
+    job = _job_attivo(prod_id, "manga_speakers")
+    if job:
+        return _passo("4 voci", f"rilettura delle voci in corso: {job.get('message', '')}. Aspetta con "
+                      "video_job_status e wait_s=300.", "video_job_status", args={"prod_id": prod_id, "wait_s": 300})
+    da_rivedere = [v["id"] for p in stato["pagine"] if Path(p["pagina"]).stem not in escluse
+                   for v in p.get("vignette") or []
+                   if any(t["tipo"] != "onomatopea" for t in v.get("testi") or [])
+                   and not (v.get("regia") or {}).get("voci_riviste")]
+    if da_rivedere:
+        return _passo("4 voci", f"{len(da_rivedere)} vignette con battute attribuite solo dalla vista, vignetta "
+                      "per vignetta: fai rileggere il copione intero per correggere chi parla (narratore = chi "
+                      "dice le didascalie in prima persona)", "video_manga_speakers",
+                      args={"prod_id": prod_id, "narrator": "<nome>"})
+
+    shots = prod.get("shots") or []
+    if shots and stato.get("voci_riviste_il") and info.get("storyboard_voci") != stato.get("voci_riviste_il"):
+        return _passo("5 storyboard", "le voci sono state riviste dopo lo storyboard: ricostruiscilo perche' "
+                      "le battute abbiano chi le dice davvero", "video_manga_storyboard",
+                      args={"prod_id": prod_id, "narrator": "<nome>"})
+    if not shots or not all(s.get("panel_id") for s in shots):
+        return _passo("5 storyboard", "costruisci lo storyboard dal fumetto (narratore = chi dice le didascalie)",
+                      "video_manga_storyboard", args={"prod_id": prod_id, "narrator": "<nome>"})
+    nomi = {c["name"] for c in bibbia}
+    mute = sorted({s["dialogue"]["character"] for s in shots if s.get("dialogue")} - nomi)
+    if mute:
+        return _passo("5 storyboard", f"parlanti non in bibbia: {mute}. Aggiungili e rifai lo storyboard",
+                      "video_char_create")
+    prime = [i for i, s in enumerate(shots[:5]) if not s.get("keyframe")]
+    if prime:
+        return _passo("6 prova", "genera i fotogrammi chiave delle prime 5 inquadrature", "video_keyframes",
+                      args={"prod_id": prod_id, "shot_indices": prime, "missing_only": True})
+    da_guardare = [{"index": i, "keyframe": s.get("keyframe"), "panel": s.get("source_panel")}
+                   for i, s in enumerate(shots[:5])]
+    return _passo("7 controllo", "guarda ogni fotogramma con view_image accanto alla sua vignetta: stessa "
+                  "inquadratura, pose, colori giusti, nessuna scritta. Rigenera quelli sbagliati con "
+                  "video_shot_fix + video_keyframes; poi chiudi con complete_goal riportando cosa hai fatto e "
+                  "chiedendo all'utente il via per il render", "view_image", check=da_guardare,
+                  shots=len(shots))
+
+
+def video_manga_fix_panel(prod_id: str, panel_id: str, texts: Optional[List[dict]] = None,
+                          shot_size: str = "", action: str = "", note: str = "") -> dict:
+    """Corregge la lettura di una vignetta dopo averla guardata: testi in ordine, piano, azione."""
+    import json
+    try:
+        stato, cartella = _vignette(prod_id)
+    except Exception as exc:
+        return _esito("video_manga_fix_panel", False, error=str(exc))
+    from . import manga
+    for p in stato.get("pagine") or []:
+        for v in p.get("vignette") or []:
+            if v["id"] != str(panel_id).strip():
+                continue
+            if texts is not None:
+                v["testi"] = manga._normalizza_lettura({"testi": texts})["testi"]
+            if shot_size:
+                v["inquadratura"] = shot_size.strip().lower()
+            if action:
+                v["azione"] = action.strip()
+            if note:
+                v.setdefault("correzioni", []).append(note.strip())
+            v["corretta"] = True
+            v.pop("regia", None)          # la regia va rifatta sulla lettura corretta
+            (cartella / "vignette.json").write_text(json.dumps(stato, ensure_ascii=False, indent=2),
+                                                    encoding="utf-8")
+            return _esito("video_manga_fix_panel", True, panel=v)
+    return _esito("video_manga_fix_panel", False, error=f"Vignetta non trovata: {panel_id}")
+
+
+def video_manga_direct(prod_id: str) -> dict:
+    """Regia di ogni vignetta coi personaggi della bibbia: chi c'e', chi parla, inquadratura in inglese."""
+    return _editor_job("video_manga_direct", prod_id, "manga_direct", {})
+
+
+def video_manga_speakers(prod_id: str, narrator: str) -> dict:
+    """Dopo la regia: rilegge il copione intero e corregge chi dice ogni battuta (job lungo)."""
+    return _editor_job("video_manga_speakers", prod_id, "manga_speakers", {"narrator": narrator})
+
+
+def video_manga_storyboard(prod_id: str, narrator: str, extra_character: str = "Comparsa",
+                           exclude_pages: Optional[List[str]] = None) -> dict:
+    """Sostituisce le inquadrature con quelle del fumetto: una per vignetta, una per ogni battuta."""
+    from .production import manager, new_shot
+    from . import manga
+    prod = manager.store.get(prod_id)
+    if not prod:
+        return _esito("video_manga_storyboard", False, error=f"Produzione non trovata: {prod_id}")
+    nomi = {c.get("name") for c in (prod.get("bible") or {}).get("characters") or []}
+    if narrator not in nomi:
+        return _esito("video_manga_storyboard", False,
+                      error=f"'{narrator}' non e' nella bibbia: personaggi disponibili {sorted(n for n in nomi if n)}")
+    try:
+        escluse = _nomi_pagina(exclude_pages, manga.cartella_di(prod))
+        if escluse:
+            prod.setdefault("manga", {})["exclude"] = sorted(set(escluse))
+        escluse = _nomi_pagina((prod.get("manga") or {}).get("exclude") or [], manga.cartella_di(prod))
+        shots = manga.storyboard(manga.cartella_di(prod), narrator, extra_character, escluse)
+        prod.setdefault("manga", {})["narrator"] = narrator
+    except Exception as exc:
+        return _esito("video_manga_storyboard", False, error=str(exc))
+    from .production import _prompt_hash
+    prod["shots"] = [new_shot(**s) for s in shots]
+    for shot in prod["shots"]:
+        # La regia scrive gia' in inglese, un'azione e un movimento di camera per
+        # inquadratura: la riscrittura per LTX col 27B (che ragiona sempre) costava
+        # ore su 375 inquadrature senza aggiungere niente.
+        shot["ltx_prompt"] = {"text": shot["prompt"], "source": _prompt_hash(shot["prompt"])}
+    try:
+        import json
+        stato_v = json.loads((manga.cartella_di(prod) / "vignette.json").read_text(encoding="utf-8"))
+        prod.setdefault("manga", {})["storyboard_voci"] = stato_v.get("voci_riviste_il")
+    except Exception as exc:
+        log.debug("[video_tools] impronta delle voci non letta: %s", exc)
+    # Ogni inquadratura parte dalla sua vignetta ridisegnata: servono i fotogrammi chiave.
+    prod.setdefault("settings", {})["keyframes"] = True
+    manager.store.save(prod)
+    senza_regia = sum(1 for s in shots if not s["refs"] and not s.get("dialogue"))
+    battute = [s for s in shots if s.get("dialogue")]
+    sconosciuti = sorted({s["dialogue"]["character"] for s in battute} - nomi)
+    return _esito("video_manga_storyboard", True, prod_id=prod_id, shots=len(shots), lines=len(battute),
+                  silent_without_characters=senza_regia,
+                  speakers_missing_from_bible=sconosciuti,
+                  hint=("aggiungi alla bibbia i personaggi in speakers_missing_from_bible (anche una comparsa "
+                        "generica) prima del render, altrimenti quelle battute restano mute") if sconosciuti else "")
 
 
 # ---------------------------------------------------------------------------
@@ -510,12 +1133,26 @@ ESECUTORI: Dict[str, Callable] = {
     "video_lesson": video_lesson,
     "video_export": video_export,
     "video_job_status": video_job_status,
+    "video_char_from_image": video_char_from_image,
+    "video_manga_read": video_manga_read,
+    "video_manga_pages": video_manga_pages,
+    "video_manga_panel": video_manga_panel,
+    "video_manga_script": video_manga_script,
+    "video_manga_next": video_manga_next,
+    "video_manga_cast": video_manga_cast,
+    "video_manga_exclude": video_manga_exclude,
+    "video_prod_remove_character": video_prod_remove_character,
+    "video_manga_fix_panel": video_manga_fix_panel,
+    "video_manga_direct": video_manga_direct,
+    "video_manga_speakers": video_manga_speakers,
+    "video_manga_storyboard": video_manga_storyboard,
 }
 
 READ_TOOLS = frozenset({
     "video_char_list", "video_char_get", "video_char_view_prompt",
     "video_prod_list", "video_prod_get", "video_inspect_shot", "video_timeline_get",
-    "video_render_status", "video_job_status",
+    "video_render_status", "video_job_status", "video_manga_pages", "video_manga_panel", "video_manga_script",
+    "video_manga_next", "video_manga_cast",
 })
 
 WRITE_TOOLS = frozenset({
@@ -524,6 +1161,8 @@ WRITE_TOOLS = frozenset({
     "video_prod_update_shot", "video_render_shot", "video_judge_clip",
     "video_render", "video_char_sheet", "video_char_to_production", "video_keyframes", "video_shot_fix",
     "video_dialogue", "video_scene", "video_lesson", "video_export",
+    "video_char_from_image", "video_manga_read", "video_manga_fix_panel", "video_manga_direct",
+    "video_manga_storyboard", "video_manga_exclude", "video_prod_remove_character", "video_manga_speakers",
 })
 
 

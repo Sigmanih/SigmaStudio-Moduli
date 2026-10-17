@@ -9,6 +9,7 @@ import ActivityTerminalStrip from './ActivityTerminalStrip';
 import SigmaEngineNativeBar from './SigmaEngineNativeBar';
 import AdminAgentChat from './AdminAgentChat';
 import McpQuickActionsBar from './McpQuickActionsBar';
+import AiCreateFileModal from './AiCreateFileModal';
 
 export default function DeveloperStudio() {
   const { theme, addToast } = useApp();
@@ -22,6 +23,29 @@ export default function DeveloperStudio() {
   const [openFiles, setOpenFiles] = useState([]);
   const [activeFilePath, setActiveFilePath] = useState(null);
   const [activeDiff, setActiveDiff] = useState(null);
+  const [aiModalState, setAiModalState] = useState({ isOpen: false, node: null });
+
+  // Apertura della scheda speciale Grafo D3
+  const handleOpenGraph = useCallback((target) => {
+    const rawPath = typeof target === 'string' ? target : (target?.path || '');
+    const cleanPath = String(rawPath).trim().replace(/^["']|["']$/g, '');
+    const folderName = cleanPath ? cleanPath.split(/[/\\]/).pop() : 'Workspace';
+    const graphTabId = `__graph__:${cleanPath || 'root'}`;
+
+    setOpenFiles(prev => {
+      const existing = prev.find(f => f.path === graphTabId);
+      if (existing) return prev;
+      return [...prev, {
+        path: graphTabId,
+        filename: `🌐 Grafo: ${folderName}`,
+        is_graph: true,
+        targetPath: cleanPath,
+        content: '',
+        dirty: false
+      }];
+    });
+    setActiveFilePath(graphTabId);
+  }, []);
 
   // Terminal state
   const [terminalExpanded, setTerminalExpanded] = useState(true);
@@ -374,6 +398,10 @@ export default function DeveloperStudio() {
             onRefreshTree={fetchTree}
             onCreateFile={handleCreateFile}
             onDeletePath={handleDeletePath}
+            onOpenGraph={handleOpenGraph}
+            onAiCreate={(node) => setAiModalState({ isOpen: true, node })}
+            onOpenStudy={(node) => handleOpenFile(node?.path)}
+            onShowDiff={(node) => handleOpenFile(node?.path)}
             theme={theme}
             isLight={isLight}
           />
@@ -477,6 +505,9 @@ export default function DeveloperStudio() {
               onContentChange={handleContentChange}
               onSaveFile={handleSaveFile}
               onRunFileInTerminal={handleRunFileInTerminal}
+              onOpenGraph={handleOpenGraph}
+              onAiCreate={(node) => setAiModalState({ isOpen: true, node })}
+              workspaceRoot={workspaceRoot}
               activeDiff={activeDiff}
               onAcceptDiff={() => {
                 setActiveDiff(null);
@@ -573,6 +604,19 @@ export default function DeveloperStudio() {
           )}
         </div>
       </div>
+      {/* Modale Creazione Guidata con Ruoli AI */}
+      <AiCreateFileModal
+        isOpen={aiModalState.isOpen}
+        onClose={() => setAiModalState({ isOpen: false, node: null })}
+        targetFolderNode={aiModalState.node}
+        workspaceRoot={workspaceRoot}
+        onFileCreated={(createdPath) => {
+          fetchTree();
+          handleOpenFile(createdPath);
+        }}
+        addToast={addToast}
+        isLight={isLight}
+      />
     </div>
   );
 }

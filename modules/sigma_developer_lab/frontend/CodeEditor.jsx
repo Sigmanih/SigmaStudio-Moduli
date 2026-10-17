@@ -1,9 +1,10 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { 
   X, Save, Copy, Check, Play, FileCode, SplitSquareVertical, 
-  RotateCcw, Sparkles, Eye, Code, Download, BookOpen 
+  RotateCcw, Sparkles, Eye, Code, Download, BookOpen, PieChart 
 } from 'lucide-react';
 import { getFileIcon } from './WorkspaceExplorer';
+import DevGraphView from './DevGraphView';
 import { renderMarkdownLatex } from '../../utils/markdownLatex';
 import 'katex/dist/katex.min.css';
 
@@ -58,6 +59,9 @@ export default function CodeEditor({
   onContentChange,
   onSaveFile,
   onRunFileInTerminal,
+  onOpenGraph,
+  onAiCreate,
+  workspaceRoot,
   activeDiff,
   onAcceptDiff,
   onRejectDiff,
@@ -67,6 +71,7 @@ export default function CodeEditor({
   const [copied, setCopied] = useState(false);
   const [showDiffView, setShowDiffView] = useState(false);
   const [showPreview, setShowPreview] = useState(false);
+  const [isStudyMode, setIsStudyMode] = useState(false);
   const [imageZoom, setImageZoom] = useState(1);
   const textareaRef = useRef(null);
 
@@ -239,7 +244,7 @@ export default function CodeEditor({
                 userSelect: 'none'
               }}
             >
-              {getFileIcon(file.filename)}
+              {file.is_graph ? <PieChart size={13} color="#00f2fe" /> : getFileIcon(file.filename)}
               <span>{file.filename}</span>
               {isDirty && (
                 <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: '#d29922' }} title="Modificato non salvato" />
@@ -286,8 +291,58 @@ export default function CodeEditor({
         </div>
 
         <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+          {/* Pulsante Grafo Relazionale della Cartella */}
+          {!activeFile.is_graph && onOpenGraph && (
+            <button
+              type="button"
+              onClick={() => onOpenGraph(activeFile.path.replace(/\/[^/]+$/, '') || '')}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '5px',
+                padding: '4px 10px',
+                borderRadius: '6px',
+                background: isLight ? '#ffffff' : '#161b22',
+                border: isLight ? '1px solid #d0d7de' : '1px solid rgba(255,255,255,0.1)',
+                color: '#00f2fe',
+                fontSize: '0.68rem',
+                fontWeight: 700,
+                cursor: 'pointer'
+              }}
+              title="Visualizza Grafo Relazionale D3 della Cartella"
+            >
+              <PieChart size={12} color="#00f2fe" />
+              <span>Grafo Cartella</span>
+            </button>
+          )}
+
+          {/* Modalità Studio KaTeX per Markdown */}
+          {(fileExt === 'md' || fileExt === 'markdown') && !activeFile.is_graph && (
+            <button
+              type="button"
+              onClick={() => setIsStudyMode(!isStudyMode)}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '5px',
+                padding: '4px 10px',
+                borderRadius: '6px',
+                background: isStudyMode ? 'rgba(168, 85, 247, 0.2)' : (isLight ? '#ffffff' : '#161b22'),
+                border: isStudyMode ? '1px solid #a855f7' : (isLight ? '1px solid #d0d7de' : '1px solid rgba(255,255,255,0.1)'),
+                color: isStudyMode ? '#c084fc' : (isLight ? '#24292f' : '#c9d1d9'),
+                fontSize: '0.68rem',
+                fontWeight: 700,
+                cursor: 'pointer'
+              }}
+              title="Attiva Modalità Studio e Lettura Matematica KaTeX"
+            >
+              <BookOpen size={12} color="#a855f7" />
+              <span>{isStudyMode ? 'Esci da Studio' : 'Modalità Studio'}</span>
+            </button>
+          )}
+
           {/* Mostra Preview Toggle (Markdown, HTML, SVG, JSON) */}
-          {isPreviewable && !isImage && (
+          {isPreviewable && !isImage && !activeFile.is_graph && !isStudyMode && (
             <button
               type="button"
               onClick={() => setShowPreview(!showPreview)}
@@ -312,7 +367,7 @@ export default function CodeEditor({
           )}
 
           {/* Esegui Script Python / Bash */}
-          {(fileExt === 'py' || fileExt === 'sh' || fileExt === 'js' || fileExt === 'bat' || fileExt === 'ps1') && (
+          {(fileExt === 'py' || fileExt === 'sh' || fileExt === 'js' || fileExt === 'bat' || fileExt === 'ps1') && !activeFile.is_graph && (
             <button
               type="button"
               onClick={() => onRunFileInTerminal(activeFile.path)}
@@ -337,7 +392,7 @@ export default function CodeEditor({
           )}
 
           {/* Save Button */}
-          {!isImage && (
+          {!isImage && !activeFile.is_graph && (
             <button
               type="button"
               onClick={() => onSaveFile(activeFile.path, activeFile.content)}
@@ -361,7 +416,7 @@ export default function CodeEditor({
           )}
 
           {/* Copy Button */}
-          {!isImage && (
+          {!isImage && !activeFile.is_graph && (
             <button
               type="button"
               onClick={handleCopy}
@@ -384,8 +439,55 @@ export default function CodeEditor({
         </div>
       </div>
 
-      {/* 3. Main Workspace Area: Image / PDF / Media / Model / Diff / Preview / Code Editor */}
-      {isImage ? (
+      {/* 3. Main Workspace Area: DevGraphView / StudyMode / Image / PDF / Media / Model / Diff / Preview / Code Editor */}
+      {activeFile.is_graph ? (
+        <DevGraphView
+          targetPath={activeFile.targetPath || ''}
+          workspaceRoot={workspaceRoot}
+          onOpenFile={(p) => onSelectTab?.(p)}
+          onAiCreate={onAiCreate}
+          isLight={isLight}
+          theme={theme}
+        />
+      ) : isStudyMode && (fileExt === 'md' || fileExt === 'markdown') ? (
+        <div className="dev-study-mode-container">
+          <div style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            padding: '8px 24px',
+            background: isLight ? '#f6f8fa' : '#07090e',
+            borderBottom: isLight ? '1px solid #d0d7de' : '1px solid rgba(255,255,255,0.08)'
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.78rem', fontWeight: 700, color: '#a855f7' }}>
+              <BookOpen size={15} />
+              <span>MODALITÀ STUDIO & LETTURA (KaTeX & Formule Matematiche)</span>
+            </div>
+            <button
+              onClick={() => setIsStudyMode(false)}
+              style={{
+                background: 'none',
+                border: isLight ? '1px solid #d0d7de' : '1px solid rgba(255,255,255,0.15)',
+                borderRadius: '5px',
+                padding: '3px 10px',
+                fontSize: '0.7rem',
+                color: isLight ? '#24292f' : '#c9d1d9',
+                cursor: 'pointer'
+              }}
+            >
+              Torna all'Editor
+            </button>
+          </div>
+          <div
+            className="dev-study-reader markdown-body"
+            style={{
+              background: isLight ? '#ffffff' : '#0d1117',
+              color: isLight ? '#24292f' : '#e6edf3'
+            }}
+            dangerouslySetInnerHTML={{ __html: previewHtml }}
+          />
+        </div>
+      ) : isImage ? (
         <div style={{
           flex: 1,
           display: 'flex',

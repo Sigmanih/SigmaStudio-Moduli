@@ -1804,3 +1804,27 @@
 .cs-shot-world { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 4px; }
 .cs-shot-world .cs-inline-input { flex: 1; min-width: 160px; }
 .cs-shot-engine { max-width: 150px; font-size: 0.75rem; }
+
+/* Revisione di chi c'e' e chi parla nelle vignette di un fumetto */
+.cs-review-tools { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 8px 0; font-size: 0.8rem; }
+.cs-review-list { display: flex; flex-direction: column; gap: 10px; max-height: 70vh; overflow-y: auto; padding-right: 4px; }
+.cs-review-row { display: grid; grid-template-columns: minmax(120px, 220px) 1fr; gap: 12px; padding: 10px; border-radius: 10px;
+  border: 1px solid var(--border-color, rgba(255, 255, 255, 0.08)); background: var(--bg-secondary, rgba(255, 255, 255, 0.02)); }
+.cs-review-row.is-reviewed { border-color: rgba(16, 185, 129, 0.35); }
+.cs-review-panel { width: 100%; max-height: 280px; object-fit: contain; border-radius: 6px; background: #fff; }
+.cs-review-body { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.cs-review-head { display: flex; align-items: center; gap: 8px; font-size: 0.82rem; }
+.cs-review-badge { display: inline-flex; align-items: center; gap: 4px; color: #10b981; font-size: 0.72rem; }
+.cs-review-cast { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.cs-review-chip { padding: 3px 9px; border-radius: 999px; font-size: 0.72rem; cursor: pointer;
+  border: 1px solid var(--border-color, rgba(255, 255, 255, 0.15)); background: transparent; color: inherit; }
+.cs-review-chip.is-on { background: rgba(0, 210, 255, 0.18); border-color: rgba(0, 210, 255, 0.55); }
+.cs-review-line { display: grid; grid-template-columns: 80px 1fr 170px auto; align-items: center; gap: 8px; font-size: 0.78rem; }
+.cs-review-kind { color: var(--text-muted, #8b8fa3); font-size: 0.7rem; text-transform: uppercase; }
+.cs-review-text { overflow-wrap: anywhere; }
+.cs-review-select { padding: 4px 6px; border-radius: 6px; font-size: 0.75rem; }
+.cs-review-off { display: inline-flex; align-items: center; gap: 4px; font-size: 0.7rem; white-space: nowrap; }
+@media (max-width: 720px) {
+  .cs-review-row { grid-template-columns: 1fr; }
+  .cs-review-line { grid-template-columns: 1fr; }
+}

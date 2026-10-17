@@ -426,7 +426,7 @@ SCHEMI = (
         "type": "function",
         "function": {
             "name": "video_shot_fix",
-            "description": "Salva una correzione in inglese nel prompt dell'inquadratura (es. 'the lamp stays in her right hand') e la rimette in coda; con rerender=true avvia subito il nuovo render.",
+            "description": "Salva una correzione in inglese nel prompt dell'inquadratura (es. 'the lamp stays in her right hand') e la rimette in coda; se c'e' un fotogramma chiave lo rifa' con la stessa correzione. Con rerender=true avvia subito il nuovo render.",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -598,7 +598,9 @@ SCHEMI = (
         "type": "function",
         "function": {
             "name": "video_job_status",
-            "description": "Stato dei job dell'editor (dialoghi, scene, lezioni, esportazioni).",
+            "description": "Stato dei job dell'editor (lettura e regia dei fumetti, dialoghi, scene, lezioni, "
+                           "esportazioni). Per aspettare un job lungo usa wait_s (fino a 300): la chiamata torna "
+                           "appena il job avanza o finisce, invece di interrogarlo a raffica.",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -609,11 +611,215 @@ SCHEMI = (
                     "job_id": {
                         "type": "string",
                         "default": ""
-                    }
+                    },
+                    "wait_s": {"type": "number", "default": 0,
+                               "description": "Secondi massimi di attesa di un cambiamento (0-300)"}
                 },
                 "required": []
             }
         }
     },
 
+    # --- Trasposizione da fumetto ---
+    {
+        "type": "function",
+        "function": {
+            "name": "video_char_from_image",
+            "description": "Proposte del riferimento di un personaggio RIDISEGNATE da un'immagine dell'opera "
+                           "(copertina, tavola a colori, vignetta), invece che inventate da una descrizione. "
+                           "Guarda le proposte con view_image e scegli con video_char_pick.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "char_id": {"type": "string"},
+                    "image_path": {"type": "string", "description": "Immagine sorgente (assoluta o dalla radice del progetto)"},
+                    "region": {"type": "array", "items": {"type": "number"},
+                               "description": "Ritaglio [x0, y0, x1, y1] in pixel o frazioni 0-1 sul personaggio"},
+                    "count": {"type": "integer", "default": 2},
+                },
+                "required": ["char_id", "image_path"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "video_manga_read",
+            "description": "Collega alla produzione la cartella di un capitolo di manga e ne legge OGNI vignetta in "
+                           "ordine manga (destra-sinistra, alto-basso): inquadratura, personaggi, azione, battute, "
+                           "pensieri, didascalie, onomatopee. Job lungo (circa 1 minuto a pagina): segui con "
+                           "video_job_status. Riprende dalle pagine gia' lette.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "prod_id": {"type": "string"},
+                    "folder": {"type": "string", "description": "Cartella con le pagine (001.jpg, 002.jpg, ...)"},
+                    "exclude_pages": {"type": "array", "items": {"type": "string"},
+                                      "description": "Pagine da saltare: copertine, crediti, pagine vuote (es. \"001\")"},
+                },
+                "required": ["prod_id", "folder"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "video_manga_pages",
+            "description": "Panoramica del capitolo letto: vignette e testi per pagina, vignette illeggibili, "
+                           "regia fatta, e l'immagine di controllo di ogni pagina (riquadri numerati nell'ordine "
+                           "di lettura) da verificare con view_image.",
+            "parameters": {"type": "object", "properties": {"prod_id": {"type": "string"}}, "required": ["prod_id"]},
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "video_manga_panel",
+            "description": "Lettura completa di una vignetta (id come \"008_04\") col percorso del ritaglio.",
+            "parameters": {
+                "type": "object",
+                "properties": {"prod_id": {"type": "string"}, "panel_id": {"type": "string"}},
+                "required": ["prod_id", "panel_id"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "video_manga_script",
+            "description": "Il capitolo letto come copione compatto: una riga per battuta, pensiero, didascalia o "
+                           "onomatopea, con l'id della vignetta, nell'ordine del manga. Usalo per capire la storia e "
+                           "trovare i nomi dei personaggi (query: \"SENSEI\", un nome). Non leggere vignette.json.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "prod_id": {"type": "string"},
+                    "from_page": {"type": "string", "description": "Prima pagina, es. \"020\""},
+                    "to_page": {"type": "string", "description": "Ultima pagina"},
+                    "query": {"type": "string", "description": "Solo i testi che contengono questa parola"},
+                },
+                "required": ["prod_id"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "video_manga_fix_panel",
+            "description": "Corregge la lettura di una vignetta dopo averla guardata con view_image: testi nel "
+                           "giusto ordine e tipo, piano, azione. Usalo solo per errori visti, non per migliorare "
+                           "lo stile: la fedelta' al fumetto viene prima.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "prod_id": {"type": "string"},
+                    "panel_id": {"type": "string"},
+                    "texts": {"type": "array", "items": {"type": "object", "properties": {
+                        "tipo": {"type": "string", "enum": ["battuta", "pensiero", "didascalia", "onomatopea"]},
+                        "testo": {"type": "string"}, "chi": {"type": "string"}}},
+                        "description": "TUTTI i testi della vignetta, in ordine di lettura manga"},
+                    "shot_size": {"type": "string"},
+                    "action": {"type": "string"},
+                    "note": {"type": "string"},
+                },
+                "required": ["prod_id", "panel_id"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "video_manga_direct",
+            "description": "Regia di ogni vignetta coi personaggi della bibbia: chi e' in scena, chi dice ogni "
+                           "testo (o se e' fuori campo), inquadratura animata in inglese e colori. Richiede la "
+                           "bibbia completa. Job lungo: segui con video_job_status.",
+            "parameters": {"type": "object", "properties": {"prod_id": {"type": "string"}}, "required": ["prod_id"]},
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "video_manga_storyboard",
+            "description": "Sostituisce le inquadrature della produzione con quelle del fumetto: una per vignetta "
+                           "muta, una per ogni battuta/pensiero/didascalia, nell'ordine del manga, ognuna col suo "
+                           "fotogramma chiave ridisegnato dalla vignetta. Le didascalie le dice il narratore.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "prod_id": {"type": "string"},
+                    "narrator": {"type": "string", "description": "Personaggio della bibbia che dice le didascalie"},
+                    "extra_character": {"type": "string", "default": "Comparsa",
+                                        "description": "Personaggio della bibbia per chi non e' riconosciuto"},
+                    "exclude_pages": {"type": "array", "items": {"type": "string"},
+                                      "description": "Pagine fuori dalla storia: copertine, crediti, pagine nere, "
+                                                     "commento dell'autore"},
+                },
+                "required": ["prod_id", "narrator"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "video_manga_next",
+            "description": "LA PRIMA CHIAMATA di ogni passo di una trasposizione da fumetto: guarda lo stato della "
+                           "produzione su disco e dice la fase, cosa manca e il prossimo tool da usare, con gli "
+                           "argomenti. Richiamalo dopo ogni passo e dopo un riavvio.",
+            "parameters": {"type": "object", "properties": {"prod_id": {"type": "string"}}, "required": ["prod_id"]},
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "video_manga_cast",
+            "description": "I nomi propri che compaiono nelle battute del capitolo, contati, con le vignette e il "
+                           "contesto, e chi dice le didascalie. Da usare PRIMA di creare i personaggi.",
+            "parameters": {"type": "object", "properties": {"prod_id": {"type": "string"}}, "required": ["prod_id"]},
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "video_manga_exclude",
+            "description": "Segna le pagine fuori dalla storia (copertine, crediti, pagine nere, commento "
+                           "dell'autore) dopo aver guardato il provino. Anche con lista vuota.",
+            "parameters": {
+                "type": "object",
+                "properties": {"prod_id": {"type": "string"},
+                               "pages": {"type": "array", "items": {"type": "string"}},
+                               "not_characters": {"type": "array", "items": {"type": "string"},
+                                                  "description": "Nomi del cast che non sono personaggi "
+                                                                 "(luoghi, parole)"}},
+                "required": ["prod_id"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "video_prod_remove_character",
+            "description": "Toglie un personaggio dalla bibbia della produzione (non dalla libreria).",
+            "parameters": {
+                "type": "object",
+                "properties": {"prod_id": {"type": "string"}, "name": {"type": "string"}},
+                "required": ["prod_id", "name"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "video_manga_speakers",
+            "description": "Dopo la regia: l'LLM rilegge il copione intero, pagina per pagina, e corregge chi dice "
+                           "ogni battuta (la regia vignetta per vignetta da' spesso la battuta a chi e' in scena "
+                           "invece che a chi parla). Job lungo: segui con video_job_status.",
+            "parameters": {
+                "type": "object",
+                "properties": {"prod_id": {"type": "string"},
+                               "narrator": {"type": "string",
+                                            "description": "Personaggio della bibbia che dice le didascalie"}},
+                "required": ["prod_id", "narrator"],
+            },
+        },
+    },
 )

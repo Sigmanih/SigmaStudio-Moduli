@@ -692,11 +692,54 @@ def handle_production_delete(self):
         _err(self, str(e), 409)
 
 
+def handle_manga_review(self):
+    """GET /api/creative/productions/manga/review?id=... — vignette da rivedere: chi c'e' e chi parla."""
+    from core.modules.sigma_creative_lab.video import manga
+    try:
+        prod = manager.store.get(_qs(self).get("id", ""))
+        if not prod:
+            return _err(self, "produzione inesistente", 404)
+        cartella = manga.cartella_di(prod)
+        vignette = manga.elenco_revisione(cartella, (prod.get("manga") or {}).get("exclude"))
+        for v in vignette:
+            v["ritaglio_url"] = _url(v.pop("ritaglio"))
+        nomi = [c["name"] for c in (prod.get("bible") or {}).get("characters") or [] if c.get("name")]
+        _ok(self, panels=vignette, characters=nomi)
+    except (ValueError, OSError) as e:
+        _err(self, str(e))
+
+
+def handle_manga_review_save(self):
+    """POST /api/creative/productions/manga/review — {id, panel_id, presenti, voci: {i: {chi, fuori_campo}}}"""
+    from core.modules.sigma_creative_lab.video import manga
+    data = self.read_json_body()
+    try:
+        prod = manager.store.get(data.get("id", ""))
+        if not prod:
+            return _err(self, "produzione inesistente", 404)
+        cartella = manga.cartella_di(prod)
+        nomi = [c["name"] for c in (prod.get("bible") or {}).get("characters") or [] if c.get("name")]
+        validi = set(nomi) | {"narrator"}
+        voci = data.get("voci") or {}
+        sbagliati = [v.get("chi") for v in voci.values() if v.get("chi") and v.get("chi") not in validi]
+        if sbagliati:
+            return _err(self, f"personaggi non in bibbia: {sbagliati}")
+        manga.correggi_vignetta(cartella, str(data.get("panel_id", "")), data.get("presenti"), voci)
+        narratore = str((prod.get("manga") or {}).get("narrator") or (nomi[0] if nomi else ""))
+        comparsa = next((n for n in nomi if "compars" in n.lower() or "extra" in n.lower()), "Comparsa")
+        cambiate = manga.applica_allo_storyboard(prod, cartella, str(data.get("panel_id", "")), narratore, comparsa)
+        manager.store.save(prod)
+        _ok(self, changed_shots=cambiate)
+    except (ValueError, OSError) as e:
+        _err(self, str(e))
+
+
 GET_ROUTES = {
     "/api/creative/productions": handle_productions_list,
     "/api/creative/genres": handle_genres,
     "/api/creative/productions/get": handle_production_get,
     "/api/creative/productions/events": handle_production_events,
+    "/api/creative/productions/manga/review": handle_manga_review,
 }
 
 POST_ROUTES = {
@@ -716,4 +759,5 @@ POST_ROUTES = {
     "/api/creative/productions/animatic": handle_production_animatic,
     "/api/creative/productions/delete": handle_production_delete,
     "/api/creative/productions/prune": handle_production_prune,
+    "/api/creative/productions/manga/review": handle_manga_review_save,
 }

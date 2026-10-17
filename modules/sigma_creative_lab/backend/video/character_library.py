@@ -193,6 +193,132 @@ async def candidates(char_id: str, count: int = 4, gpu: int = 0) -> dict:
     return _write(char)
 
 
+def _crop_region(image: Path, region, out: Path) -> Path:
+    """Ritaglio [x0, y0, x1, y1] in pixel o in frazioni 0-1; senza regione, l'immagine intera."""
+    from PIL import Image
+    with Image.open(image) as img:
+        img = img.convert("RGB")
+        if region:
+            vals = [float(v) for v in region]
+            if len(vals) != 4:
+                raise ValueError("region deve essere [x0, y0, x1, y1]")
+            if all(0.0 <= v <= 1.0 for v in vals):
+                vals = [vals[0] * img.width, vals[1] * img.height, vals[2] * img.width, vals[3] * img.height]
+            x0, y0, x1, y1 = (int(round(v)) for v in vals)
+            img = img.crop((min(x0, x1), min(y0, y1), max(x0, x1), max(y0, y1)))
+        out.parent.mkdir(parents=True, exist_ok=True)
+        img.save(out)
+    return out
+
+
+def _persone_nel_ritaglio(immagine: Path) -> int | None:
+    """1 se nel ritaglio si vede il volto di una persona, 0 se no, None se non si puo' dire.
+
+    Si chiede del volto e non delle persone: davanti al ritaglio col solo logo
+    e una mano il modello contava comunque «una persona».
+    """
+    try:
+        from core.harness import vista
+        dati, _info = vista.prepara(immagine)
+        risposta, _ = vista.occhio.guarda(
+            dati, "Is the FACE of a person or character (drawn or real) visible in this image? A hand, an arm or a "
+                  "logo alone is not a face. Answer only yes or no.")
+    except Exception as exc:
+        log.warning(f"controllo del ritaglio non riuscito: {exc}")
+        return None
+    testo = (risposta or "").strip().lower()
+    if testo.startswith(("yes", "si", "sì")):
+        return 1
+    if testo.startswith("no"):
+        return 0
+    return None
+
+
+def _vestiti_nel_ritaglio(immagine: Path) -> bool | None:
+    """Se nel ritaglio si vedono i vestiti (busto) del personaggio, o None se non si puo' dire.
+
+    Da un primo piano klein disegna i vestiti dalla sola descrizione: nel
+    collaudo Mx0 Aika e' uscita con una maglietta a righe che nel fumetto non
+    porta, perche' la vignetta scelta mostrava solo il viso.
+    """
+    try:
+        from core.harness import vista
+        dati, _info = vista.prepara(immagine)
+        risposta, _ = vista.occhio.guarda(
+            dati, "Are the clothes on the torso of the main character clearly visible in this image (not only the "
+                  "face and hair)? Answer only yes or no.")
+    except Exception as exc:
+        log.warning(f"controllo dei vestiti non riuscito: {exc}")
+        return None
+    testo = (risposta or "").strip().lower()
+    return True if testo.startswith(("yes", "si", "sì")) else False if testo.startswith("no") else None
+
+
+async def candidates_from_image(char_id: str, image: str, region=None, count: int = 2, gpu: int = 0) -> dict:
+    """Proposte ridisegnate da un'immagine esistente: copertina, tavola a colori, vignetta.
+
+    Per un personaggio che esiste gia' (un fumetto da trasporre) l'aspetto non
+    si inventa da una descrizione: lo si prende dall'opera. klein riceve il
+    ritaglio come immagine 1 e lo ridisegna a figura intera su fondo neutro,
+    nello stile del genere; la descrizione del personaggio fissa i colori che
+    il ritaglio non mostra (una vignetta in bianco e nero).
+    """
+    from core.modules.sigma_creative_lab.video import image_gen
+    char = _require(char_id)
+    src = Path(str(image or ""))
+    if not src.is_file() or src.suffix.lower() not in IMAGE_SUFFIXES:
+        raise ValueError(f"immagine non trovata o non supportata: {image}")
+    if _gpu_busy():
+        raise RuntimeError("un render occupa la GPU: riprova a render finito")
+    if not image_gen.installed("klein"):
+        raise RuntimeError("serve FLUX.2 klein (Video Studio -> Motori) per ridisegnare da un'immagine")
+    if not region:
+        # Collaudo Mx0: data la copertina intera (due personaggi, titolo, codice a
+        # barre) klein non sapeva chi ridisegnare e ha seguito la sola descrizione,
+        # vestendo il protagonista con un abito che nel fumetto non esiste.
+        from PIL import Image
+        with Image.open(src) as img:
+            w, h = img.size
+        raise ValueError(
+            f"serve 'region' sul personaggio: l'immagine e' {w}x{h} px e puo' contenerne altri. Guardala con "
+            "view_image (o view_image con una region di prova) e passa [x0, y0, x1, y1] in frazioni 0-1 del "
+            "riquadro che contiene SOLO questo personaggio")
+    folder = _folder(char_id)
+    source = _crop_region(src, region, folder / "sources" / f"source_{int(time.time())}.png")
+    persone = _persone_nel_ritaglio(source)
+    if persone == 0:
+        # Collaudo Mx0: la region di Aika inquadrava il logo del titolo e una mano,
+        # e klein ha inventato una ragazza dalla sola descrizione.
+        raise ValueError(
+            f"nel ritaglio {source} non c'e' nessuna persona: la region non inquadra il personaggio. "
+            "Guarda l'immagine intera con view_image, trova dove sta il personaggio e riprova con un'altra region")
+    vestiti = _vestiti_nel_ritaglio(source)
+    desc = (char.get("description") or "").strip().rstrip(".")
+    # L'immagine vince sulla descrizione: la descrizione la scrive l'agente e puo'
+    # sbagliare i colori, l'immagine viene dall'opera.
+    # Con i vestiti visibili la descrizione non entra: anche scritta come "note
+    # secondarie" klein la seguiva al posto dell'immagine (Hiragi-sensei col
+    # cappotto chiaro nella vignetta, ridisegnato con una toga scura a bordi d'oro).
+    note = "" if vestiti else (f" Where image 1 is black and white or does not show something, use these notes: "
+                               f"{desc}." if desc else "")
+    prompt = (f"Character reference sheet of the character in image 1: full body, front view, standing straight, "
+              f"arms relaxed, neutral expression, plain white background. Copy exactly from image 1 the face, "
+              f"hairstyle, hair color, eye color, clothes and clothes colors; if image 1 is black and white, choose "
+              f"natural colors that fit it.{note} {_genre(char)['style']}. No text, no letters.")
+    base = int(time.time()) % 100000
+    out = []
+    for k in range(max(1, min(4, int(count)))):
+        seed = base + k * 7919
+        r = await image_gen.generate("klein", prompt, folder / "candidates" / f"cand_{seed}.png", width=832,
+                                     height=1216, seed=seed, gpu=gpu, refs=[str(source)])
+        out.append({"file": f"candidates/{Path(r['path']).name}", "seed": seed,
+                    "source": str(source.relative_to(folder)).replace("\\", "/"),
+                    "clothes_visible": vestiti})
+    char = _require(char_id)
+    char["candidates"] = out + [c for c in char.get("candidates") or [] if c["file"] not in {o["file"] for o in out}][:12]
+    return _write(char)
+
+
 def pick(char_id: str, file: str) -> dict:
     """La proposta scelta diventa il riferimento: le viste del model sheet ripartono da lei."""
     char = _require(char_id)

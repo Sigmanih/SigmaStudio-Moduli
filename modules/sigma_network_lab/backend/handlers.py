@@ -774,6 +774,15 @@ async def create_research_note(request: Request):
 # ------------------------------------------------------------------------------
 def register_routes(app):
     """Called by ModuleLoader on startup to mount Network Lab API routes."""
+    if app is None:
+        try:
+            from core.fastapi_app import app as _app
+            app = _app
+        except Exception:
+            pass
+    if app is None:
+        log.warning("[NetworkLab] Cannot register routes: app is None")
+        return
     app.include_router(router, prefix="/api/network")
     log.info("[NetworkLab] Registered /api/network routes on FastAPI app.")
 

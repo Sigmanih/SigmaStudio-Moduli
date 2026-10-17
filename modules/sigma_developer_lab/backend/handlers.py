@@ -217,6 +217,96 @@ async def handle_fs_search(request: Request):
     return JSONResponse(status_code=200 if res.get("success") else 500, content=res)
 
 
+async def handle_fs_graph(request: Request):
+    """GET /api/developer/fs/graph?path=<optional>&depth=<optional>&workspace_root=<optional> — Costruisce il grafo D3 con gerarchia, import e stato Git."""
+    from .graph_builder import build_workspace_graph
+    path = request.query_params.get("path") or ""
+    depth = int(request.query_params.get("depth", 3))
+    workspace_root = request.query_params.get("workspace_root") or get_default_workspace_root()
+    res = await asyncio.to_thread(build_workspace_graph, path, depth, workspace_root)
+    return JSONResponse(status_code=200 if res.get("success") else 400, content=res)
+
+
+async def handle_fs_ai_create(request: Request):
+    """POST /api/developer/fs/ai-create — Genera un nuovo file o documento con ruolo AI e validazione sintattica AST."""
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    path = body.get("path", "")
+    filename = body.get("filename", "").strip()
+    category = body.get("category", "docs")
+    role_id = body.get("role", "writer")
+    prompt = body.get("prompt", "")
+    content = body.get("content", "")
+    workspace_root = body.get("workspace_root") or get_default_workspace_root()
+
+    if not filename:
+        return JSONResponse(status_code=400, content={"success": False, "error": "Parametro 'filename' mancante."})
+
+    target_dir = Path(workspace_root) / path if path else Path(workspace_root)
+    if target_dir.is_file():
+        target_dir = target_dir.parent
+    file_path = target_dir / filename
+
+    if not content:
+        ext = file_path.suffix.lstrip(".").lower()
+        if ext in ("md", "markdown"):
+            title = filename.replace("_", " ").replace("-", " ").rsplit(".", 1)[0].title()
+            content = (
+                f"# {title}\n\n"
+                f"> Creatore: Ruolo `{role_id}` | Categoria: `{category}`\n\n"
+                f"## 1. Obiettivo & Contesto\n"
+                f"{prompt or 'Studio concettuale e documentazione di progetto.'}\n\n"
+                f"## 2. Formulazione Teorica & Modello\n"
+                f"$$\n"
+                f"\\mathcal{{L}}(\\theta) = \\mathbb{{E}}_{{x \\sim \\mathcal{{D}}}} \\left[ \\log p_\\theta(x) \\right]\n"
+                f"$$\n\n"
+                f"## 3. Specifiche Architetturali\n"
+                f"- Componenti correlati e moduli di dipendenza\n"
+                f"- Contratti operativi ed esecuzione verificata\n\n"
+                f"## 4. Note di Revisione\n"
+                f"- Generato nell'IDE Developer Studio con integrazione al Grafo Relazionale.\n"
+            )
+        elif ext == "py":
+            module_name = filename.rsplit(".", 1)[0]
+            content = (
+                f"# -*- coding: utf-8 -*-\n"
+                f'"""\n'
+                f"{module_name} — Modulo generato con ruolo AI '{role_id}'\n"
+                f"Scopo: {prompt or 'Modulo computazionale'}\n"
+                f'"""\n'
+                f"from __future__ import annotations\n\n"
+                f"from typing import Any, Dict, Optional\n"
+                f"from core.logger import get_logger\n\n"
+                f"log = get_logger(__name__)\n\n\n"
+                f"def run_{module_name}() -> Dict[str, Any]:\n"
+                f'    """Esecuzione protetta con gestione eccezioni."""\n'
+                f"    try:\n"
+                f"        log.info('Esecuzione avviata per %s', '{module_name}')\n"
+                f"        return {{'success': True, 'module': '{module_name}'}}\n"
+                f"    except Exception as exc:\n"
+                f"        log.error('Errore in {module_name}: %s', exc, exc_info=True)\n"
+                f"        return {{'success': False, 'error': str(exc)}}\n"
+            )
+        else:
+            content = f"// {filename} - {prompt or 'Nuovo file'}\n"
+
+    # Validazione sintassi AST per Python
+    if file_path.suffix.lower() == ".py":
+        import ast
+        try:
+            ast.parse(content)
+        except SyntaxError as syn_err:
+            return JSONResponse(
+                status_code=400,
+                content={"success": False, "error": f"Errore sintassi AST Python: {syn_err}"}
+            )
+
+    res = await asyncio.to_thread(write_file_content, str(file_path), content)
+    return JSONResponse(status_code=200 if res.get("success") else 500, content=res)
+
+
 async def handle_terminal_exec(request: Request):
     """POST /api/developer/terminal/exec — Executes a shell command synchronously or streaming."""
     try:
@@ -295,6 +385,11 @@ async def handle_agent_chat(request: Request):
     # che serve quando il run tocca molti file: duecento approvazioni una per
     # una nessuno le da'.
     review_run = bool(body.get("review_run")) and bool(session_id)
+    # Il ruolo scelto nella chat: "auto" o assente lascia l'agente generico, che
+    # puo' comunque consultare gli specialisti con `consult_role`.
+    role_id = str(body.get("role") or "").strip()
+    if role_id.lower() in ("auto", "sigma_assistant"):
+        role_id = ""
 
     # The agent loop is fully synchronous and blocking (model inference, filesystem
     # search, shell commands). It MUST run on a worker thread: executing it inline on
@@ -322,6 +417,7 @@ async def handle_agent_chat(request: Request):
                     review_writes=review_writes,
                     isolate_worktree=isolate_worktree,
                     review_run=review_run,
+                    role_id=role_id or None,
                 ):
                     if cancel_event.is_set():
                         break
@@ -1336,6 +1432,8 @@ ROUTES = (
     ("/api/developer/fs/create", handle_fs_create, ["POST"]),
     ("/api/developer/fs/rename", handle_fs_rename, ["POST"]),
     ("/api/developer/fs/search", handle_fs_search, ["POST"]),
+    ("/api/developer/fs/graph", handle_fs_graph, ["GET"]),
+    ("/api/developer/fs/ai-create", handle_fs_ai_create, ["POST"]),
     ("/api/developer/terminal/exec", handle_terminal_exec, ["POST"]),
     ("/api/developer/agent/chat", handle_agent_chat, ["POST"]),
     ("/api/developer/workspace/roots", handle_workspace_roots, ["GET"]),

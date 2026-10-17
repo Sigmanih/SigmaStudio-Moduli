@@ -6,6 +6,7 @@ import {
 import { SettingsCard, LoraCard, SoundtrackCard, RefImageInput } from './ProductionSettings';
 import CharacterVoice from './CharacterVoice';
 import PreproductionCard from './PreproductionCard';
+import MangaReview from './MangaReview';
 
 /*
  * Produzioni video lunghe: soggetto → storyboard → render su piu' GPU → montaggio.
@@ -677,6 +678,10 @@ export default function ProductionPanel({ aceInstalled = false, onOpenEditor }) 
               )}
               {prod?.animatic_url && <video className="cs-video-player" src={prod.animatic_url} controls preload="metadata" />}
             </div>
+
+            {prod?.manga && (
+              <MangaReview productionId={prod.id} disabled={running} onChanged={() => refreshProd(selectedId)} />
+            )}
 
             <PreproductionCard pre={draft.bible?.pre} characters={chars} disabled={running} planning={planning} planningText={prod?.planning}
                                dirty={draft.dirty} canDevelop={!!draft.treatment?.trim()}

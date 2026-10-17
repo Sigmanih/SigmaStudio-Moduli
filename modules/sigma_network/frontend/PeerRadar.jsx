@@ -9,18 +9,61 @@ import {
   Zap,
   Globe,
   CheckCircle,
-  ExternalLink
+  ExternalLink,
+  Plus,
+  Trash2,
+  X,
+  Server
 } from 'lucide-react';
 
 const PeerRadar = ({ networkMap, onRefresh, onSelectPeerForQuery }) => {
   const [selectedPeerId, setSelectedPeerId] = useState(null);
   const [isPinging, setIsPinging] = useState(false);
+  const [isAddModalOpen, setIsAddModalOpen] = useState(false);
+  const [addHost, setAddHost] = useState('');
+  const [addPort, setAddPort] = useState('8000');
+  const [addLoading, setAddLoading] = useState(false);
+  const [addError, setAddError] = useState(null);
 
   const localNode = networkMap?.local_node || {};
   const peers = networkMap?.peers || [];
   const summary = networkMap?.summary || {};
 
   const selectedPeer = peers.find(p => p.peer_id === selectedPeerId) || peers[0] || null;
+
+  const [isSweeping, setIsSweeping] = useState(false);
+  const [isBootstrapping, setIsBootstrapping] = useState(false);
+  const [bootstrapNotice, setBootstrapNotice] = useState(null);
+
+  const handleGlobalBootstrap = async () => {
+    setIsBootstrapping(true);
+    setBootstrapNotice(null);
+    try {
+      const resp = await fetch('/api/sigma_network/cluster/bootstrap', { method: 'POST' });
+      const data = await resp.json();
+      await fetch('/api/sigma_network/peers/ping', { method: 'POST' });
+      if (onRefresh) onRefresh();
+      setBootstrapNotice(`Sincronizzazione completata: ${data.peers_discovered_via_bootstrap || 0} nodi mondiali scoperti!`);
+      setTimeout(() => setBootstrapNotice(null), 4000);
+    } catch (e) {
+      console.error('Bootstrap globale fallito', e);
+    } finally {
+      setIsBootstrapping(false);
+    }
+  };
+
+  const handleClusterSweep = async () => {
+    setIsSweeping(true);
+    try {
+      await fetch('/api/sigma_network/cluster/sweep', { method: 'POST' });
+      await fetch('/api/sigma_network/peers/ping', { method: 'POST' });
+      if (onRefresh) onRefresh();
+    } catch (e) {
+      console.error('Auto-cluster sweep fallito', e);
+    } finally {
+      setIsSweeping(false);
+    }
+  };
 
   const handlePing = async () => {
     setIsPinging(true);
@@ -31,6 +74,48 @@ const PeerRadar = ({ networkMap, onRefresh, onSelectPeerForQuery }) => {
       console.error('Ping fallito', e);
     } finally {
       setIsPinging(false);
+    }
+  };
+
+  const handleAddPeer = async (e) => {
+    e.preventDefault();
+    if (!addHost.trim()) return;
+    setAddLoading(true);
+    setAddError(null);
+    try {
+      const resp = await fetch('/api/sigma_network/peers/add', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          host: addHost.trim(),
+          port: parseInt(addPort, 10) || 8000,
+        }),
+      });
+      const data = await resp.json();
+      if (!resp.ok) {
+        throw new Error(data.detail || 'Impossibile connettere il peer');
+      }
+      setIsAddModalOpen(false);
+      setAddHost('');
+      setAddPort('8000');
+      // Subito un ping per aggiornare latenza e stato
+      await handlePing();
+      if (onRefresh) onRefresh();
+    } catch (err) {
+      setAddError(err.message || 'Errore di connessione al nodo remoto');
+    } finally {
+      setAddLoading(false);
+    }
+  };
+
+  const handleRemovePeer = async (peerId) => {
+    if (!peerId) return;
+    try {
+      await fetch(`/api/sigma_network/peers/${peerId}`, { method: 'DELETE' });
+      setSelectedPeerId(null);
+      if (onRefresh) onRefresh();
+    } catch (err) {
+      console.error('Errore rimozione peer', err);
     }
   };
 
@@ -102,10 +187,50 @@ const PeerRadar = ({ networkMap, onRefresh, onSelectPeerForQuery }) => {
       {/* Pannello Radar Interattivo */}
       <div className="sn-radar-panel">
         <div className="sn-radar-display">
-          <div style={{ position: 'absolute', top: 12, left: 16, display: 'flex', gap: 10, alignItems: 'center' }}>
+          <div style={{ position: 'absolute', top: 12, left: 16, display: 'flex', gap: 8, alignItems: 'center', zIndex: 10, flexWrap: 'wrap' }}>
             <span style={{ fontSize: '0.8rem', color: '#94a3b8', display: 'flex', alignItems: 'center', gap: 6 }}>
-              <Radio size={14} color="#00d4ff" /> UDP 47777 Scan
+              <Radio size={14} color="#00d4ff" /> P2P Mesh
             </span>
+            <button
+              onClick={handleGlobalBootstrap}
+              disabled={isBootstrapping}
+              title="Interroga i seed globali su Internet per scoprire ed eseguire l'handshake con i nodi del cluster P2P mondiale"
+              style={{
+                background: 'linear-gradient(135deg, rgba(0, 212, 255, 0.2), rgba(168, 85, 247, 0.25))',
+                border: '1px solid #00d4ff',
+                color: '#38bdf8',
+                borderRadius: '6px',
+                padding: '4px 12px',
+                fontSize: '0.75rem',
+                fontWeight: 600,
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                gap: 5
+              }}
+            >
+              <Globe size={13} className={isBootstrapping ? 'sn-spin' : ''} />
+              {isBootstrapping ? 'Connessione Globale...' : 'Sincronizza P2P Mondiale'}
+            </button>
+            <button
+              onClick={handleClusterSweep}
+              disabled={isSweeping}
+              title="Scansiona la subnet LAN locale per scoprire altri Sigma Studio"
+              style={{
+                background: 'rgba(168, 85, 247, 0.15)',
+                border: '1px solid rgba(168, 85, 247, 0.4)',
+                color: '#c084fc',
+                borderRadius: '6px',
+                padding: '4px 10px',
+                fontSize: '0.75rem',
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                gap: 5
+              }}
+            >
+              <Zap size={12} className={isSweeping ? 'sn-spin' : ''} /> {isSweeping ? 'Scansione...' : 'Auto-Cluster LAN'}
+            </button>
             <button
               onClick={handlePing}
               disabled={isPinging}
@@ -123,6 +248,23 @@ const PeerRadar = ({ networkMap, onRefresh, onSelectPeerForQuery }) => {
               }}
             >
               <RefreshCw size={12} className={isPinging ? 'sn-spin' : ''} /> Ping Cluster
+            </button>
+            <button
+              onClick={() => { setIsAddModalOpen(true); setAddError(null); }}
+              style={{
+                background: 'rgba(16, 185, 129, 0.15)',
+                border: '1px solid rgba(16, 185, 129, 0.35)',
+                color: '#34d399',
+                borderRadius: '6px',
+                padding: '4px 10px',
+                fontSize: '0.75rem',
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                gap: 5
+              }}
+            >
+              <Plus size={12} /> Aggiungi Peer
             </button>
           </div>
 
@@ -234,7 +376,7 @@ const PeerRadar = ({ networkMap, onRefresh, onSelectPeerForQuery }) => {
                 </div>
               </div>
 
-              <div style={{ display: 'flex', gap: 8 }}>
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
                 <span className={`sn-badge`} style={{
                   background: selectedPeer.state === 'trusted' ? 'rgba(16, 185, 129, 0.2)' : 'rgba(245, 158, 11, 0.2)',
                   color: selectedPeer.state === 'trusted' ? '#34d399' : '#fbbf24',
@@ -245,6 +387,19 @@ const PeerRadar = ({ networkMap, onRefresh, onSelectPeerForQuery }) => {
                 <span className="sn-badge" style={{ background: 'rgba(0, 212, 255, 0.15)', color: '#38bdf8' }}>
                   {selectedPeer.latency_ms ? `${Math.round(selectedPeer.latency_ms)} ms` : 'Inattivo'}
                 </span>
+                {(() => {
+                  const ip = selectedPeer.host || '';
+                  const isPrivate = !ip || ip.startsWith('192.168.') || ip.startsWith('10.') || ip.startsWith('172.16.') || ip.startsWith('127.');
+                  return (
+                    <span className="sn-badge" style={{
+                      background: isPrivate ? 'rgba(56, 189, 248, 0.15)' : 'rgba(168, 85, 247, 0.2)',
+                      color: isPrivate ? '#38bdf8' : '#c084fc',
+                      border: `1px solid ${isPrivate ? 'rgba(56, 189, 248, 0.3)' : 'rgba(168, 85, 247, 0.4)'}`
+                    }}>
+                      {isPrivate ? '🏠 LAN LOCALE' : '🌍 WAN INTERNET'}
+                    </span>
+                  );
+                })()}
               </div>
 
               <div style={{ fontSize: '0.8rem', color: '#cbd5e1' }}>
@@ -253,7 +408,7 @@ const PeerRadar = ({ networkMap, onRefresh, onSelectPeerForQuery }) => {
 
               <div>
                 <div style={{ fontSize: '0.78rem', color: '#94a3b8', marginBottom: 4 }}>Modelli Offerti nel Cluster:</div>
-                {selectedPeer.models && selectedPeer.models.length > 0 ? (
+                {Array.isArray(selectedPeer?.models) && selectedPeer.models.length > 0 ? (
                   <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
                     {selectedPeer.models.map((m, i) => (
                       <span key={i} style={{
@@ -290,6 +445,19 @@ const PeerRadar = ({ networkMap, onRefresh, onSelectPeerForQuery }) => {
                     Usa nel Cluster
                   </button>
                 )}
+                <button
+                  className="sn-btn-xs"
+                  style={{
+                    padding: '7px 10px',
+                    background: 'rgba(239, 68, 68, 0.12)',
+                    border: '1px solid rgba(239, 68, 68, 0.3)',
+                    color: '#f87171'
+                  }}
+                  title="Dimentica questo peer"
+                  onClick={() => handleRemovePeer(selectedPeer.peer_id)}
+                >
+                  <Trash2 size={13} />
+                </button>
               </div>
             </div>
           ) : (
@@ -321,6 +489,141 @@ const PeerRadar = ({ networkMap, onRefresh, onSelectPeerForQuery }) => {
           </div>
         </div>
       </div>
+
+      {/* Modale Aggiungi Peer */}
+      {isAddModalOpen && (
+        <div className="modal-overlay" onClick={() => setIsAddModalOpen(false)}>
+          <div
+            className="modal-content small"
+            onClick={e => e.stopPropagation()}
+            style={{
+              background: '#0d1117',
+              border: '1px solid rgba(0, 212, 255, 0.3)',
+              borderRadius: '12px',
+              padding: '24px',
+              maxWidth: '420px',
+              width: '90%',
+              boxShadow: '0 20px 40px rgba(0, 0, 0, 0.6)'
+            }}
+          >
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+              <h3 style={{ margin: 0, color: '#00d4ff', fontSize: '1.1rem', display: 'flex', alignItems: 'center', gap: 8 }}>
+                <Server size={18} /> Aggiungi Peer Remoto
+              </h3>
+              <button
+                onClick={() => setIsAddModalOpen(false)}
+                style={{ background: 'transparent', border: 'none', color: '#94a3b8', cursor: 'pointer' }}
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <p style={{ fontSize: '0.8rem', color: '#94a3b8', marginBottom: 16, lineHeight: 1.4 }}>
+              Inserisci l'indirizzo IP locale (es. <code>192.168.1.15</code>) o hostname dell'altro PC su cui è attivo Sigma Studio.
+            </p>
+
+            {addError && (
+              <div style={{
+                background: 'rgba(239, 68, 68, 0.15)',
+                border: '1px solid rgba(239, 68, 68, 0.4)',
+                color: '#f87171',
+                padding: '8px 12px',
+                borderRadius: '6px',
+                fontSize: '0.78rem',
+                marginBottom: 14
+              }}>
+                {addError}
+              </div>
+            )}
+
+            <form onSubmit={handleAddPeer}>
+              <div style={{ marginBottom: 14 }}>
+                <label style={{ display: 'block', fontSize: '0.75rem', color: '#cbd5e1', marginBottom: 6, fontWeight: 600 }}>
+                  Host / Indirizzo IP
+                </label>
+                <input
+                  type="text"
+                  placeholder="es. 192.168.1.25"
+                  value={addHost}
+                  onChange={e => setAddHost(e.target.value)}
+                  autoFocus
+                  required
+                  style={{
+                    width: '100%',
+                    padding: '8px 12px',
+                    background: '#161b22',
+                    border: '1px solid rgba(255, 255, 255, 0.15)',
+                    borderRadius: '6px',
+                    color: '#fff',
+                    fontSize: '0.85rem'
+                  }}
+                />
+              </div>
+
+              <div style={{ marginBottom: 18 }}>
+                <label style={{ display: 'block', fontSize: '0.75rem', color: '#cbd5e1', marginBottom: 6, fontWeight: 600 }}>
+                  Porta TCP FastAPI
+                </label>
+                <input
+                  type="number"
+                  placeholder="8000"
+                  value={addPort}
+                  onChange={e => setAddPort(e.target.value)}
+                  min="1"
+                  max="65535"
+                  required
+                  style={{
+                    width: '100%',
+                    padding: '8px 12px',
+                    background: '#161b22',
+                    border: '1px solid rgba(255, 255, 255, 0.15)',
+                    borderRadius: '6px',
+                    color: '#fff',
+                    fontSize: '0.85rem'
+                  }}
+                />
+              </div>
+
+              <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+                <button
+                  type="button"
+                  onClick={() => setIsAddModalOpen(false)}
+                  style={{
+                    padding: '8px 14px',
+                    background: 'rgba(255, 255, 255, 0.08)',
+                    border: '1px solid rgba(255, 255, 255, 0.15)',
+                    color: '#cbd5e1',
+                    borderRadius: '6px',
+                    fontSize: '0.8rem',
+                    cursor: 'pointer'
+                  }}
+                >
+                  Annulla
+                </button>
+                <button
+                  type="submit"
+                  disabled={addLoading}
+                  style={{
+                    padding: '8px 16px',
+                    background: '#00d4ff',
+                    border: 'none',
+                    color: '#0d1117',
+                    borderRadius: '6px',
+                    fontSize: '0.8rem',
+                    fontWeight: 700,
+                    cursor: addLoading ? 'wait' : 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 6
+                  }}
+                >
+                  {addLoading ? 'Verifica in corso...' : 'Connetti Nodo'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
