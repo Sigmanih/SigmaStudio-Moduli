@@ -32,7 +32,7 @@ Each module can be **installed, uninstalled, or updated with 1-click** directly 
 | [`sigma_knowledge`](modules/sigma_knowledge/) | **Argomenti & Knowledge Graph** | Knowledge & Memory | ~2 MB | D3 force-directed interactive relational graph, Universal Knowledge Nodes explorer, episodic memory broker, Memory MCP server. |
 | [`sigma_roadmap`](modules/sigma_roadmap/) | **Roadmap & Task Kanban** | Productivity & Tasks | ~1 MB | Interactive Activity Calendar, drag-and-drop Kanban task board, chronological audit trail, floating milestone tracker. |
 | [`sigma_domotica`](modules/sigma_domotica/) | **Smart Home Assistant** | IoT & Home Automation | ~1 MB | Native Home Assistant WebSocket/REST bridge, smart device discovery, automated routine triggers, climate and lighting controls. |
-| [`sigma_network`](modules/sigma_network/) | **Sigma Network & AiLo** | P2P & Distributed Inference | ~1 MB | P2P inference between Sigma Studio peers (UDP discovery, Ed25519 trust, SSE streaming), local AiloCoin receipts, native AiLo Network bridge: ALC wallet, transfers, GPU inference node on `/ws/gpu-inference`, distributed chat. |
+| [`sigma_network`](modules/sigma_network/) | **Sigma Network & AiLo** | P2P & Distributed Inference | ~1 MB | P2P inference between Sigma Studio peers (UDP discovery, Ed25519 trust, SSE streaming), local AiloCoin receipts, hosts the AiLo infrastructure (the original coordinator is retired): AiLo hub with ALC ledger, accounts, WebSocket GPU inference routing and `ailo.db` migration, plus the bridge for wallet, transfers, inference node and distributed chat. |
 
 ---
 
