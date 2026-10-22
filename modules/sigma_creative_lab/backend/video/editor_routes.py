@@ -244,7 +244,40 @@ def handle_editor_voices(self):
     _ok(self, installed=voice_runtime.installed(), engines=engines)
 
 
+def _restoration_view(state: dict) -> dict:
+    """Quello che serve all'Inspector: testi e voci, senza l'analisi fotogramma per fotogramma."""
+    analysis = state.get("analysis") or {}
+    return {"title": state.get("title", ""), "cards": state.get("cards") or [], "voices": state.get("voices") or {},
+            "moods": state.get("moods") or [], "titles": len(analysis.get("titles") or []),
+            "pages": len(analysis.get("pages") or [])}
+
+
+def handle_editor_restoration(self):
+    """GET /api/creative/editor/restoration?id=&shot= — testi letti, chi li legge, voci e atmosfere."""
+    from core.modules.sigma_creative_lab.video import restoration as R
+    q = _qs(self)
+    prods, _ts = _store()
+    if prods.get(q.get("id", "")) is None:
+        return _err(self, "produzione inesistente", 404)
+    _ok(self, **_restoration_view(R.load_state(prods.path(q["id"]), q.get("shot", ""))))
+
+
+def handle_editor_restoration_cards(self):
+    """POST /api/creative/editor/restoration/cards {id, shot, edits:[{index, text?, speaker?, delete?}]}"""
+    from core.modules.sigma_creative_lab.video import restoration as R
+    data = self.read_json_body()
+    prods, _ts = _store()
+    try:
+        if prods.get(data.get("id", "")) is None:
+            return _err(self, "produzione inesistente", 404)
+        R.update_cards(prods.path(data["id"]), str(data.get("shot", "")), list(data.get("edits") or []))
+        _ok(self, **_restoration_view(R.load_state(prods.path(data["id"]), str(data.get("shot", "")))))
+    except ValueError as e:
+        _err(self, str(e))
+
+
 GET_ROUTES = {
+    "/api/creative/editor/restoration": handle_editor_restoration,
     "/api/creative/editor/timeline": handle_editor_timeline,
     "/api/creative/editor/media": handle_editor_media,
     "/api/creative/editor/jobs": handle_editor_jobs,
@@ -260,4 +293,5 @@ POST_ROUTES = {
     "/api/creative/editor/voice": handle_editor_voice,
     "/api/creative/editor/import_chunk": handle_editor_import_chunk,
     "/api/creative/editor/import": handle_editor_import,
+    "/api/creative/editor/restoration/cards": handle_editor_restoration_cards,
 }

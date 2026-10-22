@@ -161,13 +161,11 @@ def esrgan_weights() -> Path:
 
 
 def esrgan_ready() -> bool:
-    from core.modules.sigma_creative_lab.voice.runtime import venv_python
-    return esrgan_weights().is_file() and venv_python().is_file()
+    return esrgan_weights().is_file() and torch_python() is not None
 
 
 def upscale_esrgan(clip: Path, target_height: int, gpu: int = 0) -> Path:
     """Copia ingrandita del clip alla misura richiesta, in cache accanto al clip."""
-    from core.modules.sigma_creative_lab.voice.runtime import venv_python
     ffmpeg_bin, _run, probe = _ff()
     if not esrgan_ready():
         raise RuntimeError("Real-ESRGAN non installato (Video Studio → Motori)")
@@ -184,7 +182,7 @@ def upscale_esrgan(clip: Path, target_height: int, gpu: int = 0) -> Path:
     decode = subprocess.Popen([ffmpeg_bin(), "-v", "error", "-i", str(clip), "-fps_mode", "passthrough",
                                "-f", "rawvideo", "-pix_fmt", "rgb24", "-"], stdout=subprocess.PIPE,
                               stderr=subprocess.PIPE, creationflags=flags)
-    worker = subprocess.Popen([str(venv_python()), str(Path(__file__).with_name("esrgan_worker.py")),
+    worker = subprocess.Popen([str(torch_python()), str(Path(__file__).with_name("esrgan_worker.py")),
                                "--weights", str(esrgan_weights()), "--width", str(w), "--height", str(h),
                                "--out-width", str(out_w), "--out-height", str(out_h), "--gpu", str(gpu),
                                "--num-conv", str(ESRGAN_NUM_CONV)],
@@ -214,6 +212,142 @@ def upscale_esrgan(clip: Path, target_height: int, gpu: int = 0) -> Path:
         raise RuntimeError(f"Real-ESRGAN: {got} frame invece di {info['frames']}")
     tmp_out.replace(out)
     return out
+
+
+# ---------------------------------------------------------------------------
+# Ricolorazione di filmati in bianco e nero (DDColor, Apache 2.0)
+# ---------------------------------------------------------------------------
+#
+# La rete e la stabilizzazione nel tempo stanno in recolor_worker.py; qui solo
+# l'aggancio fra ffmpeg, il worker e la codifica, come per Real-ESRGAN.
+
+DDCOLOR_WEIGHTS = "ddcolor_modelscope.bin"
+DDCOLOR_URL = "https://huggingface.co/piddnad/ddcolor_modelscope/resolve/main/pytorch_model.bin"
+
+
+def ddcolor_weights() -> Path:
+    from core import paths
+    return paths.store_dir() / "engine_runtime" / "ddcolor" / DDCOLOR_WEIGHTS
+
+
+_PY_CHECKED: dict[str, bool] = {}
+
+
+def torch_python() -> Path | None:
+    """Interprete con torch e OpenCV per i worker (Real-ESRGAN, DDColor).
+
+    Il venv delle voci se c'e', altrimenti quello del server: senza ripiego
+    ESRGAN restava inutilizzabile su una macchina con torch ma senza le Voci.
+    Il server non importa torch (lo fa il worker in un processo a parte): il
+    controllo lancia l'interprete una volta e ricorda l'esito.
+    """
+    from core.modules.sigma_creative_lab.voice.runtime import venv_python
+    for py in (venv_python(), Path(sys.executable)):
+        if not py.is_file():
+            continue
+        key = str(py)
+        if key not in _PY_CHECKED:
+            flags = subprocess.CREATE_NO_WINDOW if hasattr(subprocess, "CREATE_NO_WINDOW") else 0
+            try:
+                _PY_CHECKED[key] = subprocess.run([key, "-c", "import torch, cv2"], capture_output=True,
+                                                  timeout=120, creationflags=flags).returncode == 0
+            except (OSError, subprocess.TimeoutExpired) as e:
+                log.warning(f"controllo di {key} per la ricolorazione fallito: {e}")
+                _PY_CHECKED[key] = False
+        if _PY_CHECKED[key]:
+            return py
+    return None
+
+
+def recolor_ready() -> bool:
+    return ddcolor_weights().is_file() and torch_python() is not None
+
+
+def _rate_and_frames(clip: Path, info: dict) -> tuple[float, int]:
+    """Fotogrammi al secondo e numero di fotogrammi, anche per file che non li dichiarano.
+
+    I .webm (Wikimedia, Internet Archive) non hanno ne' durata ne' conteggio nel
+    flusso video: con i valori di ripiego un film a 29,97 fps usciva a 24, rallentato.
+    """
+    if info.get("frames") and info.get("duration"):
+        return info["frames"] / info["duration"], int(info["frames"])
+    ffmpeg_bin, _run, _probe = _ff()
+    flags = subprocess.CREATE_NO_WINDOW if hasattr(subprocess, "CREATE_NO_WINDOW") else 0
+    res = subprocess.run([ffmpeg_bin("ffprobe"), "-v", "error", "-select_streams", "v:0", "-show_entries",
+                          "stream=r_frame_rate:format=duration", "-of", "default=nw=1", str(clip)],
+                         capture_output=True, text=True, timeout=120, creationflags=flags)
+    fields = dict(line.split("=", 1) for line in res.stdout.splitlines() if "=" in line)
+    try:
+        num, den = fields.get("r_frame_rate", "24/1").split("/")
+        fps = float(num) / float(den or 1)
+        duration = float(fields.get("duration", "0"))
+    except ValueError as e:
+        raise RuntimeError(f"misure del video non leggibili ({clip.name}): {e}")
+    return fps, max(1, int(round(fps * duration)))
+
+
+def recolor_clip(clip: Path, out: Path, gpu: int = 0, window: int = 8, progress=None) -> dict:
+    """Copia a colori del clip in `out`, con l'audio originale."""
+    import threading
+    ffmpeg_bin, _run, probe = _ff()
+    py = torch_python()
+    if not ddcolor_weights().is_file() or py is None:
+        raise RuntimeError("DDColor non installato (Video Studio → Motori → DDColor)")
+    info = probe(clip)
+    w, h = int(info["width"]), int(info["height"])
+    fps, total = _rate_and_frames(clip, info)
+    tmp_out = out.with_suffix(".part.mp4")
+    flags = subprocess.CREATE_NO_WINDOW if hasattr(subprocess, "CREATE_NO_WINDOW") else 0
+    decode = subprocess.Popen([ffmpeg_bin(), "-v", "error", "-i", str(clip), "-fps_mode", "passthrough",
+                               "-f", "rawvideo", "-pix_fmt", "rgb24", "-"], stdout=subprocess.PIPE,
+                              stderr=subprocess.PIPE, creationflags=flags)
+    worker = subprocess.Popen([str(py), str(Path(__file__).with_name("recolor_worker.py")),
+                               "--weights", str(ddcolor_weights()), "--width", str(w), "--height", str(h),
+                               "--gpu", str(gpu), "--window", str(window)],
+                              stdin=decode.stdout, stdout=subprocess.PIPE, stderr=subprocess.PIPE, creationflags=flags)
+    decode.stdout.close()           # il worker resta l'unico lettore: se muore, ffmpeg riceve EPIPE e termina
+    encode = subprocess.Popen([ffmpeg_bin(), "-v", "error", "-y", "-f", "rawvideo", "-pix_fmt", "rgb24",
+                               "-s", f"{w}x{h}", "-framerate", f"{fps:.6f}", "-i", "-", "-i", str(clip),
+                               "-map", "0:v", "-map", "1:a?", "-c:a", "copy", "-c:v", "libx264", "-crf", "16",
+                               "-preset", "medium", "-pix_fmt", "yuv420p", str(tmp_out)],
+                              stdin=worker.stdout, stderr=subprocess.PIPE, creationflags=flags)
+    worker.stdout.close()
+    tail: list[str] = []
+
+    def read_progress() -> None:
+        # stderr va letto mentre il worker lavora: pieno, bloccherebbe tutta la catena.
+        for raw in worker.stderr:
+            line = raw.decode(errors="replace").strip()
+            tail[:] = (tail + [line])[-20:]
+            if progress and line.startswith("frame "):
+                try:
+                    progress(min(1.0, int(line.split()[1]) / total))
+                except ValueError:
+                    pass
+
+    reader = threading.Thread(target=read_progress, name="recolor-progress", daemon=True)
+    reader.start()
+    try:
+        # Sulla CPU (Pi) DDColor large impiega secondi a fotogramma: margine ampio.
+        _, enc_err = encode.communicate(timeout=max(3600, total * 10))
+        worker.wait(timeout=60)
+        decode.wait(timeout=60)
+    except subprocess.TimeoutExpired:
+        for proc in (decode, worker, encode):
+            proc.kill()
+        tmp_out.unlink(missing_ok=True)
+        raise RuntimeError("ricolorazione: tempo scaduto")
+    reader.join(timeout=10)
+    if worker.returncode != 0 or encode.returncode != 0:
+        tmp_out.unlink(missing_ok=True)
+        detail = "\n".join(t for t in tail if not t.startswith("frame ")) or enc_err.decode(errors="replace")
+        raise RuntimeError(f"ricolorazione fallita: {detail[-400:]}")
+    got = probe(tmp_out)["frames"]
+    if info["frames"] and abs(got - info["frames"]) > 1:
+        tmp_out.unlink(missing_ok=True)
+        raise RuntimeError(f"ricolorazione: {got} fotogrammi invece di {info['frames']}")
+    tmp_out.replace(out)
+    return {"path": str(out), "frames": got, "width": w, "height": h}
 
 
 def seedvr2_ready() -> bool:

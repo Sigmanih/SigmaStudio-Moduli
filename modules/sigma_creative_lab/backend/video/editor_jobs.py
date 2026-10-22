@@ -292,6 +292,233 @@ async def job_redo(self: EditorJobs, job: dict) -> dict:
     return {"shot": shot["id"], "take": take["id"]}
 
 
+async def job_recolor(self: EditorJobs, job: dict) -> dict:
+    """Nuova versione a colori di un elemento in bianco e nero, stessa durata e stesso audio."""
+    from core.modules.sigma_creative_lab.video.postprocess import recolor_clip
+    pid, a = job["production"], job["args"]
+    prod = self.prods.get(pid)
+    tl = self.timelines.get(pid)
+    _idx, item = T._find(tl["video"], a["item_id"], "elemento")
+    shot = T.shot_by_id(prod, item["shot_id"])
+    if shot is None:
+        raise ValueError("inquadratura dell'elemento non trovata")
+    source = T.active_take(shot, item.get("take_id"))
+    src = Path((source or {}).get("clip_path") or "")
+    if not source or not src.is_file():
+        raise ValueError("il clip dell'elemento non esiste piu' sul disco")
+    out = self.prods.path(pid) / "clips" / f"recolor_{shot['id']}_t{len(T.ensure_takes(shot)) + 1}.mp4"
+    self._note(job, "Ricolorazione", 0.02)
+    res = await asyncio.to_thread(recolor_clip, src, out, 0, int(a.get("window") or 8),
+                                  lambda p: self._note(job, f"Ricolorazione {p * 100:.0f}%", 0.02 + 0.93 * p))
+    prod = self.prods.get(pid)
+    shot = T.shot_by_id(prod, item["shot_id"])
+    take = T.add_take(shot, str(out), frames=res["frames"], prompt=source.get("prompt", ""), kind="recolor",
+                      source_take=source["id"])
+    self.prods.save(prod)
+    # Stessa durata del sorgente: si cambia solo la versione, tagli e transizioni dell'elemento restano.
+    self.timelines.apply(pid, "set_take", {"item_id": item["id"], "take_id": take["id"]})
+    return {"shot": shot["id"], "take": take["id"]}
+
+
+def _item_source(self: EditorJobs, pid: str, item_id: str) -> tuple[dict, dict, dict, Path]:
+    """Inquadratura, versione attiva e clip dell'elemento della timeline."""
+    prod = self.prods.get(pid)
+    tl = self.timelines.get(pid)
+    _idx, item = T._find(tl["video"], item_id, "elemento")
+    shot = T.shot_by_id(prod, item["shot_id"])
+    if shot is None:
+        raise ValueError("inquadratura dell'elemento non trovata")
+    take = T.active_take(shot, item.get("take_id"))
+    src = Path((take or {}).get("clip_path") or "")
+    if not take or not src.is_file():
+        raise ValueError("il clip dell'elemento non esiste piu' sul disco")
+    return item, shot, take, src
+
+
+async def job_upscale(self: EditorJobs, job: dict) -> dict:
+    """Nuova versione ingrandita (Real-ESRGAN) di un elemento: stessa durata, stesso audio."""
+    from core.modules.sigma_creative_lab.video.postprocess import upscale_esrgan
+    pid, a = job["production"], job["args"]
+    item, shot, source, src = _item_source(self, pid, a["item_id"])
+    height = int(a.get("height") or 1440)
+    if height not in (720, 1080, 1440, 2160):
+        raise ValueError("altezza ammessa: 720, 1080, 1440 o 2160")
+    self._note(job, f"Ingrandimento a {height}p", 0.05)
+    out = await asyncio.to_thread(upscale_esrgan, src, height, 0)
+    prod = self.prods.get(pid)
+    shot = T.shot_by_id(prod, item["shot_id"])
+    take = T.add_take(shot, str(out), frames=source.get("frames", 0), prompt=source.get("prompt", ""), kind="upscale",
+                      source_take=source["id"])
+    self.prods.save(prod)
+    self.timelines.apply(pid, "set_take", {"item_id": item["id"], "take_id": take["id"]})
+    return {"shot": shot["id"], "take": take["id"], "height": height}
+
+
+def _vista_asks():
+    from core.harness import vista
+    return (lambda jpeg, q: vista.occhio.guarda(jpeg, q)[0]), (lambda p, n: vista.occhio.chiedi(p, n))
+
+
+async def job_restore_read(self: EditorJobs, job: dict) -> dict:
+    """Trova e legge didascalie e pagine scritte di un film muto, e decide chi legge ciascuna."""
+    from core.modules.sigma_creative_lab.video import restoration as R
+    from core.modules.sigma_creative_lab.video.manga import GpuPerLaVista
+    pid, a = job["production"], job["args"]
+    item, shot, take, src = _item_source(self, pid, a["item_id"])
+    prod = self.prods.get(pid)
+    analysis = await asyncio.to_thread(R.analyze, src, lambda m, p: self._note(job, m, 0.02 + 0.2 * p))
+    ask_image, ask_text = _vista_asks()
+    title = str(a.get("title") or prod.get("title") or shot.get("prompt") or "silent film")
+    with GpuPerLaVista(f"restauro {shot['id']}") as gpu:
+        def nota(m: str, p: float) -> None:
+            gpu.rinnova()
+            self._note(job, m, p)
+
+        cards = await asyncio.to_thread(R.read_cards, src, analysis, ask_image, lambda m, p: nota(m, 0.22 + 0.55 * p))
+        self._note(job, "Chi legge ogni testo", 0.8)
+        cards = await asyncio.to_thread(R.cast_cards, cards, title, ask_text, ask_image, src)
+    R.save_state(self.prods.path(pid), shot["id"], {"take": take["id"], "title": title, "analysis": analysis,
+                                                    "cards": cards})
+    speakers = sorted({c["speaker"] for c in cards})
+    return {"shot": shot["id"], "titles": len(analysis["titles"]), "pages": len(analysis["pages"]),
+            "cards": len(cards), "speakers": speakers}
+
+
+def _timeline_time(lay_item: dict, t: float) -> float | None:
+    """Tempo del clip -> tempo della timeline, None se il punto e' stato tagliato via."""
+    if not lay_item["src_in"] - 0.01 <= t <= lay_item["src_out"] + 0.01:
+        return None
+    return lay_item["start"] + (t - lay_item["src_in"])
+
+
+def _remove_restoration_audio(self: EditorJobs, pid: str, shot_id: str, key: str) -> int:
+    tl = self.timelines.get(pid)
+    ids = [c["id"] for tr in tl["audio"] for c in tr["clips"] if (c.get("meta") or {}).get(key) == shot_id]
+    for cid in ids:
+        self.timelines.apply(pid, "audio_delete", {"clip_id": cid})
+    return len(ids)
+
+
+async def job_restore_narrate(self: EditorJobs, job: dict) -> dict:
+    """Legge ad alta voce i testi del film (una voce per personaggio) e li mette sulla traccia voce."""
+    from core.modules.sigma_creative_lab.video import restoration as R
+    from core.modules.sigma_creative_lab.video.manga import GpuPerLaVista
+    pid, a = job["production"], job["args"]
+    item, shot, _take, _src = _item_source(self, pid, a["item_id"])
+    pdir = self.prods.path(pid)
+    state = R.load_state(pdir, shot["id"])
+    cards = [c for c in state.get("cards") or [] if not c.get("deleted")]
+    if not cards:
+        raise ValueError("nessun testo letto: lancia prima la lettura delle didascalie")
+    language = str(a.get("language") or "en").lower()[:2]
+    if language != "en":
+        _ask_image, ask_text = _vista_asks()
+        self._note(job, f"Traduzione ({language})", 0.05)
+        with GpuPerLaVista(f"traduzione {shot['id']}"):
+            cards = await asyncio.to_thread(R.translate_cards, cards, language, ask_text)
+    plan = R.voice_plan(cards, state.get("voices"))
+    state["voices"] = plan
+    R.save_state(pdir, shot["id"], state)
+    lines = await asyncio.to_thread(R.synthesize, cards, plan, language, pdir / "restoration" / shot["id"] / language,
+                                    lambda m, p: self._note(job, m, 0.1 + 0.8 * p))
+    lay = next(it for it in T.layout(self.timelines.get(pid), self.prods.get(pid))["items"] if it["id"] == item["id"])
+    # Una sola narrazione per volta sulla timeline: due lingue insieme finirebbero nello stesso export.
+    removed = _remove_restoration_audio(self, pid, shot["id"], "restoration")
+    added = 0
+    for line in R.place_lines(lines):
+        t = _timeline_time(lay, line["at"])
+        if t is None:
+            continue
+        self.timelines.apply(pid, "audio_add", {
+            "kind": "voice", "src": line["wav"], "start": round(t, 3),
+            "label": f"{line['speaker']}: {(line.get('text_spoken') or line['text'])[:40]}",
+            "meta": {"text": line.get("text_spoken") or line["text"], "heard": line["heard"], "match": line["match"],
+                     "speaker": line["speaker"], "language": language, "restoration": shot["id"]}})
+        added += 1
+    unclear = [i for i, x in enumerate(lines) if x["match"] < 0.8]
+    if unclear:
+        job["warning"] = f"{len(unclear)} battute poco chiare per Whisper: {unclear[:10]}"
+    return {"shot": shot["id"], "lines": added, "replaced": removed, "language": language, "unclear": unclear,
+            "voices": {k: v["voice"] for k, v in plan.items()}}
+
+
+async def job_restore_score(self: EditorJobs, job: dict) -> dict:
+    """Colonna sonora a sequenze (atmosfera dal modello visivo, brani ACE-Step) sulla traccia musica."""
+    from core.modules.sigma_creative_lab.video import restoration as R
+    from core.modules.sigma_creative_lab.video.manga import GpuPerLaVista
+    pid, a = job["production"], job["args"]
+    item, shot, _take, src = _item_source(self, pid, a["item_id"])
+    pdir = self.prods.path(pid)
+    state = R.load_state(pdir, shot["id"])
+    analysis = state.get("analysis") or await asyncio.to_thread(R.analyze, src,
+                                                                 lambda m, p: self._note(job, m, 0.1 * p))
+    seqs = R.sequences(analysis)
+    ask_image, _ask_text = _vista_asks()
+    with GpuPerLaVista(f"musica {shot['id']}") as gpu:
+        def nota(m: str, p: float) -> None:
+            gpu.rinnova()
+            self._note(job, m, 0.1 + 0.3 * p)
+
+        moods = await asyncio.to_thread(R.describe_moods, src, seqs, state.get("cards") or [], ask_image, nota)
+    state.update(analysis=analysis, moods=moods)
+    R.save_state(pdir, shot["id"], state)
+    cues = await R.compose(moods, pdir / "restoration" / shot["id"] / "music", 0, str(a.get("style") or ""),
+                           progress=lambda m, p: self._note(job, m, 0.4 + 0.55 * p))
+    lay = next(it for it in T.layout(self.timelines.get(pid), self.prods.get(pid))["items"] if it["id"] == item["id"])
+    removed = _remove_restoration_audio(self, pid, shot["id"], "restoration_score")
+    added = 0
+    for c in cues:
+        t = _timeline_time(lay, c["start"])
+        if t is None:
+            continue
+        _, res = self.timelines.apply(pid, "audio_add", {"kind": "music", "src": c["path"], "start": round(t, 3),
+                                                         "label": c["tags"][:40],
+                                                         "meta": {"tags": c["tags"], "restoration_score": shot["id"]}})
+        self.timelines.apply(pid, "audio_update", {"clip_id": res["clip"], "fade_in": c["fade_in"],
+                                                   "fade_out": c["fade_out"]})
+        added += 1
+    return {"shot": shot["id"], "cues": added, "replaced": removed, "moods": [m["tags"] for m in moods]}
+
+
+#: Archivi di pubblico dominio da cui un agente puo' scaricare: niente URL arbitrari.
+FETCH_HOSTS = ("upload.wikimedia.org", "commons.wikimedia.org", "archive.org")
+
+
+async def job_restore_fetch(self: EditorJobs, job: dict) -> dict:
+    """Scarica un film da Wikimedia Commons o Internet Archive e lo importa nella timeline."""
+    import requests
+    from urllib.parse import unquote, urlparse
+    pid, a = job["production"], job["args"]
+    url = str(a.get("url") or "").strip()
+    host = (urlparse(url).hostname or "").lower()
+    if urlparse(url).scheme != "https" or not any(host == h or host.endswith("." + h) for h in FETCH_HOSTS):
+        raise ValueError(f"si scarica solo da {', '.join(FETCH_HOSTS)} via https")
+    name = re.sub(r"[^\w.\-]+", "_", unquote(Path(urlparse(url).path).name))[:120] or "film.webm"
+    imports = self.prods.path(pid) / "imports"
+    imports.mkdir(parents=True, exist_ok=True)
+    dest = imports / name
+    part = dest.with_name(dest.name + ".part")
+
+    def download() -> None:
+        with requests.get(url, stream=True, timeout=60, headers={"User-Agent": "SigmaStudio/1.0"}) as r:
+            r.raise_for_status()
+            total = int(r.headers.get("Content-Length") or 0)
+            got = 0
+            with open(part, "wb") as f:
+                for chunk in r.iter_content(1 << 20):
+                    f.write(chunk)
+                    got += len(chunk)
+                    if total:
+                        self._note(job, f"Download {got >> 20}/{total >> 20} MB", 0.6 * got / total)
+        part.replace(dest)
+
+    await asyncio.to_thread(download)
+    self._note(job, "Importazione nella timeline", 0.65)
+    sub = {**job, "args": {"path": str(dest), "label": a.get("label") or dest.stem, "t": a.get("t")}}
+    res = await job_import(self, sub)
+    return {**res, "file": str(dest), "size_mb": round(dest.stat().st_size / 2**20, 1)}
+
+
 async def job_extend(self: EditorJobs, job: dict) -> dict:
     """Continua dopo un elemento, ripartendo dal suo ultimo fotogramma."""
     pid, a = job["production"], job["args"]
@@ -895,7 +1122,9 @@ CPU_KINDS = {"import", "title"}
 from core.modules.sigma_creative_lab.video import manga  # noqa: E402  (i job da fumetto)
 
 HANDLERS = {
-    "regen_range": job_regen_range, "redo": job_redo, "extend": job_extend, "insert": job_insert,
+    "regen_range": job_regen_range, "redo": job_redo, "recolor": job_recolor, "extend": job_extend,
+    "insert": job_insert, "upscale": job_upscale, "restore_read": job_restore_read,
+    "restore_narrate": job_restore_narrate, "restore_score": job_restore_score, "restore_fetch": job_restore_fetch,
     "dialogue": job_dialogue, "voice_line": job_voice_line, "music_range": job_music_range,
     "export": job_export, "subtitles": job_subtitles, "import": job_import, "title": job_title,
     "scene": job_scene, "lesson": job_lesson, "scene_redo": job_scene_redo,

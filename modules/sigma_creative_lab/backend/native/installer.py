@@ -183,7 +183,10 @@ def _install_worker(job: InstallJob) -> None:
 # per le Blackwell (sm_120); con l'override a 2.8 cu128 funziona. Perth (la
 # filigrana di Chatterbox) usa pkg_resources, sparito da setuptools 81.
 VOICE_PACKAGES = ["chatterbox-tts==0.1.7", "kokoro==0.9.4", "faster-whisper==1.2.1", "soundfile",
-                  "setuptools<81"]
+                  "setuptools<81",
+                  # Kokoro in inglese (voci a_/b_) passa per spaCy: senza il modello la sintesi falliva (E050).
+                  "en_core_web_sm @ https://github.com/explosion/spacy-models/releases/download/"
+                  "en_core_web_sm-3.8.0/en_core_web_sm-3.8.0-py3-none-any.whl"]
 VOICE_OVERRIDES = "torch==2.8.0\ntorchaudio==2.8.0\n"
 VOICE_MODULES = ("chatterbox", "kokoro", "faster_whisper")
 
@@ -277,11 +280,10 @@ def _check_voice() -> bool:
 
 
 def _install_esrgan(job: InstallJob) -> None:
-    """Pesi di realesr-general-x4v3 (BSD-3); la rete gira nel venv delle voci."""
-    from core.modules.sigma_creative_lab.voice.runtime import venv_python
-    if not venv_python().is_file():
-        raise RuntimeError("installa prima il componente Voci: Real-ESRGAN usa il suo ambiente PyTorch")
-    from core.modules.sigma_creative_lab.video.postprocess import ESRGAN_WEIGHTS
+    """Pesi di realesr-general-x4v3 (BSD-3); la rete gira in un Python con torch (Voci o server)."""
+    from core.modules.sigma_creative_lab.video.postprocess import ESRGAN_WEIGHTS, torch_python
+    if torch_python() is None:
+        raise RuntimeError("installa prima il componente Voci: Real-ESRGAN ha bisogno di PyTorch")
     job.message = f"Download {ESRGAN_WEIGHTS}"
     _download(f"{ESRGAN_BASE}/{ESRGAN_WEIGHTS}", _runtime_dir() / "realesrgan" / ESRGAN_WEIGHTS, job)
 
@@ -289,6 +291,19 @@ def _install_esrgan(job: InstallJob) -> None:
 def _check_esrgan() -> bool:
     from core.modules.sigma_creative_lab.video.postprocess import esrgan_ready
     return esrgan_ready()
+
+
+def _install_ddcolor(job: InstallJob) -> None:
+    from core.modules.sigma_creative_lab.video.postprocess import DDCOLOR_URL, ddcolor_weights, torch_python
+    job.message = "Download pesi DDColor"
+    _download(DDCOLOR_URL, ddcolor_weights(), job)
+    if torch_python() is None:
+        raise RuntimeError("pesi scaricati, ma serve un Python con torch e opencv: installa prima le Voci")
+
+
+def _check_ddcolor() -> bool:
+    from core.modules.sigma_creative_lab.video.postprocess import recolor_ready
+    return recolor_ready()
 
 
 # LTX-2.5 (Lightricks): audio e video insieme come H3, ma con una licenza che vale
@@ -425,6 +440,8 @@ COMPONENTS = {
                     "install": lambda job: _install_image_model(job, "klein")},
     "esrgan": {"label": "Real-ESRGAN (upscale delle clip a 720p/1080p)", "size_gb": 0.01,
                "check": _check_esrgan, "install": _install_esrgan},
+    "ddcolor": {"label": "DDColor (ricolora video in bianco e nero; Apache 2.0)", "size_gb": 0.9,
+                "check": _check_ddcolor, "install": _install_ddcolor},
     "vlm_judge": {"label": "Giudice visivo Qwen3-VL 30B-A3B (sulla CPU, per chi ha una sola GPU; ~20 GB di RAM)", "size_gb": 19.6,
                   "check": _check_vlm("vlm_judge"), "install": _install_vlm("vlm_judge")},
     "vlm_judge_light": {"label": "Giudice visivo Qwen3-VL 8B (sulla GPU dedicata: consigliato con due GPU, ~8 s a clip)",

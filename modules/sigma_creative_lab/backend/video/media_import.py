@@ -97,10 +97,13 @@ def _even(x: float) -> int:
 
 def normalize_video(src: Path, out: Path) -> dict:
     """Video dell'utente in clip standard: fino a 1080p, 24 fps costanti, audio sempre presente."""
+    from core.modules.sigma_creative_lab.video.restoration import ivtc_filter
     ffmpeg_bin, _run, probe = _ff()
     info = probe(src)
     h = min(MAX_HEIGHT, int(info["height"] or MAX_HEIGHT))
-    vf = f"scale=-2:{h}:flags=lanczos,fps={FPS},format=yuv420p"
+    # Un film riversato in video (pulldown a 29,97) va ricomposto prima di passare a 24 fps:
+    # buttare via fotogrammi interlacciati lasciava i contorni a pettine.
+    vf = f"{ivtc_filter(src)}scale=-2:{h}:flags=lanczos,fps={FPS},format=yuv420p"
     cmd = [ffmpeg_bin(), "-v", "error", "-y", "-i", str(src)]
     if info["has_audio"]:
         cmd += ["-map", "0:v:0", "-map", "0:a:0", "-vf", vf, "-af", "aresample=48000", "-ac", "2"]

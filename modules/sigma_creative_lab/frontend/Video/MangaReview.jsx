@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { Users, CheckCircle2, Loader2, RefreshCw, MessageSquare } from 'lucide-react';
+import { Users, CheckCircle2, Loader2, RefreshCw, MessageSquare, Plus, Trash2 } from 'lucide-react';
 
 /*
  * Revisione di chi c'e' e chi parla in ogni vignetta di un fumetto trasposto.
@@ -24,22 +24,31 @@ async function call(url, body) {
   return data;
 }
 
+// Ogni riga ha una chiave locale: le righe aggiunte non hanno ancora un indice nel fumetto.
+const conChiave = (righe) => righe.map((r, k) => ({ ...r, key: `r${k}` }));
+const senzaChiave = (righe) => righe.map(({ key, i, ...r }) => r);
+
 function PanelRow({ panel, characters, disabled, onSave }) {
   const [presenti, setPresenti] = useState(panel.presenti);
-  const [righe, setRighe] = useState(panel.righe);
+  const [righe, setRighe] = useState(conChiave(panel.righe));
   const [saving, setSaving] = useState(false);
   const dirty = JSON.stringify(presenti) !== JSON.stringify(panel.presenti)
-    || JSON.stringify(righe) !== JSON.stringify(panel.righe);
+    || JSON.stringify(senzaChiave(righe)) !== JSON.stringify(senzaChiave(panel.righe));
 
-  useEffect(() => { setPresenti(panel.presenti); setRighe(panel.righe); }, [panel]);
+  useEffect(() => { setPresenti(panel.presenti); setRighe(conChiave(panel.righe)); }, [panel]);
 
   const togglePresente = (nome) => setPresenti(p => (p.includes(nome) ? p.filter(x => x !== nome) : [...p, nome]));
-  const setRiga = (i, patch) => setRighe(r => r.map(x => (x.i === i ? { ...x, ...patch } : x)));
+  const setRiga = (key, patch) => setRighe(r => r.map(x => (x.key === key ? { ...x, ...patch } : x)));
+  const togliRiga = (key) => setRighe(r => r.filter(x => x.key !== key));
+  const aggiungiRiga = () => setRighe(r => [...r, {
+    key: `n${Date.now()}`, tipo: 'battuta', testo: '', chi: presenti[0] || 'narrator', fuori_campo: false,
+  }]);
 
   const save = async () => {
     setSaving(true);
-    const voci = Object.fromEntries(righe.map(r => [r.i, { chi: r.chi, fuori_campo: r.fuori_campo }]));
-    try { await onSave(panel.id, presenti, voci); } finally { setSaving(false); }
+    // Sempre l'elenco completo: cosi' aggiunte, tolte e testi corretti passano insieme.
+    const elenco = senzaChiave(righe).filter(r => r.testo.trim());
+    try { await onSave(panel.id, presenti, elenco); } finally { setSaving(false); }
   };
 
   return (
@@ -59,21 +68,31 @@ function PanelRow({ panel, characters, disabled, onSave }) {
           ))}
         </div>
         {righe.map(r => (
-          <div key={r.i} className="cs-review-line">
-            <span className="cs-review-kind">{TIPO[r.tipo] || r.tipo}</span>
-            <span className="cs-review-text">{r.testo}</span>
+          <div key={r.key} className="cs-review-line">
+            <select className="cs-review-kind" value={r.tipo} disabled={disabled}
+                    onChange={e => setRiga(r.key, { tipo: e.target.value })}>
+              {Object.entries(TIPO).map(([k, label]) => <option key={k} value={k}>{label}</option>)}
+            </select>
+            <textarea className="cs-review-text" rows={2} value={r.testo} disabled={disabled}
+                      placeholder="Testo del balloon"
+                      onChange={e => setRiga(r.key, { testo: e.target.value })} />
             <select className="cs-review-select" value={r.chi} disabled={disabled}
-                    onChange={e => setRiga(r.i, { chi: e.target.value })}>
+                    onChange={e => setRiga(r.key, { chi: e.target.value })}>
               {!characters.includes(r.chi) && r.chi !== 'narrator' && <option value={r.chi}>{r.chi || '—'}</option>}
               <option value="narrator">Narratore</option>
               {characters.map(nome => <option key={nome} value={nome}>{nome}</option>)}
             </select>
             <label className="cs-review-off" title="Chi parla non si vede nella vignetta: voce fuori campo, niente labiale">
               <input type="checkbox" checked={r.fuori_campo} disabled={disabled}
-                     onChange={e => setRiga(r.i, { fuori_campo: e.target.checked })} /> fuori campo
+                     onChange={e => setRiga(r.key, { fuori_campo: e.target.checked })} /> fuori campo
             </label>
+            <button type="button" className="cs-review-remove" disabled={disabled} title="Togli questa riga"
+                    onClick={() => togliRiga(r.key)}><Trash2 size={14} /></button>
           </div>
         ))}
+        <button type="button" className="cs-review-add" disabled={disabled} onClick={aggiungiRiga}>
+          <Plus size={14} /> Aggiungi battuta
+        </button>
         <button type="button" className="cs-tool-btn" disabled={disabled || saving || (!dirty && panel.rivista)}
                 onClick={save}>
           {saving ? <Loader2 size={14} className="cs-spin-icon" /> : <CheckCircle2 size={14} />}
@@ -98,12 +117,12 @@ export default function MangaReview({ productionId, disabled, onChanged }) {
 
   useEffect(() => { load(); }, [load]);
 
-  const onSave = async (panelId, presenti, voci) => {
+  const onSave = async (panelId, presenti, righe) => {
     setError('');
     try {
-      await call(API, { id: productionId, panel_id: panelId, presenti, voci });
+      await call(API, { id: productionId, panel_id: panelId, presenti, righe });
       setData(d => ({ ...d, panels: d.panels.map(p => (p.id === panelId ? { ...p, presenti, rivista: true,
-        righe: p.righe.map(r => ({ ...r, ...(voci[r.i] || {}) })) } : p)) }));
+        righe: righe.map((r, i) => ({ ...r, i })) } : p)) }));
       if (onChanged) onChanged();
     } catch (e) { setError(e.message); }
   };

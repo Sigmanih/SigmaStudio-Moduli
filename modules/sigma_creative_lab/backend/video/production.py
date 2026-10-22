@@ -1286,8 +1286,12 @@ def compose_prompt(prod: dict, shot: dict, use_refs: bool) -> str:
         for i, c in enumerate(refs_with_img, 1):
             parts.append(f"{c['name']} is the character from <Picture {i}>; keep identity, face and outfit consistent.")
     for c in in_shot:
-        if c.get("description"):
-            parts.append(f"{c['name']}: {c['description'].strip().rstrip('.')}.")
+        # Da un fumetto contano i vestiti di quel capitolo: la descrizione della
+        # bibbia (la divisa bianca della copertina) faceva cambiare d'abito a
+        # Kuzumi dentro la clip, partita da un fotogramma con la felpa (Mx0, 005_02).
+        desc = (c.get("panel_colors") if shot.get("source_panel") else "") or c.get("description")
+        if desc:
+            parts.append(f"{c['name']}: {desc.strip().rstrip('.')}.")
     if shot.get("transition") == "continue":
         parts.append("Continue the same shot seamlessly from the first frame, same lighting and color grading.")
     action = ltx_action(shot) if is_ltx(prod.get("settings") or {}) else ""
@@ -2550,6 +2554,15 @@ class ProductionRunner:
         devices = sorted(devices)
         lease_id = None
         if devices:
+            # La vista di view_image tiene la GPU piccola finche' non si ferma: dopo
+            # il controllo dei fotogrammi il render falliva con "GPU gia' riservate
+            # da vista" (collaudo Mx0) e l'agente non aveva modo di liberarla.
+            try:
+                from core.harness import vista
+                if getattr(vista.occhio, "_lease", None):
+                    await asyncio.to_thread(vista.occhio.ferma)
+            except Exception as e:
+                log.warning(f"vista non fermata prima del render: {e}")
             try:
                 lease_id = leases.acquire(f"produzione:{self.pid}", devices,
                                           f"render di {len(prod['shots'])} inquadrature")

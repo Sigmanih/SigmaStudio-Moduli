@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { OverlayInspector } from './Overlays';
+import RestorationPanel from './Restoration';
 import {
   Scissors, Trash2, Copy, ArrowLeft, ArrowRight, Wand2, RefreshCw, FastForward, PlusSquare, Music,
   Volume2, CheckCircle2, Eye,
@@ -11,7 +12,7 @@ import {
  * quelle con AI da onJob (in coda, possono durare minuti).
  */
 
-function ItemInspector({ data, item, index, time, onOp, onJob }) {
+function ItemInspector({ pid, data, item, index, time, onOp, onJob }) {
   const shot = data.shots[item.shot_id] || { takes: [] };
   const [prompt, setPrompt] = useState(item.prompt || '');
   const [seconds, setSeconds] = useState(4);
@@ -58,6 +59,10 @@ function ItemInspector({ data, item, index, time, onOp, onJob }) {
           <Eye size={13} /> Giudice: {Math.round(verdict.score * 100)}% — {verdict.seen}
           {verdict.issues?.length > 0 && <ul>{verdict.issues.map((x, k) => <li key={k}>{x}</li>)}</ul>}
         </div>
+      )}
+      {shot.origin !== 'title' && (
+        // Ogni passo crea una versione o clip audio annullabili: l'originale resta fra le Versioni.
+        <RestorationPanel pid={pid} item={item} refresh={data} onJob={onJob} />
       )}
       {shot.origin === 'scene' ? (
         <>
@@ -176,7 +181,7 @@ function AudioInspector({ clip, track, onOp }) {
   );
 }
 
-export default function Inspector({ data, selection, time, onOp, onJob, onClear }) {
+export default function Inspector({ pid, data, selection, time, onOp, onJob, onClear }) {
   if (!selection) {
     return (
       <div className="cs-ed-inspector">
@@ -188,7 +193,7 @@ export default function Inspector({ data, selection, time, onOp, onJob, onClear 
   let body = null;
   if (selection.type === 'item') {
     const index = data.items.findIndex(it => it.id === selection.id);
-    if (index >= 0) body = <ItemInspector data={data} item={data.items[index]} index={index} time={time} onOp={onOp} onJob={onJob} />;
+    if (index >= 0) body = <ItemInspector pid={pid} data={data} item={data.items[index]} index={index} time={time} onOp={onOp} onJob={onJob} />;
   } else if (selection.type === 'range') {
     body = <RangeInspector range={selection} onOp={onOp} onJob={onJob} onClear={onClear} />;
   } else if (selection.type === 'overlay') {

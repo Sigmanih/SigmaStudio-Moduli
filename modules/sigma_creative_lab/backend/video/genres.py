@@ -192,6 +192,49 @@ def keyframe_plan(prod: dict, shot: dict) -> tuple[str, str, list[str]]:
                  "no captions.")
     return "klein", " ".join(parts), refs
 
+def _vignetta_pulita(panel: str) -> str:
+    """La vignetta con battute e didascalie cancellate (inpainting), per non farle ridisegnare.
+
+    Detto solo a parole, klein lasciava i balloon (vuoti o con lettere a caso);
+    imbiancati, restavano cerchi bianchi. Con l'inpainting di OpenCV al loro
+    posto c'e' una sfumatura dei bordi, che klein ridisegna come sfondo. I
+    riquadri vengono dalla lettura (vignette.json, scala 0-1000 sul ritaglio).
+    """
+    import json
+    from pathlib import Path
+    src = Path(panel)
+    stato = src.parent.parent / "vignette.json"
+    try:
+        import cv2
+        import numpy as np
+        from core import paths
+        dati = json.loads(stato.read_text(encoding="utf-8"))
+        v = next((x for pg in dati["pagine"] for x in pg.get("vignette") or [] if x["id"] == src.stem), None)
+        boxes = [t["box"] for t in (v or {}).get("testi") or [] if t.get("box")]
+        if not boxes:
+            return panel
+        out = paths.var_dir() / "cache" / "vignette_pulite" / f"{src.stem}_{int(src.stat().st_mtime)}.png"
+        if out.is_file():
+            return str(out)
+        img = cv2.imdecode(np.fromfile(str(src), dtype=np.uint8), cv2.IMREAD_COLOR)
+        h, w = img.shape[:2]
+        mask = np.zeros((h, w), np.uint8)
+        for x0, y0, x1, y1 in boxes:
+            cx, cy = (x0 + x1) / 2000 * w, (y0 + y1) / 2000 * h
+            ax, ay = (x1 - x0) / 2000 * w * 1.12, (y1 - y0) / 2000 * h * 1.12
+            cv2.ellipse(mask, (int(cx), int(cy)), (int(ax), int(ay)), 0, 0, 360, 255, -1)
+        pulita = cv2.inpaint(img, mask, 7, cv2.INPAINT_TELEA)
+        out.parent.mkdir(parents=True, exist_ok=True)
+        ok, buf = cv2.imencode(".png", pulita)
+        if not ok:
+            return panel
+        buf.tofile(str(out))
+        return str(out)
+    except Exception as exc:
+        log.debug(f"vignetta non ripulita, uso l'originale: {exc}")
+        return panel
+
+
 def panel_keyframe(prod: dict, shot: dict, panel: str) -> tuple[str, list[str]]:
     """Fotogramma chiave ridisegnato da una vignetta di fumetto: stessa inquadratura, a colori.
 
@@ -199,8 +242,8 @@ def panel_keyframe(prod: dict, shot: dict, panel: str) -> tuple[str, list[str]]:
     descriverla a parole e farla ridisegnare da zero la perde (prova Mx0: dal
     testo usciva un'altra scena). Data la vignetta come immagine 1, klein ne
     tiene composizione, pose ed espressioni e aggiunge solo colore e i lati
-    del 16:9. I personaggi della bibbia vanno come immagini successive per i
-    colori di capelli e divisa, che il bianco e nero non dice.
+    del 16:9. I colori dei personaggi, che il bianco e nero non dice, vanno a
+    parole (`panel_colors` della bibbia) legati a chi fa cosa nella regia.
     """
     from pathlib import Path
     from core.modules.sigma_creative_lab.video import image_gen
@@ -208,45 +251,67 @@ def panel_keyframe(prod: dict, shot: dict, panel: str) -> tuple[str, list[str]]:
     # disegnava in primo piano (collaudo Mx0, 005_03: una ragazza dai capelli
     # grigi al posto della figurina lontana sul ponte). La vignetta basta.
     present = [c for c in shot_characters(prod, shot)
-               if c.get("ref_image") and Path(c["ref_image"]).is_file()
-               and not any(w in c.get("name", "").lower() for w in ("compars", "extra"))][:image_gen.MAX_REFS - 1]
-    # Una vignetta gia' a colori dice da sola capelli e vestiti; il foglio del
-    # personaggio, dato comunque, veniva incollato come persona in piu' qualunque
-    # cosa dicesse il prompt (collaudo Mx0, 005_03: secondo Kuzumi in giacca bianca,
-    # due volte di fila con lo stesso seme). Serve solo al bianco e nero.
+               if not any(w in c.get("name", "").lower() for w in ("compars", "extra"))]
+    a_colori = False
     try:
         from .manga import classifica_pagina
-        if Path(panel).is_file() and classifica_pagina(Path(panel)) == "colore":
-            present = []
+        a_colori = Path(panel).is_file() and classifica_pagina(Path(panel)) == "colore"
     except Exception as exc:
         log.debug(f"colore della vignetta non stimato: {exc}")
+    # I fogli dei personaggi come immagini: a colori klein li incollava come
+    # persona in piu' (005_03, un secondo Kuzumi in giacca bianca); in bianco e
+    # nero mescolava le identita' (008_04, a Kuzumi i capelli e gli occhi di
+    # Aika). Restano solo per chi non ha i colori scritti nella bibbia.
+    da_foglio = [] if a_colori else [
+        c for c in present if not c.get("panel_colors") and c.get("ref_image") and Path(c["ref_image"]).is_file()
+    ][:image_gen.MAX_REFS - 1]
     g = genre_of(prod)
     style = ((prod.get("bible") or {}).get("style") or g["style"]).strip().rstrip(".")
+    sorgente = panel if a_colori else _vignetta_pulita(panel)
     parts = [
-        "Image 1 is a black-and-white manga panel. Redraw exactly this panel as one full-color frame: "
-        f"{style}. Keep the same camera framing and angle, the same composition, the same poses, gestures and "
-        "facial expressions, the same background elements.",
+        f"Image 1 is a {'color' if a_colori else 'black-and-white'} manga panel. Redraw exactly this panel as one "
+        f"fully colored anime frame: {style}. Keep the same camera framing and angle, the same composition, the "
+        "same poses, gestures and facial expressions, the same background elements.",
         "Widescreen frame: extend the background naturally at the sides, do not add new characters.",
     ]
+    if not a_colori:
+        parts.append("Color everything: skin, hair, eyes, clothes and the whole background. No black-and-white or "
+                     "gray areas, no screentone, no halftone dots.")
+    # La regia lega i colori alle persone ("Kuzumi stringe la ringhiera, Aika lo
+    # guarda"), ma klein la segue anche contro la vignetta: per 008_01 diceva
+    # "tra le macerie" e la scena e' uscita reinventata. Serve solo a chi e' chi.
+    azione = str(shot.get("prompt") or "").strip().rstrip(".")
+    if azione and not a_colori and len(present) >= 2:
+        parts.append(f"In this panel: {azione}.")
     color = str(shot.get("panel_colors") or "").strip().rstrip(".")
-    if color:
+    # La regia descrive la scansione: "the scene is black and white" nel prompt
+    # chiedeva a klein proprio di non colorare (collaudo Mx0, 008_04).
+    if color and not any(w in color.lower() for w in ("black and white", "black-and-white", "grayscale",
+                                                      "greyscale", "monochrome")):
         parts.append(f"Colors: {color}.")
-    # Detto "X e' il personaggio dell'immagine k", klein incollava la figura intera
-    # del foglio di riferimento come persona in piu' (collaudo Mx0, 005_03: un
-    # secondo Kuzumi in giacca bianca dove c'era la didascalia). Il riferimento
-    # serve solo ai colori; chi c'e' e dove lo decide la vignetta.
+    colorati = [c for c in present if c.get("panel_colors")] if not a_colori else []
+    if colorati:
+        # Scritto come scheda ("Kuzumi: felpa arancione") klein lo prendeva per un
+        # personaggio da aggiungere: un secondo Kuzumi davanti al cancello (008_02).
+        # Detto come colori di chi e' gia' disegnato, colora e basta.
+        parts.append("Color the people already drawn in image 1, without adding anyone: " + "; ".join(
+            f"{c['name']} has {str(c['panel_colors']).strip().rstrip('.')}" for c in colorati) + ".")
     parts += [f"Image {k} is only a color reference for {c['name']}, who is already drawn in image 1: use its "
               "hair and eye colors; do not copy its figure, pose or outfit into the frame."
-              for k, c in enumerate(present, 2)]
+              for k, c in enumerate(da_foglio, 2)]
     if present:
-        parts.append("Draw exactly the people that image 1 shows, each once, where image 1 shows them; "
-                     "if image 1 already has colors, keep its clothes colors.")
+        # Coi vestiti descritti klein tendeva al ritratto in posa (008_02: Kuzumi in
+        # piedi davanti al cancello che nella vignetta sta scavalcando, piccolo).
+        parts.append("Draw exactly the people that image 1 shows, each once, where image 1 shows them, with the "
+                     "same size in the frame, the same pose and the same action; this is a scene, not a portrait"
+                     + ("; keep the clothes colors of image 1." if a_colori else "."))
     for fix in [f.get("text", "") for f in shot.get("fixes") or []] + list(shot.get("keyframe_fixes") or []):
         parts.append(f"{str(fix).strip().rstrip('.')}.")
-    parts.append("Remove all text, speech bubbles, caption boxes, sound effects, screentone and the panel borders: "
-                 "the drawing fills the whole frame edge to edge, no letters anywhere. Where a caption box covered "
-                 "the drawing, continue the background; do not put a character there.")
-    return " ".join(parts), [panel] + [c["ref_image"] for c in present]
+    parts.append("Remove all text, speech bubbles, caption boxes, sound-effect lettering (also Japanese characters), "
+                 "screentone and the panel borders: the drawing fills the whole frame edge to edge, no letters "
+                 "anywhere. Where a caption box covered the drawing, continue the background; do not put a "
+                 "character there.")
+    return " ".join(parts), [sorgente] + [c["ref_image"] for c in da_foglio]
 
 
 def keyframe_prompt(prod: dict, shot: dict) -> str:

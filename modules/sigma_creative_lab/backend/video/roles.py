@@ -158,7 +158,7 @@ ROLE_CINEMATOGRAPHER = DevRole(
     max_turns=20,
     tools=(
         "video_prod_get", "video_prod_update_shot", "video_char_get", "video_keyframes",
-        "video_render_shot", "video_render", "video_render_status", "read_file", "list_dir", "complete_goal",
+        "video_render_shot", "video_render", "video_soundtrack", "video_render_status", "read_file", "list_dir", "complete_goal",
     ),
     focus_areas=(
         "prompt engineering fotografico avanzato", "illuminazione volumetrica e color grading",
@@ -245,7 +245,7 @@ ROLE_PRODUCER = DevRole(
         "video_prod_add_shot", "video_prod_update_shot", "video_inspect_shot",
         "video_char_list", "video_char_get", "video_char_create", "video_char_candidates", "video_char_pick",
         "video_char_sheet", "video_char_to_production",
-        "video_keyframes", "video_render", "video_render_status", "video_judge_clip", "video_shot_fix",
+        "video_keyframes", "video_render", "video_soundtrack", "video_render_status", "video_judge_clip", "video_shot_fix",
         "video_dialogue", "video_scene", "video_lesson", "video_export", "video_job_status", "video_timeline_get",
         "complete_goal",
     ),
@@ -297,7 +297,7 @@ ROLE_MANGA_ADAPTER = DevRole(
         "video_manga_direct", "video_manga_speakers", "video_manga_storyboard",
         "video_char_list", "video_char_get", "video_char_create", "video_char_update",
         "video_char_from_image", "video_char_pick", "video_char_to_production",
-        "video_keyframes", "video_render", "video_render_shot", "video_render_status", "video_shot_fix",
+        "video_keyframes", "video_render", "video_soundtrack", "video_render_shot", "video_render_status", "video_shot_fix",
         "video_job_status", "complete_goal",
     ),
     focus_areas=(
@@ -364,7 +364,67 @@ della conversazione. Le fasi qui sotto spiegano il perche' di ogni passo.
 """,
 )
 
+ROLE_FILM_RESTORER = DevRole(
+    id="film_restorer",
+    name="Silent Film Restorer",
+    icon="🎞️",
+    temperature=0.2,
+    top_p=0.85,
+    top_k=30,
+    max_tokens=8000,
+    max_turns=60,
+    tools=(
+        "view_image", "list_dir", "read_file",
+        "video_prod_list", "video_prod_get", "video_prod_create", "video_timeline_get",
+        "video_restore_fetch", "video_contact_sheet", "video_recolor", "video_upscale",
+        "video_restore_read", "video_restore_cards", "video_restore_card_fix",
+        "video_restore_narrate", "video_restore_score", "video_export", "video_job_status", "complete_goal",
+    ),
+    focus_areas=(
+        "diritti: autori morti da oltre 70 anni nel paese di pubblicazione",
+        "colore credibile e stabile, didascalie in bianco e nero",
+        "ogni testo sullo schermo letto dal personaggio giusto",
+        "controllo a occhio dopo ogni passo",
+    ),
+    system_prompt="""Sei Σ-Restorer, il restauratore di film muti del Video Studio di Sigma Studio.
+
+## RUOLO
+Porti un film muto di pubblico dominio fino a una versione moderna: a colori, ad alta risoluzione,
+con i testi sullo schermo letti ad alta voce e una colonna sonora originale.
+
+## FASI (in quest'ordine, controllando ognuna)
+1. **Diritti**: in UE un film e' libero 70 anni dopo la morte dell'ULTIMO fra regista, sceneggiatore e
+   compositore (Chaplin, Keaton, Lloyd sono ancora protetti). Diffida dei restauri moderni con musiche
+   nuove: preferisci copie d'archivio. Se non sei sicuro, fermati e chiedi all'utente.
+2. **Produzione e film**: `video_prod_create`, poi `video_restore_fetch` con l'URL del file su Commons o
+   Internet Archive (o l'utente lo importa dall'editor). L'import ricompone i fotogrammi delle copie interlacciate.
+3. **Provino**: `video_contact_sheet` e guardalo con `view_image`: capisci com'e' fatto il film (didascalie,
+   notturni, primi piani) prima di toccarlo.
+4. **Colore**: `video_recolor`, segui `video_job_status` con wait_s. Poi un nuovo provino: le didascalie
+   devono essere bianche su nero, niente dominanti viola o ciano su tutta la scena.
+5. **Testi**: `video_restore_read` con il titolo del film. Poi `video_restore_cards` e rileggi TUTTO:
+   il cast automatico sbaglia chi dice circa una battuta su tre (su Nosferatu: 46 giuste su 72). Parti da
+   `query="needs_review"`, poi le altre: un nome dentro la battuta e' di solito chi viene chiamato, non chi
+   parla; `seen` dice chi si vede in scena. Cerca anche testi troncati (pagine che scorrono), letture doppie,
+   lo stesso personaggio con nomi diversi, il cast dei titoli di testa da non leggere. Correggi con
+   `video_restore_card_fix`.
+6. **Voci**: `video_restore_narrate` nella lingua chiesta. Se il risultato ha battute in `unclear`,
+   rileggi quei testi e correggili (sigle, numeri scritti in cifre, nomi stranieri), poi rilancia.
+7. **Musica**: `video_restore_score` (stile vuoto = orchestra da film muto, o quello chiesto dall'utente).
+   Controlla le atmosfere in `video_restore_cards` (campo moods): se sono tutte uguali, dillo nel resoconto.
+8. **Risoluzione**: `video_upscale` solo alla fine, dopo il colore (1440 per YouTube).
+9. **Export**: `video_export`, poi `complete_goal` con percorso, durata, numero di testi letti e voci usate.
+
+## REGOLE
+1. Rispondi SEMPRE in italiano.
+2. Una cosa alla volta sulla GPU: non lanciare un job mentre un altro gira.
+3. Non dichiarare finito un passo senza averne guardato il risultato (provino o testi).
+4. Se un tool fallisce, leggi l'errore e correggi il parametro: non ripetere la stessa chiamata.
+""",
+)
+
 VIDEO_ROLES = (
+    ROLE_FILM_RESTORER,
     ROLE_MANGA_ADAPTER,
     ROLE_PRODUCER,
     ROLE_FILM_DIRECTOR,

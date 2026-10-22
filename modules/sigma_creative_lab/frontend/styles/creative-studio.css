@@ -1612,6 +1612,15 @@
 .cs-ed-inline { display: inline-flex; align-items: center; gap: 4px; font-size: 0.75rem; color: var(--text-dim); }
 .cs-ed-inline input { width: 54px; background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.1); border-radius: 6px; color: var(--text); padding: 4px; }
 .cs-ed-takes { display: flex; flex-wrap: wrap; gap: 4px; }
+.cs-ed-restore { margin-top: 10px; padding-top: 8px; border-top: 1px solid var(--border-color, rgba(255,255,255,.12)); }
+/* Le tendine a tutta larghezza mandavano a capo il pulsante accanto. */
+.cs-ed-restore select.cs-inline-input { width: auto; flex: 0 0 auto; }
+.cs-ed-cards { display: flex; flex-direction: column; gap: 6px; max-height: 320px; overflow-y: auto; }
+.cs-ed-card { display: grid; grid-template-columns: auto 1fr auto; gap: 4px 6px; align-items: center; font-size: 0.78rem; }
+.cs-ed-card textarea { grid-column: 1 / -1; }
+.cs-ed-card-tools { display: flex; gap: 2px; }
+.cs-ed-card-tools .cs-ed-mini.active { color: rgba(240, 90, 90, .95); }
+.cs-ed-card.review { border-left: 3px solid rgba(240, 180, 60, .8); padding-left: 6px; }
 .cs-ed-audio { width: 100%; height: 32px; }
 .cs-ed-voice { display: grid; grid-template-columns: 90px 1fr auto; gap: 6px; align-items: center; font-size: 0.78rem; }
 .cs-ed-voice audio, .cs-ed-voice > .cs-prod-status { grid-column: 1 / -1; }
@@ -1819,12 +1828,15 @@
 .cs-review-chip { padding: 3px 9px; border-radius: 999px; font-size: 0.72rem; cursor: pointer;
   border: 1px solid var(--border-color, rgba(255, 255, 255, 0.15)); background: transparent; color: inherit; }
 .cs-review-chip.is-on { background: rgba(0, 210, 255, 0.18); border-color: rgba(0, 210, 255, 0.55); }
-.cs-review-line { display: grid; grid-template-columns: 80px 1fr 170px auto; align-items: center; gap: 8px; font-size: 0.78rem; }
-.cs-review-kind { color: var(--text-muted, #8b8fa3); font-size: 0.7rem; text-transform: uppercase; }
-.cs-review-text { overflow-wrap: anywhere; }
+.cs-review-line { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; font-size: 0.78rem; }
+.cs-review-line .cs-review-text { flex: 1 1 100%; order: -1; }
+.cs-review-kind { color: var(--text-muted, #8b8fa3); font-size: 0.7rem; text-transform: uppercase; padding: 4px; border-radius: 6px; }
+.cs-review-text { overflow-wrap: anywhere; resize: vertical; min-height: 34px; padding: 4px 6px; border-radius: 6px; font: inherit; font-size: 0.78rem; }
+.cs-review-remove { display: inline-flex; padding: 4px; border-radius: 6px; border: 1px solid transparent; background: none; color: var(--text-muted, #8b8fa3); cursor: pointer; }
+.cs-review-remove:hover:not(:disabled) { color: #e5534b; border-color: currentColor; }
+.cs-review-add { align-self: flex-start; display: inline-flex; align-items: center; gap: 4px; padding: 3px 8px; border-radius: 6px; border: 1px dashed var(--text-muted, #8b8fa3); background: none; color: inherit; font-size: 0.72rem; cursor: pointer; }
 .cs-review-select { padding: 4px 6px; border-radius: 6px; font-size: 0.75rem; }
 .cs-review-off { display: inline-flex; align-items: center; gap: 4px; font-size: 0.7rem; white-space: nowrap; }
 @media (max-width: 720px) {
   .cs-review-row { grid-template-columns: 1fr; }
-  .cs-review-line { grid-template-columns: 1fr; }
 }

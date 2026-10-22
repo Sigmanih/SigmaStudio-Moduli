@@ -16,7 +16,9 @@ import { OverlayLayer } from './Overlays';
  */
 
 const JOB_LABEL = {
-  regen_range: 'Rigenera tratto', redo: 'Rifai elemento', extend: 'Estendi', insert: 'Inserisci',
+  regen_range: 'Rigenera tratto', redo: 'Rifai elemento', recolor: 'Ricolora', upscale: 'Ingrandisci',
+  restore_read: 'Leggi i testi', restore_narrate: 'Narrazione', restore_score: 'Colonna sonora',
+  restore_fetch: 'Scarica film', extend: 'Estendi', insert: 'Inserisci',
   dialogue: 'Dialogo', voice_line: 'Battuta', music_range: 'Musica', export: 'Export', subtitles: 'Sottotitoli',
   import: 'Importa', title: 'Titolo', scene: 'Scena didattica', lesson: 'Lezione animata', scene_redo: 'Rifai scena',
 };
@@ -380,7 +382,7 @@ export default function EditorView({ productionId, onPickProduction }) {
             </button>
           </div>
           {side === 'inspector'
-            ? <Inspector data={data} selection={selection} time={time} onOp={op} onJob={job} onClear={() => setSelection(null)} />
+            ? <Inspector pid={pid} data={data} selection={selection} time={time} onOp={op} onJob={job} onClear={() => setSelection(null)} />
             : <DialoguePanel pid={pid} data={data} time={time} onJob={job} onReload={load} />}
           {(active.length > 0 || recent.length > 0) && (
             <div className="cs-ed-jobs">

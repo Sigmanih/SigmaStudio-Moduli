@@ -710,7 +710,11 @@ def handle_manga_review(self):
 
 
 def handle_manga_review_save(self):
-    """POST /api/creative/productions/manga/review — {id, panel_id, presenti, voci: {i: {chi, fuori_campo}}}"""
+    """POST /api/creative/productions/manga/review — {id, panel_id, presenti, voci: {i: {chi, fuori_campo}}}
+
+    Con `righe: [{tipo, testo, chi, fuori_campo}]` sostituisce tutte le battute della vignetta
+    (per aggiungerne o toglierne); allora `voci` non serve.
+    """
     from core.modules.sigma_creative_lab.video import manga
     data = self.read_json_body()
     try:
@@ -721,10 +725,14 @@ def handle_manga_review_save(self):
         nomi = [c["name"] for c in (prod.get("bible") or {}).get("characters") or [] if c.get("name")]
         validi = set(nomi) | {"narrator"}
         voci = data.get("voci") or {}
-        sbagliati = [v.get("chi") for v in voci.values() if v.get("chi") and v.get("chi") not in validi]
+        righe = data.get("righe")
+        if righe is not None and not isinstance(righe, list):
+            return _err(self, "righe deve essere un elenco")
+        chi = [v.get("chi") for v in voci.values()] + [r.get("chi") for r in righe or []]
+        sbagliati = [c for c in chi if c and c not in validi]
         if sbagliati:
             return _err(self, f"personaggi non in bibbia: {sbagliati}")
-        manga.correggi_vignetta(cartella, str(data.get("panel_id", "")), data.get("presenti"), voci)
+        manga.correggi_vignetta(cartella, str(data.get("panel_id", "")), data.get("presenti"), voci, righe)
         narratore = str((prod.get("manga") or {}).get("narrator") or (nomi[0] if nomi else ""))
         comparsa = next((n for n in nomi if "compars" in n.lower() or "extra" in n.lower()), "Comparsa")
         cambiate = manga.applica_allo_storyboard(prod, cartella, str(data.get("panel_id", "")), narratore, comparsa)

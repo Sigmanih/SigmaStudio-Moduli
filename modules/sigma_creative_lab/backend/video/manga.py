@@ -1087,9 +1087,38 @@ def elenco_revisione(cartella: Path, escluse: list[str] | None = None) -> list[d
     return out
 
 
+TIPI_RIGA = ("battuta", "pensiero", "didascalia")
+
+
+def _riscrivi_righe(v: dict, righe: list[dict]) -> dict:
+    """Sostituisce battute, pensieri e didascalie di una vignetta; ritorna le voci rinumerate.
+
+    La lettura salta balloon piccoli o ne inventa da un'onomatopea: chi rivede
+    deve poter aggiungere, togliere e correggere le righe, non solo cambiare chi
+    parla. Le onomatopee restano (diventano suono) e la lettura originale si
+    conserva in `testi_letti`.
+    """
+    testi = v.get("testi") or []
+    v.setdefault("testi_letti", [dict(t) for t in testi])
+    nuove, voci = [t for t in testi if t.get("tipo") == "onomatopea"], {}
+    for r in righe:
+        testo = " ".join(str(r.get("testo") or "").split())
+        if not testo:
+            continue
+        tipo = r.get("tipo") if r.get("tipo") in TIPI_RIGA else "battuta"
+        voci[str(len(nuove))] = {"chi": str(r.get("chi") or ""), "fuori_campo": bool(r.get("fuori_campo"))}
+        nuove.append({"tipo": tipo, "testo": testo})
+    v["testi"] = nuove
+    return voci
+
+
 def correggi_vignetta(cartella: Path, panel_id: str, presenti: list[str] | None,
-                      voci: dict | None) -> dict:
-    """Salva la correzione di una vignetta e la rende definitiva."""
+                      voci: dict | None, righe: list[dict] | None = None) -> dict:
+    """Salva la correzione di una vignetta e la rende definitiva.
+
+    Con `righe` (l'elenco completo, nell'ordine di lettura) cambiano anche i
+    testi: e' la forma per aggiungere o togliere battute; `voci` allora e' ignorato.
+    """
     file = Path(cartella) / "vignette.json"
     stato = json.loads(file.read_text(encoding="utf-8"))
     for pagina in stato["pagine"]:
@@ -1099,7 +1128,9 @@ def correggi_vignetta(cartella: Path, panel_id: str, presenti: list[str] | None,
             regia = v.setdefault("regia", {})
             if presenti is not None:
                 regia["presenti"] = [str(n) for n in presenti]
-            if voci is not None:
+            if righe is not None:
+                regia["voci"] = _riscrivi_righe(v, righe)
+            elif voci is not None:
                 attuali = regia.setdefault("voci", {})
                 for i, voce in voci.items():
                     attuali[str(i)] = {"chi": str(voce.get("chi") or ""), "fuori_campo": bool(voce.get("fuori_campo"))}
@@ -1111,20 +1142,41 @@ def correggi_vignetta(cartella: Path, panel_id: str, presenti: list[str] | None,
 
 
 def applica_allo_storyboard(prod: dict, cartella: Path, panel_id: str, narratore: str, comparsa: str) -> int:
-    """Aggiorna in place le inquadrature di una vignetta corretta; le gia' rese tornano da rifare.
+    """Rifa' in place le inquadrature di una vignetta corretta; ritorna quante ne sono cambiate.
 
     Ricostruire lo storyboard intero perderebbe fotogrammi chiave e clip gia'
-    fatti per tutte le altre vignette: qui cambiano solo personaggi in scena e
-    voci delle inquadrature di questa.
+    fatti per tutte le altre vignette. Qui si tocca solo il blocco di questa
+    vignetta: un'inquadratura con lo stesso testo resta (fotogramma e clip
+    compresi, ma torna da rifare se cambia chi parla o chi c'e'); una battuta
+    aggiunta diventa un'inquadratura nuova, una tolta sparisce.
     """
-    nuove = {s["id"]: s for s in storyboard(cartella, narratore, comparsa) if s.get("panel_id") == panel_id}
-    cambiate = 0
-    for shot in prod.get("shots") or []:
-        nuova = nuove.get(shot.get("id"))
-        if not nuova:
+    from .production import _prompt_hash, new_shot
+    shots = prod.get("shots") or []
+    nuove = [s for s in storyboard(cartella, narratore, comparsa) if s.get("panel_id") == panel_id]
+    posizioni = [k for k, s in enumerate(shots) if s.get("panel_id") == panel_id]
+    vecchie = [shots[k] for k in posizioni]
+    if posizioni:
+        dove = posizioni[0]
+    else:
+        # Vignetta che prima non aveva inquadrature: va dopo l'ultima che la precede.
+        dove = next((k for k, s in enumerate(shots) if str(s.get("panel_id") or "") > panel_id), len(shots))
+
+    def testo(s: dict) -> str:
+        return (s.get("dialogue") or {}).get("text", "")
+
+    cambiate, blocco = 0, []
+    for nuova in nuove:
+        shot = next((s for s in vecchie if testo(s) == testo(nuova)), None)
+        if shot is None:
+            shot = new_shot(**nuova)
+            shot["ltx_prompt"] = {"text": shot["prompt"], "source": _prompt_hash(shot["prompt"])}
+            blocco.append(shot)
+            cambiate += 1
             continue
-        prima = (shot.get("refs"), shot.get("dialogue", {}).get("character"), shot.get("dialogue", {}).get("off_screen"))
-        shot["refs"] = nuova["refs"]
+        vecchie.remove(shot)
+        prima = (shot.get("refs"), (shot.get("dialogue") or {}).get("character"),
+                 (shot.get("dialogue") or {}).get("off_screen"), (shot.get("dialogue") or {}).get("kind"))
+        shot.update(id=nuova["id"], transition=nuova["transition"], refs=nuova["refs"])
         if nuova.get("dialogue"):
             d = shot.setdefault("dialogue", {})
             if d.get("character") != nuova["dialogue"]["character"]:
@@ -1132,9 +1184,17 @@ def applica_allo_storyboard(prod: dict, cartella: Path, panel_id: str, narratore
                 d.pop("audio", None)
                 d.pop("source", None)
             d.update(nuova["dialogue"])
-        dopo = (shot.get("refs"), shot.get("dialogue", {}).get("character"), shot.get("dialogue", {}).get("off_screen"))
+        else:
+            shot.pop("dialogue", None)
+        dopo = (shot.get("refs"), (shot.get("dialogue") or {}).get("character"),
+                (shot.get("dialogue") or {}).get("off_screen"), (shot.get("dialogue") or {}).get("kind"))
         if dopo != prima:
             cambiate += 1
             if shot.get("status") == "done":
                 shot.update(status="pending", attempts=0)
+        blocco.append(shot)
+    cambiate += len(vecchie)
+    resto = [s for s in shots if s.get("panel_id") != panel_id]
+    prima_di = sum(1 for k in range(dove) if shots[k].get("panel_id") != panel_id)
+    prod["shots"] = resto[:prima_di] + blocco + resto[prima_di:]
     return cambiate

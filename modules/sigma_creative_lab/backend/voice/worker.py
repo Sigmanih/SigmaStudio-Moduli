@@ -39,11 +39,15 @@ def _device() -> str:
     return "cuda" if torch.cuda.is_available() else "cpu"
 
 
-def _kokoro():
-    if "kokoro" not in _models:
+def _kokoro(voice: str):
+    # La prima lettera della voce e' la lingua (i_ italiano, a_ americano, b_ britannico...):
+    # con la pipeline italiana un testo inglese veniva letto con la fonetica italiana.
+    lang = voice[:1] if voice[:1] in "abefhijpz" else "i"
+    key = f"kokoro_{lang}"
+    if key not in _models:
         from kokoro import KPipeline
-        _models["kokoro"] = KPipeline(lang_code="i", repo_id="hexgrad/Kokoro-82M")
-    return _models["kokoro"]
+        _models[key] = KPipeline(lang_code=lang, repo_id="hexgrad/Kokoro-82M")
+    return _models[key]
 
 
 def _chatterbox():
@@ -104,8 +108,8 @@ def synthesize(req: dict) -> dict:
     engine = req.get("engine", "chatterbox")
     t0 = time.monotonic()
     if engine == "kokoro":
-        pipe = _kokoro()
         voice = req.get("voice") or "if_sara"
+        pipe = _kokoro(voice)
         chunks = [a for _, _, a in pipe(text, voice=voice, speed=float(req.get("speed", 1.0)))]
         audio = torch.cat([torch.as_tensor(c) for c in chunks]).numpy() if chunks else np.zeros(1)
         sr = 24000

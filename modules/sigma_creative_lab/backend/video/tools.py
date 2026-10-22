@@ -289,6 +289,41 @@ def video_render(prod_id: str) -> dict:
                   hint="il render gira in background: controlla con video_render_status")
 
 
+def video_soundtrack(prod_id: str, tags: str = "", enabled: bool = True, bpm: int = 0, keyscale: str = "",
+                     music_db: float = 0.0, remix: bool = True) -> dict:
+    """Colonna sonora della produzione (ACE-Step) e, a clip finite, nuovo montaggio con la musica sotto.
+
+    Prima esisteva solo nell'interfaccia: nel collaudo Mx0 l'agente aveva il
+    capitolo montato e nessun modo di aggiungere la musica che gli era chiesta.
+    """
+    from .production import manager
+    prod = manager.store.get(prod_id)
+    if not prod:
+        return _esito("video_soundtrack", False, error=f"Produzione non trovata: {prod_id}")
+    st = prod.setdefault("soundtrack", {})
+    st["enabled"] = bool(enabled)
+    if str(tags or "").strip():
+        st["tags"] = str(tags).strip()
+    if bpm:
+        st["bpm"] = int(bpm)
+    if str(keyscale or "").strip():
+        st["keyscale"] = str(keyscale).strip()
+    if music_db:
+        st["music_db"] = float(music_db)
+    manager.store.save(prod)
+    shots = prod.get("shots") or []
+    pronte = bool(shots) and all(s.get("status") == "done" for s in shots)
+    if not (remix and enabled and pronte):
+        return _esito("video_soundtrack", True, prod_id=prod_id, soundtrack=st,
+                      hint="la musica entra al prossimo montaggio (video_render a clip finite)")
+    try:
+        _start_render(prod_id)
+    except (RuntimeError, ValueError) as exc:
+        return _esito("video_soundtrack", False, error=str(exc), soundtrack=st)
+    return _esito("video_soundtrack", True, prod_id=prod_id, soundtrack=st, status="started",
+                  hint="tutte le clip sono pronte: si rimonta con la musica; controlla con video_render_status")
+
+
 def video_render_status(prod_id: str = "") -> dict:
     """Avanzamento del render e ultimi eventi (inquadratura corrente, nuovi tentativi, esiti del giudice)."""
     from .production import manager, summary
@@ -407,7 +442,10 @@ def video_keyframes(prod_id: str, shot_indices: Optional[List[int]] = None, miss
     except Exception as exc:
         return _esito("video_keyframes", False, error=str(exc))
     fresh = manager.store.get(prod_id)
-    checks = [{"index": i, "check": (sh.get("keyframe_check") or {}).get("issues") or []}
+    # Con i percorsi l'agente puo' confrontare subito fotogramma e vignetta con
+    # view_image; senza, li cercava a tentoni con glob (collaudo Mx0: venti giri in data/).
+    checks = [{"index": i, "keyframe": sh["keyframe"], "panel": sh.get("source_panel", ""),
+               "check": (sh.get("keyframe_check") or {}).get("issues") or []}
               for i, sh in enumerate(fresh.get("shots") or []) if sh.get("keyframe")]
     return _esito("video_keyframes", True, prod_id=prod_id, generated=done, keyframes=checks)
 
@@ -478,6 +516,121 @@ def video_lesson(prod_id: str, topic: str, minutes: float = 1.0, audience: str =
 def video_export(prod_id: str) -> dict:
     """Esporta il montaggio della timeline in un MP4 (con upscale se impostato nella produzione)."""
     return _editor_job("video_export", prod_id, "export", {})
+
+
+# ---------------------------------------------------------------------------
+# Esecutori: restauro di film muti
+# ---------------------------------------------------------------------------
+
+def _elemento(prod_id: str, item_id: str = "") -> dict:
+    """L'elemento della timeline indicato, o l'unico presente: un film restaurato e' spesso un elemento solo."""
+    from .production import manager
+    from . import timeline as T
+    prod = manager.store.get(prod_id)
+    if prod is None:
+        raise ValueError(f"produzione inesistente: {prod_id}")
+    items = T.layout(T.TimelineStore(manager.store).get(prod_id), prod)["items"]
+    if item_id:
+        hit = next((it for it in items if it["id"] == item_id), None)
+        if hit is None:
+            raise ValueError(f"elemento {item_id} non nella timeline; elementi: {[it['id'] for it in items]}")
+        return hit
+    if len(items) != 1:
+        raise ValueError(f"la timeline ha {len(items)} elementi: indica item_id fra {[it['id'] for it in items]}")
+    return items[0]
+
+
+def _job_su_elemento(nome: str, prod_id: str, item_id: str, kind: str, args: dict) -> dict:
+    try:
+        item = _elemento(prod_id, item_id)
+    except ValueError as exc:
+        return _esito(nome, False, error=str(exc))
+    return _editor_job(nome, prod_id, kind, {"item_id": item["id"], **args})
+
+
+def video_restore_fetch(prod_id: str, url: str, label: str = "") -> dict:
+    """Scarica un film da Wikimedia Commons o Internet Archive e lo importa (pulldown rimosso se serve)."""
+    return _editor_job("video_restore_fetch", prod_id, "restore_fetch", {"url": url, "label": label})
+
+
+def video_recolor(prod_id: str, item_id: str = "") -> dict:
+    """Ricolora un elemento in bianco e nero (DDColor, colori stabili nel tempo, didascalie lasciate in b/n)."""
+    return _job_su_elemento("video_recolor", prod_id, item_id, "recolor", {})
+
+
+def video_upscale(prod_id: str, item_id: str = "", height: int = 1440) -> dict:
+    """Ingrandisce un elemento con Real-ESRGAN (nuova versione)."""
+    return _job_su_elemento("video_upscale", prod_id, item_id, "upscale", {"height": int(height)})
+
+
+def video_restore_read(prod_id: str, item_id: str = "", title: str = "") -> dict:
+    """Trova didascalie e pagine scritte, le legge col modello visivo e decide chi pronuncia ciascuna."""
+    return _job_su_elemento("video_restore_read", prod_id, item_id, "restore_read", {"title": title})
+
+
+def video_restore_narrate(prod_id: str, item_id: str = "", language: str = "en") -> dict:
+    """Legge ad alta voce i testi (una voce per personaggio) e li mette sulla traccia voce della timeline."""
+    return _job_su_elemento("video_restore_narrate", prod_id, item_id, "restore_narrate", {"language": language})
+
+
+def video_restore_score(prod_id: str, item_id: str = "", style: str = "") -> dict:
+    """Colonna sonora a sequenze di ~3 minuti, con l'atmosfera di quello che si vede, sulla traccia musica."""
+    return _job_su_elemento("video_restore_score", prod_id, item_id, "restore_score", {"style": style})
+
+
+def video_restore_cards(prod_id: str, item_id: str = "", start: int = 0, count: int = 40, query: str = "") -> dict:
+    """Testi letti (con indice, tempo, tipo, personaggio) e voci assegnate; `query` filtra per parola."""
+    from .production import manager
+    from . import restoration as R
+    try:
+        item = _elemento(prod_id, item_id)
+    except ValueError as exc:
+        return _esito("video_restore_cards", False, error=str(exc))
+    state = R.load_state(manager.store.path(prod_id), item["shot_id"])
+    cards = [{"index": i, **{k: c.get(k) for k in ("start", "end", "kind", "speaker", "gender", "age", "menacing",
+                                                    "text", "deleted", "needs_review", "seen")}}
+             for i, c in enumerate(state.get("cards") or [])]
+    if query == "needs_review":
+        cards = [c for c in cards if c["needs_review"]]
+    elif query:
+        q = query.lower()
+        cards = [c for c in cards if q in (c["text"] or "").lower() or q in (c["speaker"] or "").lower()]
+    start = max(0, int(start))
+    return _esito("video_restore_cards", True, total=len(cards), cards=cards[start:start + max(1, int(count))],
+                  speakers=sorted({c["speaker"] for c in cards if c["speaker"]}),
+                  voices={k: v.get("voice") for k, v in (state.get("voices") or {}).items()},
+                  moods=[m.get("tags") for m in state.get("moods") or []])
+
+
+def video_restore_card_fix(prod_id: str, index: int, item_id: str = "", text: str = "", speaker: str = "",
+                           delete: bool = False, gender: str = "", age: str = "",
+                           menacing: Optional[bool] = None) -> dict:
+    """Corregge un testo letto (testo, personaggio, voce) o lo esclude dalla narrazione."""
+    from .production import manager
+    from . import restoration as R
+    try:
+        item = _elemento(prod_id, item_id)
+        cards = R.update_cards(manager.store.path(prod_id), item["shot_id"], [{
+            "index": index, "text": text or None, "speaker": speaker, "delete": delete, "gender": gender,
+            "age": age, "menacing": menacing}])
+    except ValueError as exc:
+        return _esito("video_restore_card_fix", False, error=str(exc))
+    c = cards[int(index)]
+    return _esito("video_restore_card_fix", True, index=int(index), card={k: c.get(k) for k in (
+        "speaker", "text", "deleted")}, hint="rilancia video_restore_narrate per rifare le voci")
+
+
+def video_contact_sheet(prod_id: str, item_id: str = "", every_s: float = 0) -> dict:
+    """Provino dell'elemento (36 fotogrammi su tutta la durata): guardalo con view_image."""
+    from .production import manager
+    from . import restoration as R
+    try:
+        item = _elemento(prod_id, item_id)
+        out = manager.store.path(prod_id) / "restoration" / f"provino_{item['id']}_{item.get('take_id', '')}.jpg"
+        R.contact_sheet(Path(item["clip_path"]), out, float(every_s or 0))
+    except Exception as exc:
+        return _esito("video_contact_sheet", False, error=str(exc))
+    return _esito("video_contact_sheet", True, path=str(out), hint="guardalo con view_image")
 
 
 #: Attesa massima di una sola chiamata: abbastanza per non martellare, non tanto da bloccare il turno.
@@ -1128,6 +1281,7 @@ ESECUTORI: Dict[str, Callable] = {
     "video_char_to_production": video_char_to_production,
     "video_keyframes": video_keyframes,
     "video_shot_fix": video_shot_fix,
+    "video_soundtrack": video_soundtrack,
     "video_dialogue": video_dialogue,
     "video_scene": video_scene,
     "video_lesson": video_lesson,
@@ -1146,13 +1300,22 @@ ESECUTORI: Dict[str, Callable] = {
     "video_manga_direct": video_manga_direct,
     "video_manga_speakers": video_manga_speakers,
     "video_manga_storyboard": video_manga_storyboard,
+    "video_restore_fetch": video_restore_fetch,
+    "video_recolor": video_recolor,
+    "video_upscale": video_upscale,
+    "video_restore_read": video_restore_read,
+    "video_restore_cards": video_restore_cards,
+    "video_restore_card_fix": video_restore_card_fix,
+    "video_restore_narrate": video_restore_narrate,
+    "video_restore_score": video_restore_score,
+    "video_contact_sheet": video_contact_sheet,
 }
 
 READ_TOOLS = frozenset({
     "video_char_list", "video_char_get", "video_char_view_prompt",
     "video_prod_list", "video_prod_get", "video_inspect_shot", "video_timeline_get",
     "video_render_status", "video_job_status", "video_manga_pages", "video_manga_panel", "video_manga_script",
-    "video_manga_next", "video_manga_cast",
+    "video_manga_next", "video_manga_cast", "video_restore_cards",
 })
 
 WRITE_TOOLS = frozenset({
@@ -1160,9 +1323,11 @@ WRITE_TOOLS = frozenset({
     "video_prod_create", "video_prod_plan_storyboard", "video_prod_add_shot",
     "video_prod_update_shot", "video_render_shot", "video_judge_clip",
     "video_render", "video_char_sheet", "video_char_to_production", "video_keyframes", "video_shot_fix",
-    "video_dialogue", "video_scene", "video_lesson", "video_export",
+    "video_soundtrack", "video_dialogue", "video_scene", "video_lesson", "video_export",
     "video_char_from_image", "video_manga_read", "video_manga_fix_panel", "video_manga_direct",
     "video_manga_storyboard", "video_manga_exclude", "video_prod_remove_character", "video_manga_speakers",
+    "video_restore_fetch", "video_recolor", "video_upscale", "video_restore_read", "video_restore_card_fix",
+    "video_restore_narrate", "video_restore_score", "video_contact_sheet",
 })
 
 

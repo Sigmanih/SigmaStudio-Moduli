@@ -308,6 +308,26 @@ SCHEMI = (
     {
         "type": "function",
         "function": {
+            "name": "video_soundtrack",
+            "description": "Attiva la colonna sonora della produzione (musica strumentale generata con ACE-Step, sotto le voci) e, se tutte le clip sono gia' pronte, rimonta il film con la musica. tags descrive genere e atmosfera in inglese.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "prod_id": {"type": "string", "description": "Identificativo della produzione"},
+                    "tags": {"type": "string", "description": "Genere e atmosfera in inglese, es. 'anime soundtrack, school life, light pop, piano, strings'"},
+                    "enabled": {"type": "boolean", "description": "false per toglierla"},
+                    "bpm": {"type": "integer", "description": "Tempo (default 90)"},
+                    "keyscale": {"type": "string", "description": "Tonalita', es. 'D major'"},
+                    "music_db": {"type": "number", "description": "Volume della musica in dB (default -14)"},
+                    "remix": {"type": "boolean", "description": "Rimonta subito se le clip sono pronte (default true)"}
+                },
+                "required": ["prod_id"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "video_render",
             "description": "Avvia in background il render di tutte le inquadrature mancanti e il montaggio finale.",
             "parameters": {
@@ -819,6 +839,151 @@ SCHEMI = (
                                "narrator": {"type": "string",
                                             "description": "Personaggio della bibbia che dice le didascalie"}},
                 "required": ["prod_id", "narrator"],
+            },
+        },
+    },
+
+    # --- Restauro di film muti ---
+    {
+        "type": "function",
+        "function": {
+            "name": "video_restore_fetch",
+            "description": "Scarica un film da Wikimedia Commons o Internet Archive (solo https su quei domini) e lo "
+                           "importa nella timeline; se e' un riversamento interlacciato ricompone i fotogrammi della "
+                           "pellicola. Prima verifica che l'opera sia libera nel paese di pubblicazione. Job: segui "
+                           "con video_job_status.",
+            "parameters": {
+                "type": "object",
+                "properties": {"prod_id": {"type": "string"},
+                               "url": {"type": "string", "description": "URL diretto del file video"},
+                               "label": {"type": "string", "default": ""}},
+                "required": ["prod_id", "url"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "video_recolor",
+            "description": "Ricolora un elemento in bianco e nero (DDColor): nuova versione, colori stabili nel tempo, "
+                           "didascalie lasciate in bianco e nero. ~2,5x la durata del film. Job.",
+            "parameters": {
+                "type": "object",
+                "properties": {"prod_id": {"type": "string"},
+                               "item_id": {"type": "string", "default": "",
+                                           "description": "Elemento della timeline; vuoto se ce n'e' uno solo"}},
+                "required": ["prod_id"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "video_upscale",
+            "description": "Ingrandisce un elemento con Real-ESRGAN (nuova versione). Fallo DOPO la ricolorazione: "
+                           "colorare alla risoluzione originale costa molto meno. Job.",
+            "parameters": {
+                "type": "object",
+                "properties": {"prod_id": {"type": "string"}, "item_id": {"type": "string", "default": ""},
+                               "height": {"type": "integer", "enum": [720, 1080, 1440, 2160], "default": 1440}},
+                "required": ["prod_id"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "video_restore_read",
+            "description": "Trova didascalie (testo chiaro su nero) e pagine scritte (lettere, libri, diari), ne legge "
+                           "il testo e decide chi lo pronuncia. Job lungo: segui con video_job_status, poi controlla "
+                           "con video_restore_cards.",
+            "parameters": {
+                "type": "object",
+                "properties": {"prod_id": {"type": "string"}, "item_id": {"type": "string", "default": ""},
+                               "title": {"type": "string", "default": "",
+                                         "description": "Titolo del film: aiuta a riconoscere i personaggi"}},
+                "required": ["prod_id"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "video_restore_cards",
+            "description": "Testi letti con indice, tempo, tipo (title/page), personaggio che li legge, chi si vede "
+                           "in scena (seen); voci assegnate e atmosfere della musica. A blocchi (start, count) o "
+                           "filtrati con query; query='needs_review' da' solo le assegnazioni dubbie: il cast "
+                           "automatico ne sbaglia circa un terzo, rivedile tutte.",
+            "parameters": {
+                "type": "object",
+                "properties": {"prod_id": {"type": "string"}, "item_id": {"type": "string", "default": ""},
+                               "start": {"type": "integer", "default": 0}, "count": {"type": "integer", "default": 40},
+                               "query": {"type": "string", "default": ""}},
+                "required": ["prod_id"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "video_restore_card_fix",
+            "description": "Corregge un testo letto: testo sbagliato o incompleto, personaggio che lo legge (stesso "
+                           "nome per lo stesso personaggio), genere/eta' della voce, oppure delete=true per non "
+                           "leggerlo (es. il cast nei titoli). Poi rilancia video_restore_narrate.",
+            "parameters": {
+                "type": "object",
+                "properties": {"prod_id": {"type": "string"}, "item_id": {"type": "string", "default": ""},
+                               "index": {"type": "integer"}, "text": {"type": "string", "default": ""},
+                               "speaker": {"type": "string", "default": ""}, "delete": {"type": "boolean", "default": False},
+                               "gender": {"type": "string", "enum": ["", "male", "female"], "default": ""},
+                               "age": {"type": "string", "enum": ["", "young", "adult", "old"], "default": ""},
+                               "menacing": {"type": "boolean"}},
+                "required": ["prod_id", "index"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "video_restore_narrate",
+            "description": "Legge ad alta voce i testi, una voce per personaggio, e li mette sulla traccia voce "
+                           "(sostituisce la narrazione precedente). Ogni battuta e' riascoltata da Whisper: le "
+                           "poco chiare tornano in 'unclear'. language: en, it, fr, de, es, pt. Job.",
+            "parameters": {
+                "type": "object",
+                "properties": {"prod_id": {"type": "string"}, "item_id": {"type": "string", "default": ""},
+                               "language": {"type": "string", "default": "en"}},
+                "required": ["prod_id"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "video_restore_score",
+            "description": "Colonna sonora: sequenze di ~3 minuti tagliate sugli stacchi, atmosfera di ognuna dal "
+                           "modello visivo, un brano ACE-Step per sequenza sulla traccia musica (si abbassa da sola "
+                           "sotto le voci all'export). Job lungo.",
+            "parameters": {
+                "type": "object",
+                "properties": {"prod_id": {"type": "string"}, "item_id": {"type": "string", "default": ""},
+                               "style": {"type": "string", "default": "",
+                                         "description": "Stile comune ai brani; vuoto = orchestra da film muto"}},
+                "required": ["prod_id"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "video_contact_sheet",
+            "description": "Provino dell'elemento: 36 fotogrammi su tutta la durata in un'immagine. Guardalo con "
+                           "view_image per controllare colori, didascalie e difetti dopo ogni passo.",
+            "parameters": {
+                "type": "object",
+                "properties": {"prod_id": {"type": "string"}, "item_id": {"type": "string", "default": ""},
+                               "every_s": {"type": "number", "default": 0}},
+                "required": ["prod_id"],
             },
         },
     },
