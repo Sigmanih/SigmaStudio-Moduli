@@ -573,9 +573,24 @@ def video_restore_narrate(prod_id: str, item_id: str = "", language: str = "en")
     return _job_su_elemento("video_restore_narrate", prod_id, item_id, "restore_narrate", {"language": language})
 
 
-def video_restore_score(prod_id: str, item_id: str = "", style: str = "") -> dict:
+def video_restore_score(prod_id: str, item_id: str = "", style: str = "", redescribe: bool = False) -> dict:
     """Colonna sonora a sequenze di ~3 minuti, con l'atmosfera di quello che si vede, sulla traccia musica."""
-    return _job_su_elemento("video_restore_score", prod_id, item_id, "restore_score", {"style": style})
+    return _job_su_elemento("video_restore_score", prod_id, item_id, "restore_score",
+                            {"style": style, "redescribe": bool(redescribe)})
+
+
+def video_restore_mood_fix(prod_id: str, index: int, tags: str, item_id: str = "") -> dict:
+    """Corregge l'atmosfera di una sequenza; video_restore_score poi rifa' solo i brani cambiati."""
+    from .production import manager
+    from . import restoration as R
+    try:
+        item = _elemento(prod_id, item_id)
+        moods = R.update_moods(manager.store.path(prod_id), item["shot_id"], [{"index": index, "tags": tags}])
+    except ValueError as exc:
+        return _esito("video_restore_mood_fix", False, error=str(exc))
+    m = moods[int(index)]
+    return _esito("video_restore_mood_fix", True, index=int(index), start=m["start"], end=m["end"], tags=m["tags"],
+                  hint="rilancia video_restore_score (senza redescribe) per rifare i brani corretti")
 
 
 def video_restore_cards(prod_id: str, item_id: str = "", start: int = 0, count: int = 40, query: str = "") -> dict:
@@ -599,7 +614,8 @@ def video_restore_cards(prod_id: str, item_id: str = "", start: int = 0, count: 
     return _esito("video_restore_cards", True, total=len(cards), cards=cards[start:start + max(1, int(count))],
                   speakers=sorted({c["speaker"] for c in cards if c["speaker"]}),
                   voices={k: v.get("voice") for k, v in (state.get("voices") or {}).items()},
-                  moods=[m.get("tags") for m in state.get("moods") or []])
+                  moods=[{"index": i, "start": m.get("start"), "end": m.get("end"), "tags": m.get("tags"),
+                          "edited": bool(m.get("edited"))} for i, m in enumerate(state.get("moods") or [])])
 
 
 def video_restore_card_fix(prod_id: str, index: int, item_id: str = "", text: str = "", speaker: str = "",
@@ -1308,6 +1324,7 @@ ESECUTORI: Dict[str, Callable] = {
     "video_restore_card_fix": video_restore_card_fix,
     "video_restore_narrate": video_restore_narrate,
     "video_restore_score": video_restore_score,
+    "video_restore_mood_fix": video_restore_mood_fix,
     "video_contact_sheet": video_contact_sheet,
 }
 
@@ -1327,7 +1344,7 @@ WRITE_TOOLS = frozenset({
     "video_char_from_image", "video_manga_read", "video_manga_fix_panel", "video_manga_direct",
     "video_manga_storyboard", "video_manga_exclude", "video_prod_remove_character", "video_manga_speakers",
     "video_restore_fetch", "video_recolor", "video_upscale", "video_restore_read", "video_restore_card_fix",
-    "video_restore_narrate", "video_restore_score", "video_contact_sheet",
+    "video_restore_narrate", "video_restore_score", "video_restore_mood_fix", "video_contact_sheet",
 })
 
 

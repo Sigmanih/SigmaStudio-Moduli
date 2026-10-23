@@ -276,6 +276,20 @@ def handle_editor_restoration_cards(self):
         _err(self, str(e))
 
 
+def handle_editor_restoration_moods(self):
+    """POST /api/creative/editor/restoration/moods {id, shot, edits:[{index, tags}]}"""
+    from core.modules.sigma_creative_lab.video import restoration as R
+    data = self.read_json_body()
+    prods, _ts = _store()
+    try:
+        if prods.get(data.get("id", "")) is None:
+            return _err(self, "produzione inesistente", 404)
+        R.update_moods(prods.path(data["id"]), str(data.get("shot", "")), list(data.get("edits") or []))
+        _ok(self, **_restoration_view(R.load_state(prods.path(data["id"]), str(data.get("shot", "")))))
+    except ValueError as e:
+        _err(self, str(e))
+
+
 GET_ROUTES = {
     "/api/creative/editor/restoration": handle_editor_restoration,
     "/api/creative/editor/timeline": handle_editor_timeline,
@@ -294,4 +308,5 @@ POST_ROUTES = {
     "/api/creative/editor/import_chunk": handle_editor_import_chunk,
     "/api/creative/editor/import": handle_editor_import,
     "/api/creative/editor/restoration/cards": handle_editor_restoration_cards,
+    "/api/creative/editor/restoration/moods": handle_editor_restoration_moods,
 }

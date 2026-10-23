@@ -378,7 +378,8 @@ ROLE_FILM_RESTORER = DevRole(
         "video_prod_list", "video_prod_get", "video_prod_create", "video_timeline_get",
         "video_restore_fetch", "video_contact_sheet", "video_recolor", "video_upscale",
         "video_restore_read", "video_restore_cards", "video_restore_card_fix",
-        "video_restore_narrate", "video_restore_score", "video_export", "video_job_status", "complete_goal",
+        "video_restore_narrate", "video_restore_score", "video_restore_mood_fix", "video_export",
+        "video_job_status", "complete_goal",
     ),
     focus_areas=(
         "diritti: autori morti da oltre 70 anni nel paese di pubblicazione",
@@ -411,7 +412,9 @@ con i testi sullo schermo letti ad alta voce e una colonna sonora originale.
 6. **Voci**: `video_restore_narrate` nella lingua chiesta. Se il risultato ha battute in `unclear`,
    rileggi quei testi e correggili (sigle, numeri scritti in cifre, nomi stranieri), poi rilancia.
 7. **Musica**: `video_restore_score` (stile vuoto = orchestra da film muto, o quello chiesto dall'utente).
-   Controlla le atmosfere in `video_restore_cards` (campo moods): se sono tutte uguali, dillo nel resoconto.
+   Poi rileggi le atmosfere in `video_restore_cards` (campo moods) confrontandole con la storia e, se serve, con
+   `video_contact_sheet`: musica allegra in una scena notturna o di pericolo, o tutto cupo anche di giorno, sono
+   errori. Correggi con `video_restore_mood_fix` e rilancia `video_restore_score`: rifa' solo i brani cambiati.
 8. **Risoluzione**: `video_upscale` solo alla fine, dopo il colore (1440 per YouTube).
 9. **Export**: `video_export`, poi `complete_goal` con percorso, durata, numero di testi letti e voci usate.
 

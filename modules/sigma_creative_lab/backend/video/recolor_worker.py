@@ -52,13 +52,29 @@ DARK_L0, DARK_L1, DARK_MIN = 12.0, 55.0, 0.3
 
 
 def is_title_card(l_work: np.ndarray) -> bool:
-    """Didascalia del muto: fondo quasi nero e testo chiaro, quasi niente toni medi.
+    """Didascalia del muto: fondo quasi nero e poco testo, chiaro o grigio.
 
     DDColor colorava il testo di verde o di ciano. Misure su Nosferatu: le
-    didascalie hanno l'85-95% di pixel con L<10 e il 2-6% di toni medi; la
-    scena piu' buia (Orlok nell'ombra) il 64% e l'11%, i sentieri di notte il 22-36%.
+    didascalie hanno l'83-96% di pixel con L<10; il testo occupa il 2-15% ed e'
+    bianco o, nelle didascalie lunghe, grigio spento (L 20-55: la prima regola
+    voleva meno dell'8% di toni medi e ne perdeva una parte). La scena piu' buia
+    (Orlok nell'ombra) ha il 64% di nero, i sentieri di notte il 22-36%.
+    Ma una scena buia con una sola macchia di luce (la stiva coi topi) ha anche
+    il 75-86% di nero: il testo e' fatto di tante lettere separate, la luce di
+    un'isola sola. Nelle didascalie l'isola chiara piu' grande e' al massimo il
+    24% del chiaro, nelle scene buie dal 43% al 100%.
     """
-    return bool((l_work < 10).mean() > 0.8 and ((l_work >= 20) & (l_work <= 55)).mean() < 0.08)
+    # Fondo "quasi nero" (L<20) e non nero pieno: alcune didascalie hanno il fondo grigio scuro
+    # (66-75% sotto L 10) e le scene buie le esclude gia' il criterio delle isole.
+    mask = (l_work >= 20).astype(np.uint8)
+    text = mask.mean()
+    if not 0.005 < text < 0.22:
+        return False
+    _n, _labels, stats, _c = cv2.connectedComponentsWithStats(mask, connectivity=8)
+    areas = stats[1:, cv2.CC_STAT_AREA]
+    return bool(len(areas) and areas.max() / areas.sum() < 0.35)
+
+
 #: Salto medio di luminanza (0-255) oltre il quale c'e' uno stacco di montaggio.
 CUT_DIFF = 28.0
 FLOW_SIGMA = 12.0

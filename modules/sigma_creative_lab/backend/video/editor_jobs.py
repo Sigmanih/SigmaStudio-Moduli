@@ -452,14 +452,17 @@ async def job_restore_score(self: EditorJobs, job: dict) -> dict:
     state = R.load_state(pdir, shot["id"])
     analysis = state.get("analysis") or await asyncio.to_thread(R.analyze, src,
                                                                  lambda m, p: self._note(job, m, 0.1 * p))
-    seqs = R.sequences(analysis)
-    ask_image, _ask_text = _vista_asks()
-    with GpuPerLaVista(f"musica {shot['id']}") as gpu:
-        def nota(m: str, p: float) -> None:
-            gpu.rinnova()
-            self._note(job, m, 0.1 + 0.3 * p)
+    moods = state.get("moods") or []
+    if a.get("redescribe") or not moods:
+        seqs = R.sequences(analysis)
+        ask_image, _ask_text = _vista_asks()
+        with GpuPerLaVista(f"musica {shot['id']}") as gpu:
+            def nota(m: str, p: float) -> None:
+                gpu.rinnova()
+                self._note(job, m, 0.1 + 0.3 * p)
 
-        moods = await asyncio.to_thread(R.describe_moods, src, seqs, state.get("cards") or [], ask_image, nota)
+            moods = await asyncio.to_thread(R.describe_moods, src, seqs, state.get("cards") or [], ask_image, nota)
+    # Altrimenti si tengono le atmosfere salvate (anche corrette a mano): compose rifa' solo i brani cambiati.
     state.update(analysis=analysis, moods=moods)
     R.save_state(pdir, shot["id"], state)
     cues = await R.compose(moods, pdir / "restoration" / shot["id"] / "music", 0, str(a.get("style") or ""),

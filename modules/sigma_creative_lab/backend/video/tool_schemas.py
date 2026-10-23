@@ -968,8 +968,30 @@ SCHEMI = (
                 "type": "object",
                 "properties": {"prod_id": {"type": "string"}, "item_id": {"type": "string", "default": ""},
                                "style": {"type": "string", "default": "",
-                                         "description": "Stile comune ai brani; vuoto = orchestra da film muto"}},
+                                         "description": "Stile comune ai brani; vuoto = orchestra da film muto"},
+                               "redescribe": {"type": "boolean", "default": False,
+                                              "description": "Rifai da capo le atmosfere col modello visivo; senza, "
+                                                             "si tengono quelle salvate (anche corrette) e si "
+                                                             "rifanno solo i brani cambiati"}},
                 "required": ["prod_id"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "video_restore_mood_fix",
+            "description": "Corregge l'atmosfera di una sequenza della colonna sonora (indice da video_restore_cards, "
+                           "campo moods): tag in inglese su emozione, tempo, dinamica, strumenti. Il modello visivo "
+                           "sbaglia spesso (musica allegra in una scena notturna): guarda la sequenza e correggi, poi "
+                           "video_restore_score rifa' solo i brani cambiati.",
+            "parameters": {
+                "type": "object",
+                "properties": {"prod_id": {"type": "string"}, "item_id": {"type": "string", "default": ""},
+                               "index": {"type": "integer"},
+                               "tags": {"type": "string",
+                                        "description": "Es. 'ominous, slow, low strings, muted brass, timpani'"}},
+                "required": ["prod_id", "index", "tags"],
             },
         },
     },

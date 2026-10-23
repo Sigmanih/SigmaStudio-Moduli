@@ -54,6 +54,18 @@ function CardRow({ card, index, onSave }) {
   );
 }
 
+function MoodRow({ mood, index, onSave }) {
+  const [tags, setTags] = useState(mood.tags);
+  useEffect(() => { setTags(mood.tags); }, [mood.tags]);
+  return (
+    <div className={`cs-ed-card ${mood.edited ? 'edited' : ''}`}>
+      <span className="cs-prod-status">{clock(mood.start)}–{clock(mood.end)}{mood.edited ? ' · corretta' : ''}</span>
+      <textarea className="cs-textarea" rows={2} value={tags} onChange={e => setTags(e.target.value)}
+                onBlur={() => tags !== mood.tags && onSave({ index, tags })} />
+    </div>
+  );
+}
+
 export default function RestorationPanel({ pid, item, refresh, onJob }) {
   const [height, setHeight] = useState(1440);
   const [language, setLanguage] = useState('en');
@@ -73,6 +85,11 @@ export default function RestorationPanel({ pid, item, refresh, onJob }) {
     api('/api/creative/editor/restoration/cards', { id: pid, shot, edits: [edit] })
       .then(setState).catch(e => setError(e.message));
   }, [pid, shot]);
+  const saveMood = useCallback(edit => {
+    api('/api/creative/editor/restoration/moods', { id: pid, shot, edits: [edit] })
+      .then(setState).catch(e => setError(e.message));
+  }, [pid, shot]);
+  const [redescribe, setRedescribe] = useState(false);
 
   const cards = state?.cards || [];
   const voices = Object.entries(state?.voices || {});
@@ -108,11 +125,24 @@ export default function RestorationPanel({ pid, item, refresh, onJob }) {
       <div className="cs-ed-actions">
         <input className="cs-inline-input cs-prod-wide" value={style} onChange={e => setStyle(e.target.value)}
                placeholder="Stile della musica (vuoto = orchestra da film muto)" />
-        <button className="cs-tool-btn" title="Un brano per sequenza, con l'atmosfera di quello che si vede"
-                onClick={() => onJob('restore_score', { item_id: item.id, style })}>
+        <button className="cs-tool-btn"
+                title="Un brano per sequenza; con atmosfere gia' salvate rifa' solo i brani delle sequenze corrette"
+                onClick={() => onJob('restore_score', { item_id: item.id, style, redescribe })}>
           <Music size={14} /> Colonna sonora
         </button>
       </div>
+      {(state?.moods || []).length > 0 && (
+        <>
+          <label className="cs-ed-inline">
+            <input type="checkbox" checked={redescribe} onChange={e => setRedescribe(e.target.checked)} />
+            Rifai da capo le atmosfere (perde le correzioni)
+          </label>
+          <p className="cs-hint">Atmosfera di ogni sequenza: correggi quelle sbagliate, poi "Colonna sonora" rifa' solo quei brani.</p>
+          <div className="cs-ed-cards">
+            {state.moods.map((m, i) => <MoodRow key={`${i}-${m.start}`} mood={m} index={i} onSave={saveMood} />)}
+          </div>
+        </>
+      )}
       {error && <p className="cs-prod-error">{error}</p>}
       {cards.length > 0 && (
         <>

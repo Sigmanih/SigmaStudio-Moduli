@@ -24,6 +24,7 @@ Tutti i tempi sono in secondi del clip sorgente; la timeline li sposta.
 from __future__ import annotations
 
 import difflib
+import hashlib
 import io
 import json
 import re
@@ -39,7 +40,8 @@ log = get_logger("creative_restoration")
 
 ANALYSIS_W, ANALYSIS_H = 224, 168
 PAGE_MIN_S = 1.5
-TITLE_MIN_S = 0.8
+#: Le didascalie vere di Nosferatu durano almeno 2,4 s; le scene buie scambiate per didascalie ~1 s.
+TITLE_MIN_S = 1.6
 #: Pagine piu' lunghe di cosi' si leggono su piu' fotogrammi.
 LONG_PAGE_S = 6.0
 SEQUENCE_TARGET_S, SEQUENCE_MIN_S, SEQUENCE_MAX_S = 180.0, 120.0, 240.0
@@ -504,10 +506,12 @@ def place_lines(lines: list[dict], lead: float = 0.3, gap: float = 0.4) -> list[
 # ---------------------------------------------------------------------------
 
 MOOD_PROMPT = ("Three frames from one sequence of a silent film, left to right. On-screen texts in this "
-               "sequence: {texts}\nDescribe the mood a film score should have for what you SEE, as 5 to 8 short "
-               "comma-separated English music tags (emotion, tempo, dynamics, instruments). The previous sequence "
-               "was scored as: {previous}. If this sequence feels different (daylight, calm, tender, festive, "
-               "agitated), make the tags clearly different. Instruments only, no voices. Output only the tags.")
+               "sequence: {texts}\nFirst judge the situation from what you SEE and READ: night, darkness, a "
+               "threat, illness or death call for a dark score even if the previous sequence was dark too; daylight, "
+               "love, a journey or a festive scene call for a lighter one. The previous sequence was scored as: "
+               "{previous}. Keep its mood when the situation is the same, change it only when the situation "
+               "changes. Then describe the score as 5 to 8 short comma-separated English music tags (emotion, "
+               "tempo, dynamics, instruments). Instruments only, no voices. Output only the tags.")
 
 
 def sequences(analysis: dict) -> list[list[float]]:
@@ -555,7 +559,9 @@ async def compose(moods: list[dict], out_dir: Path, gpu: int, style: str = "", b
         progress(f"Musica ({k + 1}/{len(moods)})", k / max(1, len(moods)))
         last = k == len(moods) - 1
         seconds = m["end"] - m["start"] + (0.0 if last else MUSIC_CROSSFADE_S)
-        target = out_dir / f"cue_{k:03d}.flac"
+        # Il nome dipende da stile e atmosfera: correggendo una sequenza si rifa' solo il suo brano.
+        sig = hashlib.sha1(f"{base}|{m['tags']}|{seconds:.2f}|{bpm}|{keyscale}|{seed}".encode()).hexdigest()[:8]
+        target = out_dir / f"cue_{k:03d}_{sig}.flac"
         if not target.is_file():
             graph = build_ace_step(f"{base}, {m['tags']}", seconds, seed + 101 * k, bpm, keyscale,
                                    prefix=f"sigma/restore/cue_{k:03d}")
@@ -634,6 +640,35 @@ def update_cards(prod_dir: Path, shot_id: str, edits: list[dict]) -> list[dict]:
     state["voices"] = voices
     save_state(prod_dir, shot_id, state)
     return cards
+
+
+def update_moods(prod_dir: Path, shot_id: str, edits: list[dict]) -> list[dict]:
+    """Atmosfere corrette a mano: alla prossima colonna sonora si rifanno solo i brani cambiati.
+
+    Il modello visivo sbaglia in tutte e due le direzioni (tutto cupo se sa il
+    titolo, musica allegra al castello di Dracula se gli si chiede contrasto):
+    l'ultima parola sulla musica resta a chi guarda il film.
+    """
+    state = load_state(prod_dir, shot_id)
+    moods = state.get("moods") or []
+    if not moods:
+        raise ValueError("nessuna atmosfera: genera prima la colonna sonora")
+    for e in edits:
+        try:
+            i = int(e["index"])
+        except (KeyError, TypeError, ValueError):
+            raise ValueError("ogni correzione ha bisogno di 'index'")
+        if not 0 <= i < len(moods):
+            raise ValueError(f"sequenza {i} inesistente (sono {len(moods)})")
+        tags = ", ".join(t.strip() for t in re.split(r"[,\n]", str(e.get("tags") or ""))
+                         if t.strip() and not _VOCAL_WORDS.search(t))
+        if not tags:
+            raise ValueError("servono i tag dell'atmosfera (es. 'ominous, slow, low strings')")
+        moods[i]["tags"] = tags
+        moods[i]["edited"] = True
+    state["moods"] = moods
+    save_state(prod_dir, shot_id, state)
+    return moods
 
 
 # ---------------------------------------------------------------------------
