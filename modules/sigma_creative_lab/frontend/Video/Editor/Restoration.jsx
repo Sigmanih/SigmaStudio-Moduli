@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { Palette, Maximize2, ScanText, Mic, Music, Trash2, Skull } from 'lucide-react';
+import { Palette, Maximize2, ScanText, Mic, Music, Trash2, Skull, Sparkles } from 'lucide-react';
 
 /*
  * Restauro di un film muto, elemento per elemento: colore, risoluzione, testi
@@ -97,6 +97,10 @@ export default function RestorationPanel({ pid, item, refresh, onJob }) {
     <div className="cs-ed-restore">
       <h4>Restauro</h4>
       <div className="cs-ed-actions">
+        <button className="cs-tool-btn" title="Polvere, sfarfallio e tremolio del proiettore: da fare sul bianco e nero, prima del colore"
+                onClick={() => onJob('restore_clean', { item_id: item.id })}>
+          <Sparkles size={14} /> Pulisci pellicola
+        </button>
         <button className="cs-tool-btn" title="Colora con DDColor, colori stabili nel tempo; le didascalie restano in bianco e nero"
                 onClick={() => onJob('recolor', { item_id: item.id })}>
           <Palette size={14} /> Ricolora

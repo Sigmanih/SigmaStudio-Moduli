@@ -47,8 +47,10 @@ LONG_PAGE_S = 6.0
 SEQUENCE_TARGET_S, SEQUENCE_MIN_S, SEQUENCE_MAX_S = 180.0, 120.0, 240.0
 MUSIC_CROSSFADE_S = 2.0
 DEFAULT_SCORE_STYLE = ("1920s silent film score, chamber orchestra, strings, piano, woodwinds, "
-                       "expressive, cinematic, instrumental")
-_VOCAL_WORDS = re.compile(r"\b(vocals?|voices?|singing|choir|whisper\w*|chant\w*|lyrics?|humming)\b", re.I)
+                       "expressive, cinematic, instrumental, continuous, sustained, no pauses")
+# Via anche le parole che chiedono silenzio: con "sparse" o "low dynamics" ACE-Step dava brani quasi muti.
+_VOCAL_WORDS = re.compile(r"\b(vocals?|voices?|singing|choir|whisper\w*|chant\w*|lyrics?|humming|sparse|silen\w*|"
+                          r"minimal\w*|low dynamics|soft dynamics|quiet)\b", re.I)
 
 AskImage = Callable[[bytes, str], str]
 AskText = Callable[[str, int], str]
@@ -542,6 +544,94 @@ def describe_moods(clip: Path, seqs: list[list[float]], cards: list[dict], ask_i
     return out
 
 
+#: Secondi di silenzio tollerati in un brano (pause interne piu' coda anticipata) prima di riprovarlo.
+CUE_MAX_SILENCE_S = 8.0
+CUE_ATTEMPTS = 3
+SILENCE_DB = -45.0
+
+
+def silence_gaps(audio: Path, seconds: float) -> dict:
+    """Silenzi di un brano: pause di almeno 2 s sotto SILENCE_DB, piu' quanto manca alla durata chiesta.
+
+    ACE-Step compone canzoni con introduzione, pause e chiusura: su Nosferatu i
+    brani finivano anche un minuto prima della sequenza e la colonna sonora
+    taceva per 35 minuti su 84.
+    """
+    ffmpeg_bin, _probe = _ff()
+    raw = subprocess.run([ffmpeg_bin(), "-v", "error", "-i", str(audio), "-ac", "1", "-ar", "1000", "-f", "f32le", "-"],
+                         capture_output=True, timeout=600, creationflags=_flags()).stdout
+    a = np.frombuffer(raw, np.float32)
+    per_s = a[: len(a) // 1000 * 1000].reshape(-1, 1000)
+    db = 20 * np.log10(np.sqrt((per_s ** 2).mean(axis=1)) + 1e-9)
+    quiet = list(db[: int(seconds)] < SILENCE_DB) + [False]
+    silent, run = 0, 0
+    for q in quiet:
+        if q:
+            run += 1
+        else:
+            silent += run if run >= 2 else 0
+            run = 0
+    missing = max(0.0, seconds - len(db))
+    return {"silent_s": float(silent + missing), "length_s": float(len(db))}
+
+
+FILL_MIN_S = 2.0
+FILL_XFADE_S = 0.6
+
+
+def fill_silences(audio: Path, seconds: float, sr: int = 48000) -> float:
+    """Copre le pause lunghe di un brano con la musica dello stesso brano, con dissolvenze.
+
+    Anche con piu' tentativi ACE-Step lascia pause e chiusure anticipate (su
+    Nosferatu ancora 10 minuti di silenzio su 84): ogni pausa di almeno
+    FILL_MIN_S si riempie col tratto di musica che la precede (o la segue, se
+    e' in testa), come un'orchestra che riprende la frase. Riscrive il file;
+    restituisce i secondi riempiti.
+    """
+    ffmpeg_bin, _probe = _ff()
+    raw = subprocess.run([ffmpeg_bin(), "-v", "error", "-i", str(audio), "-f", "f32le", "-ac", "2", "-ar", str(sr), "-"],
+                         capture_output=True, timeout=600, creationflags=_flags()).stdout
+    a = np.frombuffer(raw, np.float32).reshape(-1, 2).copy()
+    need = int(seconds * sr)
+    if len(a) < need:
+        a = np.concatenate([a, np.zeros((need - len(a), 2), np.float32)])
+    hop = sr // 10                                        # finestre da 0,1 s
+    rms = np.sqrt((a[: len(a) // hop * hop].reshape(-1, hop, 2) ** 2).mean(axis=(1, 2)))
+    quiet = 20 * np.log10(rms + 1e-9) < SILENCE_DB
+    runs, start = [], None
+    for i, q in enumerate(list(quiet) + [False]):
+        if q and start is None:
+            start = i
+        elif not q and start is not None:
+            if (i - start) * 0.1 >= FILL_MIN_S:
+                runs.append((start * hop, i * hop))
+            start = None
+    xf = int(FILL_XFADE_S * sr)
+    sound = ~np.repeat(quiet, hop)[: len(a)]
+    filled = 0.0
+    for s, e in runs:
+        a0, a1 = max(0, s - xf), min(len(a), e + xf)
+        length = a1 - a0
+        donor = None
+        # Il tratto subito prima della pausa, se e' tutto musica; altrimenti quello subito dopo.
+        for d0 in (a0 - length, a1):
+            if 0 <= d0 and d0 + length <= len(a) and sound[d0:d0 + length].mean() > 0.9:
+                donor = a[d0:d0 + length].copy()
+                break
+        if donor is None:
+            continue
+        w = np.ones(length, np.float32)
+        ramp = min(xf, length // 2)
+        w[:ramp] = np.linspace(0, 1, ramp)
+        w[length - ramp:] = np.linspace(1, 0, ramp)
+        a[a0:a1] = a[a0:a1] * (1 - w[:, None]) + donor * w[:, None]
+        filled += (e - s) / sr
+    if filled:
+        subprocess.run([ffmpeg_bin(), "-v", "error", "-y", "-f", "f32le", "-ar", str(sr), "-ac", "2", "-i", "-",
+                        str(audio)], input=a[:need].tobytes(), check=True, timeout=600, creationflags=_flags())
+    return filled
+
+
 async def compose(moods: list[dict], out_dir: Path, gpu: int, style: str = "", bpm: int = 76,
                   keyscale: str = "D minor", seed: int = 1922, progress: Progress = _nop) -> list[dict]:
     """Un brano ACE-Step per sequenza, lungo quanto lei piu' la dissolvenza nella successiva."""
@@ -563,14 +653,33 @@ async def compose(moods: list[dict], out_dir: Path, gpu: int, style: str = "", b
         sig = hashlib.sha1(f"{base}|{m['tags']}|{seconds:.2f}|{bpm}|{keyscale}|{seed}".encode()).hexdigest()[:8]
         target = out_dir / f"cue_{k:03d}_{sig}.flac"
         if not target.is_file():
-            graph = build_ace_step(f"{base}, {m['tags']}", seconds, seed + 101 * k, bpm, keyscale,
-                                   prefix=f"sigma/restore/cue_{k:03d}")
-            data, _name = await backend.run({"workflow": graph}, timeout_s=1800)
-            raw = out_dir / f"cue_{k:03d}.raw"
-            raw.write_bytes(data)
-            subprocess.run([ffmpeg_bin(), "-v", "error", "-y", "-i", str(raw), "-t", f"{seconds:.3f}", "-ar", "48000",
-                            "-ac", "2", str(target)], check=True, timeout=600, creationflags=_flags())
-            raw.unlink(missing_ok=True)
+            best = None
+            for attempt in range(CUE_ATTEMPTS):
+                graph = build_ace_step(f"{base}, {m['tags']}", seconds, seed + 101 * k + 7919 * attempt, bpm,
+                                       keyscale, prefix=f"sigma/restore/cue_{k:03d}")
+                data, _name = await backend.run({"workflow": graph}, timeout_s=1800)
+                raw = out_dir / f"cue_{k:03d}_{attempt}.raw"
+                raw.write_bytes(data)
+                # Volume uniforme PRIMA di misurare: i brani "piani" di ACE-Step stavano 20 dB sotto
+                # gli altri e, misurati grezzi, sembravano muti anche quando la musica c'era.
+                norm = out_dir / f"cue_{k:03d}_{attempt}.flac"
+                subprocess.run([ffmpeg_bin(), "-v", "error", "-y", "-i", str(raw), "-t", f"{seconds:.3f}",
+                                "-af", "loudnorm=I=-20:TP=-2:LRA=11", "-ar", "48000", "-ac", "2", str(norm)],
+                               check=True, timeout=600, creationflags=_flags())
+                raw.unlink(missing_ok=True)
+                gaps = silence_gaps(norm, seconds)
+                log.info(f"brano {k} tentativo {attempt + 1}: silenzi {gaps}")
+                if best is None or gaps["silent_s"] < best[1]["silent_s"]:
+                    if best:
+                        best[0].unlink(missing_ok=True)
+                    best = (norm, gaps)
+                else:
+                    norm.unlink(missing_ok=True)
+                if gaps["silent_s"] <= CUE_MAX_SILENCE_S:
+                    break
+            filled = fill_silences(best[0], seconds)
+            best[0].replace(target)
+            log.info(f"brano {k}: {best[1]['silent_s']:.0f} s di silenzio, {filled:.0f} s riempiti")
         cues.append({"start": m["start"], "seconds": round(seconds, 3), "path": str(target), "tags": m["tags"],
                      "fade_in": 0.0 if k == 0 else MUSIC_CROSSFADE_S, "fade_out": 3.0 if last else MUSIC_CROSSFADE_S})
     return cues
@@ -705,6 +814,85 @@ def interlaced(src: Path, samples: int = 5, sample_s: float = 20.0) -> bool:
             frames += n
             worst = max(worst, (tff + bff) / n)
     return bool(frames) and (combed / frames > 0.10 or worst > 0.30)
+
+
+#: Fotogrammi (circa 1 s) su cui si media il movimento della camera: il tremolio del
+#: proiettore sparisce, le panoramiche volute restano.
+STAB_SMOOTHING = 30
+
+
+def clean_film(src: Path, out: Path, progress: Progress = _nop) -> dict:
+    """Pulisce un film in bianco e nero prima del colore: fotogrammi ricomposti, polvere, sfarfallio, tremolio.
+
+    Va fatto PRIMA di ricolorare: DDColor su un'immagine pulita sbaglia meno, e
+    la polvere colorata sarebbe piu' visibile di quella grigia. L'audio del
+    sorgente, se c'e', resta com'e'.
+    """
+    import threading
+    from core.modules.sigma_creative_lab.video.postprocess import _rate_and_frames, torch_python
+    ffmpeg_bin, probe = _ff()
+    info = probe(src)
+    w, h = int(info["width"]) // 2 * 2, int(info["height"]) // 2 * 2
+    pre = ivtc_filter(src)
+    fps, total = _rate_and_frames(src, info)
+    if pre:
+        fps, total = fps * 4 / 5, int(total * 4 / 5)          # decimate: 29,97 -> 23,976
+    py = torch_python()
+    if py is None:
+        raise RuntimeError("serve un Python con OpenCV (installa le Voci)")
+    out.parent.mkdir(parents=True, exist_ok=True)
+    dusted = out.with_suffix(".polvere.mp4")
+    trf = out.with_suffix(".trf")
+    flags = _flags()
+    # 1. Fotogrammi ricomposti e polvere: decodifica -> worker -> codifica quasi senza perdite, con deflicker.
+    decode = subprocess.Popen([ffmpeg_bin(), "-v", "error", "-i", str(src), "-vf", f"{pre}scale={w}:{h},format=gray",
+                               "-f", "rawvideo", "-pix_fmt", "gray", "-"], stdout=subprocess.PIPE, creationflags=flags)
+    worker = subprocess.Popen([str(py), str(Path(__file__).with_name("clean_worker.py")), "--width", str(w),
+                               "--height", str(h)], stdin=decode.stdout, stdout=subprocess.PIPE,
+                              stderr=subprocess.PIPE, creationflags=flags)
+    decode.stdout.close()
+    encode = subprocess.Popen([ffmpeg_bin(), "-v", "error", "-y", "-f", "rawvideo", "-pix_fmt", "gray",
+                               "-s", f"{w}x{h}", "-framerate", f"{fps:.6f}", "-i", "-",
+                               # Sfarfallio: luminosita' media riportata a quella dei vicini su ~0,4 s.
+                               "-vf", "deflicker=mode=pm:size=10,format=yuv420p",
+                               "-c:v", "libx264", "-crf", "12", "-preset", "medium", str(dusted)],
+                              stdin=worker.stdout, stderr=subprocess.PIPE, creationflags=flags)
+    worker.stdout.close()
+    spots = {"n": 0}
+
+    def read_progress() -> None:
+        for raw in worker.stderr:
+            parts = raw.decode(errors="replace").split()
+            if len(parts) >= 4 and parts[0] == "frame":
+                spots["n"] = int(parts[3])
+                progress("Polvere e sfarfallio", min(1.0, int(parts[1]) / max(total, 1)) * 0.7)
+
+    reader = threading.Thread(target=read_progress, daemon=True)
+    reader.start()
+    _, err = encode.communicate(timeout=max(3600, total))
+    worker.wait(timeout=120)
+    decode.wait(timeout=120)
+    reader.join(timeout=10)
+    if worker.returncode or encode.returncode:
+        dusted.unlink(missing_ok=True)
+        raise RuntimeError(f"pulizia fallita: {err.decode(errors='replace')[-300:]}")
+    # 2. Tremolio del proiettore: vidstab in due passate; optzoom ingrandisce quel poco che nasconde i bordi mossi.
+    progress("Stabilizzazione: analisi", 0.72)
+    trf_arg = trf.name                                            # vidstab non accetta i due punti di C:
+    subprocess.run([ffmpeg_bin(), "-v", "error", "-y", "-i", dusted.name, "-vf",
+                    f"vidstabdetect=shakiness=8:accuracy=15:stepsize=4:result={trf_arg}", "-f", "null", "-"],
+                   cwd=str(out.parent), check=True, timeout=max(3600, total), creationflags=flags)
+    progress("Stabilizzazione: correzione", 0.86)
+    audio = ["-i", str(src), "-map", "0:v", "-map", "1:a?", "-c:a", "aac", "-b:a", "192k"] if info["has_audio"] else []
+    subprocess.run([ffmpeg_bin(), "-v", "error", "-y", "-i", dusted.name, *audio, "-vf",
+                    f"vidstabtransform=input={trf_arg}:smoothing={STAB_SMOOTHING}:optzoom=1:interpol=bicubic,"
+                    "unsharp=5:5:0.4:5:5:0", "-c:v", "libx264", "-crf", "14", "-preset", "medium",
+                    "-pix_fmt", "yuv420p", out.name], cwd=str(out.parent), check=True, timeout=max(3600, total),
+                   creationflags=flags)
+    dusted.unlink(missing_ok=True)
+    trf.unlink(missing_ok=True)
+    progress("Pulizia completata", 1.0)
+    return {"path": str(out), "ivtc": bool(pre), "spots_fixed": spots["n"], "fps": round(fps, 3)}
 
 
 def ivtc_filter(src: Path) -> str:

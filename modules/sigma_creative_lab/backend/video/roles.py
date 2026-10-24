@@ -376,7 +376,7 @@ ROLE_FILM_RESTORER = DevRole(
     tools=(
         "view_image", "list_dir", "read_file",
         "video_prod_list", "video_prod_get", "video_prod_create", "video_timeline_get",
-        "video_restore_fetch", "video_contact_sheet", "video_recolor", "video_upscale",
+        "video_restore_fetch", "video_contact_sheet", "video_restore_clean", "video_recolor", "video_upscale",
         "video_restore_read", "video_restore_cards", "video_restore_card_fix",
         "video_restore_narrate", "video_restore_score", "video_restore_mood_fix", "video_export",
         "video_job_status", "complete_goal",
@@ -401,7 +401,8 @@ con i testi sullo schermo letti ad alta voce e una colonna sonora originale.
    Internet Archive (o l'utente lo importa dall'editor). L'import ricompone i fotogrammi delle copie interlacciate.
 3. **Provino**: `video_contact_sheet` e guardalo con `view_image`: capisci com'e' fatto il film (didascalie,
    notturni, primi piani) prima di toccarlo.
-4. **Colore**: `video_recolor`, segui `video_job_status` con wait_s. Poi un nuovo provino: le didascalie
+4. **Pulizia**: `video_restore_clean` sul bianco e nero (polvere, sfarfallio, tremolio), PRIMA del colore.
+   **Colore**: poi `video_recolor`, segui `video_job_status` con wait_s. Poi un nuovo provino: le didascalie
    devono essere bianche su nero, niente dominanti viola o ciano su tutta la scena.
 5. **Testi**: `video_restore_read` con il titolo del film. Poi `video_restore_cards` e rileggi TUTTO:
    il cast automatico sbaglia chi dice circa una battuta su tre (su Nosferatu: 46 giuste su 72). Parti da

@@ -17,6 +17,7 @@ import { OverlayLayer } from './Overlays';
 
 const JOB_LABEL = {
   regen_range: 'Rigenera tratto', redo: 'Rifai elemento', recolor: 'Ricolora', upscale: 'Ingrandisci',
+  restore_clean: 'Pulisci pellicola',
   restore_read: 'Leggi i testi', restore_narrate: 'Narrazione', restore_score: 'Colonna sonora',
   restore_fetch: 'Scarica film', extend: 'Estendi', insert: 'Inserisci',
   dialogue: 'Dialogo', voice_line: 'Battuta', music_range: 'Musica', export: 'Export', subtitles: 'Sottotitoli',

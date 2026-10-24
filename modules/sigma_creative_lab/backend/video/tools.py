@@ -553,6 +553,11 @@ def video_restore_fetch(prod_id: str, url: str, label: str = "") -> dict:
     return _editor_job("video_restore_fetch", prod_id, "restore_fetch", {"url": url, "label": label})
 
 
+def video_restore_clean(prod_id: str, item_id: str = "") -> dict:
+    """Pulisce la pellicola in bianco e nero (polvere, sfarfallio, tremolio): va fatto prima di ricolorare."""
+    return _job_su_elemento("video_restore_clean", prod_id, item_id, "restore_clean", {})
+
+
 def video_recolor(prod_id: str, item_id: str = "") -> dict:
     """Ricolora un elemento in bianco e nero (DDColor, colori stabili nel tempo, didascalie lasciate in b/n)."""
     return _job_su_elemento("video_recolor", prod_id, item_id, "recolor", {})
@@ -1317,6 +1322,7 @@ ESECUTORI: Dict[str, Callable] = {
     "video_manga_speakers": video_manga_speakers,
     "video_manga_storyboard": video_manga_storyboard,
     "video_restore_fetch": video_restore_fetch,
+    "video_restore_clean": video_restore_clean,
     "video_recolor": video_recolor,
     "video_upscale": video_upscale,
     "video_restore_read": video_restore_read,
@@ -1343,7 +1349,7 @@ WRITE_TOOLS = frozenset({
     "video_soundtrack", "video_dialogue", "video_scene", "video_lesson", "video_export",
     "video_char_from_image", "video_manga_read", "video_manga_fix_panel", "video_manga_direct",
     "video_manga_storyboard", "video_manga_exclude", "video_prod_remove_character", "video_manga_speakers",
-    "video_restore_fetch", "video_recolor", "video_upscale", "video_restore_read", "video_restore_card_fix",
+    "video_restore_fetch", "video_restore_clean", "video_recolor", "video_upscale", "video_restore_read", "video_restore_card_fix",
     "video_restore_narrate", "video_restore_score", "video_restore_mood_fix", "video_contact_sheet",
 })
 

@@ -864,6 +864,20 @@ SCHEMI = (
     {
         "type": "function",
         "function": {
+            "name": "video_restore_clean",
+            "description": "Pulisce un film in bianco e nero: polvere e macchie (confronto coi fotogrammi vicini), "
+                           "sfarfallio della luce, tremolio del proiettore (stabilizzazione). Nuova versione. "
+                           "Fallo PRIMA di video_recolor: su un'immagine pulita il colore sbaglia meno. ~1x la durata. Job.",
+            "parameters": {
+                "type": "object",
+                "properties": {"prod_id": {"type": "string"}, "item_id": {"type": "string", "default": ""}},
+                "required": ["prod_id"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "video_recolor",
             "description": "Ricolora un elemento in bianco e nero (DDColor): nuova versione, colori stabili nel tempo, "
                            "didascalie lasciate in bianco e nero. ~2,5x la durata del film. Job.",

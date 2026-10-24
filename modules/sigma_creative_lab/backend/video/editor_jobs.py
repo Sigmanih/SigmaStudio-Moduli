@@ -354,6 +354,22 @@ async def job_upscale(self: EditorJobs, job: dict) -> dict:
     return {"shot": shot["id"], "take": take["id"], "height": height}
 
 
+async def job_restore_clean(self: EditorJobs, job: dict) -> dict:
+    """Nuova versione pulita di un film in bianco e nero: polvere, sfarfallio, tremolio del proiettore."""
+    from core.modules.sigma_creative_lab.video import restoration as R
+    pid, a = job["production"], job["args"]
+    item, shot, source, src = _item_source(self, pid, a["item_id"])
+    out = self.prods.path(pid) / "clips" / f"clean_{shot['id']}_t{len(T.ensure_takes(shot)) + 1}.mp4"
+    res = await asyncio.to_thread(R.clean_film, src, out, lambda m, p: self._note(job, m, 0.02 + 0.95 * p))
+    prod = self.prods.get(pid)
+    shot = T.shot_by_id(prod, item["shot_id"])
+    take = T.add_take(shot, str(out), frames=source.get("frames", 0), prompt=source.get("prompt", ""), kind="clean",
+                      source_take=source["id"])
+    self.prods.save(prod)
+    self.timelines.apply(pid, "set_take", {"item_id": item["id"], "take_id": take["id"]})
+    return {"shot": shot["id"], "take": take["id"], "spots_fixed": res["spots_fixed"]}
+
+
 def _vista_asks():
     from core.harness import vista
     return (lambda jpeg, q: vista.occhio.guarda(jpeg, q)[0]), (lambda p, n: vista.occhio.chiedi(p, n))
@@ -1126,7 +1142,7 @@ from core.modules.sigma_creative_lab.video import manga  # noqa: E402  (i job da
 
 HANDLERS = {
     "regen_range": job_regen_range, "redo": job_redo, "recolor": job_recolor, "extend": job_extend,
-    "insert": job_insert, "upscale": job_upscale, "restore_read": job_restore_read,
+    "insert": job_insert, "upscale": job_upscale, "restore_clean": job_restore_clean, "restore_read": job_restore_read,
     "restore_narrate": job_restore_narrate, "restore_score": job_restore_score, "restore_fetch": job_restore_fetch,
     "dialogue": job_dialogue, "voice_line": job_voice_line, "music_range": job_music_range,
     "export": job_export, "subtitles": job_subtitles, "import": job_import, "title": job_title,
