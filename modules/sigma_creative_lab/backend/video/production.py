@@ -1186,7 +1186,10 @@ def _drop_repeats(new: list, before: list, threshold: float = 0.8) -> list:
     for sh in new:
         text = sh["prompt"].lower()
         # Fra frasi brevi la somiglianza e' alta anche quando dicono cose diverse: li' conta solo l'identita'.
-        if any(text == old or (min(len(text), len(old)) >= 120 and SequenceMatcher(None, text, old).ratio() >= threshold)
+        # autojunk=False: oltre i 200 caratteri difflib ignora le lettere frequenti e due prompt quasi uguali
+        # risultavano diversi.
+        if any(text == old or (min(len(text), len(old)) >= 120
+                               and SequenceMatcher(None, text, old, autojunk=False).ratio() >= threshold)
                for old in seen):
             log.info(f"inquadratura ripetuta tolta: {sh['prompt'][:80]}")
             continue

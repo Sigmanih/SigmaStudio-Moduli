@@ -41,7 +41,8 @@ def _norm_words(text: str) -> str:
 
 
 def speech_match(expected: str, heard: str) -> float:
-    return difflib.SequenceMatcher(None, _norm_words(expected), _norm_words(heard)).ratio()
+    # autojunk=False: con l'euristica di difflib una battuta lunga ben pronunciata scendeva sotto la soglia.
+    return difflib.SequenceMatcher(None, _norm_words(expected), _norm_words(heard), autojunk=False).ratio()
 
 
 class EditorJobs:

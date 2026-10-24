@@ -454,7 +454,9 @@ CHATTERBOX_RETRIES = 4
 
 def _match(expected: str, heard: str) -> float:
     norm = lambda s: " ".join(re.findall(r"[\w']+", s.lower()))  # noqa: E731
-    return round(difflib.SequenceMatcher(None, norm(expected), norm(heard)).ratio(), 3)
+    # autojunk=False: oltre i 200 caratteri difflib scarta le lettere piu' frequenti come "rumore" e una
+    # battuta lunga trascritta quasi parola per parola valeva 0,55 invece di 0,99.
+    return round(difflib.SequenceMatcher(None, norm(expected), norm(heard), autojunk=False).ratio(), 3)
 
 
 def synthesize(cards: list[dict], plan: dict, language: str, out_dir: Path, progress: Progress = _nop) -> list[dict]:
