@@ -607,8 +607,11 @@ def video_restore_cards(prod_id: str, item_id: str = "", start: int = 0, count: 
     except ValueError as exc:
         return _esito("video_restore_cards", False, error=str(exc))
     state = R.load_state(manager.store.path(prod_id), item["shot_id"])
+    translations = state.get("translations") or {}
     cards = [{"index": i, **{k: c.get(k) for k in ("start", "end", "kind", "speaker", "gender", "age", "menacing",
-                                                    "text", "deleted", "needs_review", "seen")}}
+                                                    "text", "deleted", "needs_review", "seen")},
+              **({"translations": {lang: t[str(i)] for lang, t in translations.items() if str(i) in t}}
+                 if translations else {})}
              for i, c in enumerate(state.get("cards") or [])]
     if query == "needs_review":
         cards = [c for c in cards if c["needs_review"]]
@@ -625,15 +628,15 @@ def video_restore_cards(prod_id: str, item_id: str = "", start: int = 0, count: 
 
 def video_restore_card_fix(prod_id: str, index: int, item_id: str = "", text: str = "", speaker: str = "",
                            delete: bool = False, gender: str = "", age: str = "",
-                           menacing: Optional[bool] = None) -> dict:
-    """Corregge un testo letto (testo, personaggio, voce) o lo esclude dalla narrazione."""
+                           menacing: Optional[bool] = None, language: str = "") -> dict:
+    """Corregge un testo letto (testo, personaggio, voce) o lo esclude; con `language` corregge la traduzione."""
     from .production import manager
     from . import restoration as R
     try:
         item = _elemento(prod_id, item_id)
         cards = R.update_cards(manager.store.path(prod_id), item["shot_id"], [{
             "index": index, "text": text or None, "speaker": speaker, "delete": delete, "gender": gender,
-            "age": age, "menacing": menacing}])
+            "age": age, "menacing": menacing, "language": language}])
     except ValueError as exc:
         return _esito("video_restore_card_fix", False, error=str(exc))
     c = cards[int(index)]

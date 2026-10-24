@@ -394,7 +394,12 @@ def translate_cards(cards: list[dict], language: str, ask_text: AskText, batch: 
         lines = "\n".join(f"{i}. {c['text']}" for i, c in enumerate(part))
         answer = _json_list(ask_text(
             f"Translate these lines of a silent film into natural spoken {target}, keeping names and tone. "
+            # Chatterbox legge male le cifre: "1443" in italiano diventava una parola inventata.
+            f"Write every number and year in words. "
             f"Answer with a JSON array of strings, one per line, in order.\n\n{lines}", 3000))
+        for c in part:
+            # Bozza: su Nosferatu l'8B sbagliava una riga su tre ("Ammazza, non e' vero, signori?").
+            c["translation_draft"] = True
         for i, c in enumerate(part):
             if i < len(answer) and isinstance(answer[i], str) and answer[i].strip():
                 c["text_spoken"] = answer[i].strip()
@@ -444,6 +449,9 @@ def voice_plan(cards: list[dict], existing: dict | None = None) -> dict:
     return plan
 
 
+CHATTERBOX_RETRIES = 4
+
+
 def _match(expected: str, heard: str) -> float:
     norm = lambda s: " ".join(re.findall(r"[\w']+", s.lower()))  # noqa: E731
     return round(difflib.SequenceMatcher(None, norm(expected), norm(heard)).ratio(), 3)
@@ -484,6 +492,23 @@ def synthesize(cards: list[dict], plan: dict, language: str, out_dir: Path, prog
                             str(final)], check=True, timeout=300, creationflags=_flags())
             raw.unlink(missing_ok=True)
             heard = " ".join(s["text"] for s in rt.transcribe(final, language)["segments"])
+            # Chatterbox non e' deterministico (Renfield diceva "sangue" tre volte invece di due): se
+            # Whisper non ritrova la battuta, si riprova con altri semi e si tiene la migliore.
+            tries = 0
+            while language != "en" and _match(text, heard) < 0.85 and tries < CHATTERBOX_RETRIES:
+                tries += 1
+                alt = out_dir / f"{i:03d}_{c['speaker']}_alt.wav"
+                rt.synthesize(text, raw, engine="chatterbox", language=language, voice_ref=str(refs[c["speaker"]]),
+                              seed=1922 + i + 7919 * tries)
+                subprocess.run([ffmpeg_bin(), "-v", "error", "-y", "-i", str(raw), "-af", af, "-ar", "48000", "-ac",
+                                "2", str(alt)], check=True, timeout=300, creationflags=_flags())
+                raw.unlink(missing_ok=True)
+                alt_heard = " ".join(s["text"] for s in rt.transcribe(alt, language)["segments"])
+                if _match(text, alt_heard) > _match(text, heard):
+                    alt.replace(final)
+                    heard = alt_heard
+                else:
+                    alt.unlink(missing_ok=True)
             info = probe(final)
             dur = float(info["audio_duration"] or info["duration"] or 0.0)
             done.append({**c, "wav": str(final), "duration": round(dur, 2), "heard": heard.strip(),
@@ -732,6 +757,12 @@ def update_cards(prod_dir: Path, shot_id: str, edits: list[dict]) -> list[dict]:
                 voices.pop(str(e["speaker"]).strip().lower().replace(" ", "_")[:40], None)
         if e.get("delete"):
             cards[i]["deleted"] = True
+            continue
+        lang = str(e.get("language") or "").lower()[:2]
+        if lang and lang != "en":
+            # Correzione della battuta tradotta: il testo originale resta com'e'.
+            if e.get("text"):
+                state.setdefault("translations", {}).setdefault(lang, {})[str(i)] = _clean(str(e["text"]))
             continue
         if e.get("text") is not None:
             cards[i]["text"] = _clean(str(e["text"]))

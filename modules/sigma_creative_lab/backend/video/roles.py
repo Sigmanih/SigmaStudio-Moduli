@@ -410,7 +410,9 @@ con i testi sullo schermo letti ad alta voce e una colonna sonora originale.
    parla; `seen` dice chi si vede in scena. Cerca anche testi troncati (pagine che scorrono), letture doppie,
    lo stesso personaggio con nomi diversi, il cast dei titoli di testa da non leggere. Correggi con
    `video_restore_card_fix`.
-6. **Voci**: `video_restore_narrate` nella lingua chiesta. Se il risultato ha battute in `unclear`,
+6. **Voci**: `video_restore_narrate` nella lingua chiesta. In una lingua diversa dall'originale la traduzione
+   automatica e' una bozza (su Nosferatu sbagliata in una riga su tre): rileggila battuta per battuta in
+   `video_restore_cards` e correggi con `video_restore_card_fix` prima di consegnare. Se il risultato ha battute in `unclear`,
    rileggi quei testi e correggili (sigle, numeri scritti in cifre, nomi stranieri), poi rilancia.
 7. **Musica**: `video_restore_score` (stile vuoto = orchestra da film muto, o quello chiesto dall'utente).
    Poi rileggi le atmosfere in `video_restore_cards` (campo moods) confrontandole con la storia e, se serve, con

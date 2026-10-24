@@ -951,7 +951,10 @@ SCHEMI = (
                                "speaker": {"type": "string", "default": ""}, "delete": {"type": "boolean", "default": False},
                                "gender": {"type": "string", "enum": ["", "male", "female"], "default": ""},
                                "age": {"type": "string", "enum": ["", "young", "adult", "old"], "default": ""},
-                               "menacing": {"type": "boolean"}},
+                               "menacing": {"type": "boolean"},
+                               "language": {"type": "string", "default": "",
+                                            "description": "Lingua della traduzione da correggere (it, fr...): "
+                                                           "con questo, 'text' sostituisce la battuta tradotta"}},
                 "required": ["prod_id", "index"],
             },
         },

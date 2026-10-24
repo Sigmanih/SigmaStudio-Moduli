@@ -428,10 +428,21 @@ async def job_restore_narrate(self: EditorJobs, job: dict) -> dict:
         raise ValueError("nessun testo letto: lancia prima la lettura delle didascalie")
     language = str(a.get("language") or "en").lower()[:2]
     if language != "en":
-        _ask_image, ask_text = _vista_asks()
-        self._note(job, f"Traduzione ({language})", 0.05)
-        with GpuPerLaVista(f"traduzione {shot['id']}"):
-            cards = await asyncio.to_thread(R.translate_cards, cards, language, ask_text)
+        # Traduzione salvata per lingua: si rilegge e si corregge (card_fix con language), e la
+        # narrazione successiva la riusa invece di ritradurre da capo.
+        saved = (state.get("translations") or {}).get(language) or {}
+        missing = [c for c in cards if str(state["cards"].index(c)) not in saved]
+        if missing:
+            _ask_image, ask_text = _vista_asks()
+            self._note(job, f"Traduzione ({language})", 0.05)
+            with GpuPerLaVista(f"traduzione {shot['id']}"):
+                done = await asyncio.to_thread(R.translate_cards, missing, language, ask_text)
+            for c, t in zip(missing, done):
+                if t.get("text_spoken"):
+                    saved[str(state["cards"].index(c))] = t["text_spoken"]
+            state.setdefault("translations", {})[language] = saved
+            R.save_state(pdir, shot["id"], state)
+        cards = [{**c, "text_spoken": saved.get(str(state["cards"].index(c))) or c["text"]} for c in cards]
     plan = R.voice_plan(cards, state.get("voices"))
     state["voices"] = plan
     R.save_state(pdir, shot["id"], state)
