@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { Palette, Maximize2, ScanText, Mic, Music, Trash2, Skull, Sparkles } from 'lucide-react';
+import { Palette, Maximize2, ScanText, Mic, Music, Trash2, Skull, Sparkles, Shield, Plus } from 'lucide-react';
 
 /*
  * Restauro di un film muto, elemento per elemento: colore, risoluzione, testi
@@ -8,7 +8,57 @@ import { Palette, Maximize2, ScanText, Mic, Music, Trash2, Skull, Sparkles } fro
  * rifare la narrazione.
  */
 
-const LANGUAGES = [['en', 'Inglese'], ['it', 'Italiano'], ['fr', 'Francese'], ['de', 'Tedesco'], ['es', 'Spagnolo'], ['pt', 'Portoghese']];
+const LANGUAGES = [['en', 'Inglese'], ['it', 'Italiano'], ['fr', 'Francese'], ['de', 'Tedesco'], ['es', 'Spagnolo'],
+  ['pt', 'Portoghese'], ['ar', 'Arabo'], ['zh', 'Cinese']];
+
+const REASONS = { technicolor: 'Technicolor', dipinto: 'colore dipinto', sequenza: 'stessa sequenza', 'a mano': 'a mano' };
+
+function seconds(text) {
+  // Accetta "49:13", "1:02:21" o secondi semplici.
+  const parts = String(text).trim().split(':').map(Number);
+  if (parts.some(Number.isNaN)) return NaN;
+  return parts.reduce((acc, p) => acc * 60 + p, 0);
+}
+
+// Tratti lasciati come nel film (gia' a colori): la mappa automatica si corregge qui, vale alla prossima ricolorazione.
+function ProtectSection({ color, onSave }) {
+  const [from, setFrom] = useState('');
+  const [to, setTo] = useState('');
+  if (!color) return null;
+  const add = () => {
+    const a = seconds(from), b = seconds(to);
+    if (Number.isFinite(a) && Number.isFinite(b) && b > a) {
+      onSave({ start_s: a, end_s: b, protect: true });
+      setFrom(''); setTo('');
+    }
+  };
+  return (
+    <>
+      <p className="cs-hint">
+        <Shield size={12} /> Scene lasciate originali (gia' a colori nel film): {color.protected.length} tratti,
+        {' '}{Math.round(color.night_s)} s di notte virata tenuta blu. Correggi qui, poi "Ricolora".
+      </p>
+      <div className="cs-ed-cards">
+        {color.protected.map(r => (
+          <div className="cs-ed-card" key={`${r.start_s}-${r.end_s}`}>
+            <span className="cs-prod-status">{clock(r.start_s)}–{clock(r.end_s)} · {REASONS[r.reason] || r.reason}</span>
+            <span className="cs-ed-card-tools">
+              <button className="cs-ed-mini" title="Ricolora anche questo tratto"
+                      onClick={() => onSave({ start_s: r.start_s, end_s: r.end_s, protect: false })}>
+                <Trash2 size={11} />
+              </button>
+            </span>
+          </div>
+        ))}
+        <div className="cs-ed-actions">
+          <input className="cs-inline-input" value={from} onChange={e => setFrom(e.target.value)} placeholder="da 49:13" />
+          <input className="cs-inline-input" value={to} onChange={e => setTo(e.target.value)} placeholder="a 52:33" />
+          <button className="cs-ed-mini" title="Lascia originale questo tratto" onClick={add}><Plus size={11} /></button>
+        </div>
+      </div>
+    </>
+  );
+}
 
 async function api(path, body) {
   const res = await fetch(path, body === undefined ? undefined : {
@@ -89,6 +139,10 @@ export default function RestorationPanel({ pid, item, refresh, onJob }) {
     api('/api/creative/editor/restoration/moods', { id: pid, shot, edits: [edit] })
       .then(setState).catch(e => setError(e.message));
   }, [pid, shot]);
+  const saveProtect = useCallback(range => {
+    api('/api/creative/editor/restoration/protect', { id: pid, shot, ranges: [range] })
+      .then(setState).catch(e => setError(e.message));
+  }, [pid, shot]);
   const [redescribe, setRedescribe] = useState(false);
 
   const cards = state?.cards || [];
@@ -101,7 +155,7 @@ export default function RestorationPanel({ pid, item, refresh, onJob }) {
                 onClick={() => onJob('restore_clean', { item_id: item.id })}>
           <Sparkles size={14} /> Pulisci pellicola
         </button>
-        <button className="cs-tool-btn" title="Colora con DDColor, colori stabili nel tempo; le didascalie restano in bianco e nero"
+        <button className="cs-tool-btn" title="Toglie la tinta e colora con DDColor; lascia originali le scene gia' a colori, tiene blu le notti virate, cartelli in grigio (leggi prima i testi)"
                 onClick={() => onJob('recolor', { item_id: item.id })}>
           <Palette size={14} /> Ricolora
         </button>
@@ -147,6 +201,7 @@ export default function RestorationPanel({ pid, item, refresh, onJob }) {
           </div>
         </>
       )}
+      <ProtectSection color={state?.color} onSave={saveProtect} />
       {error && <p className="cs-prod-error">{error}</p>}
       {cards.length > 0 && (
         <>

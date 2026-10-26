@@ -207,16 +207,20 @@ def convert(req: dict) -> dict:
 
 def transcribe(req: dict) -> dict:
     model = _whisper()
+    # In cinese Whisper sceglie a caso fra caratteri tradizionali e semplificati: una frase
+    # in semplificato come prompt lo tiene sulla scrittura dei copioni, e il confronto
+    # parola per parola non boccia una battuta giusta scritta con altri caratteri.
+    prompt = "以下是普通话的句子。" if req.get("language") == "zh" else None
     # VAD e niente condizionamento sul testo precedente: senza, nel rumore di
     # fondo (vento, mare) Whisper "sente" di nuovo l'ultima frase pronunciata.
     segs, info = model.transcribe(req["path"], language=req.get("language") or None, word_timestamps=True,
-                                  vad_filter=True, condition_on_previous_text=False)
+                                  vad_filter=True, condition_on_previous_text=False, initial_prompt=prompt)
     segs = list(segs)
     if not any(s.text.strip() for s in segs):
         # Il VAD scartava battute intere di VoxCPM2 perfettamente udibili: senza parlato trovato si
         # riprova senza filtro, che su una battuta breve non ha rumore da cui difendersi.
         segs, info = model.transcribe(req["path"], language=req.get("language") or None, word_timestamps=True,
-                                      vad_filter=False, condition_on_previous_text=False)
+                                      vad_filter=False, condition_on_previous_text=False, initial_prompt=prompt)
     segments, words = [], []
     for seg in segs:
         segments.append({"start": round(seg.start, 2), "end": round(seg.end, 2), "text": seg.text.strip()})

@@ -379,6 +379,7 @@ ROLE_FILM_RESTORER = DevRole(
         "video_restore_fetch", "video_contact_sheet", "video_restore_clean", "video_recolor", "video_upscale",
         "video_restore_read", "video_restore_cards", "video_restore_card_fix",
         "video_restore_narrate", "video_restore_score", "video_restore_mood_fix", "video_export",
+        "video_restore_color_map", "video_restore_protect",
         "video_job_status", "complete_goal",
     ),
     focus_areas=(
@@ -394,22 +395,27 @@ Porti un film muto di pubblico dominio fino a una versione moderna: a colori, ad
 con i testi sullo schermo letti ad alta voce e una colonna sonora originale.
 
 ## FASI (in quest'ordine, controllando ognuna)
-1. **Diritti**: in UE un film e' libero 70 anni dopo la morte dell'ULTIMO fra regista, sceneggiatore e
-   compositore (Chaplin, Keaton, Lloyd sono ancora protetti). Diffida dei restauri moderni con musiche
-   nuove: preferisci copie d'archivio. Se non sei sicuro, fermati e chiedi all'utente.
+1. **Diritti**: in UE un film e' libero 70 anni dopo la morte dell'ULTIMO fra regista, sceneggiatori (anche
+   non accreditati) e compositore. Per un film americano di autori americani la UE applica di regola il termine
+   piu' breve, cioe' quello USA (es. Il fantasma dell'Opera, libero dal 1953): la Germania e' un caso dubbio.
+   Diffida dei restauri moderni con musiche nuove: preferisci copie d'archivio. Se non sei sicuro, chiedi.
 2. **Produzione e film**: `video_prod_create`, poi `video_restore_fetch` con l'URL del file su Commons o
-   Internet Archive (o l'utente lo importa dall'editor). L'import ricompone i fotogrammi delle copie interlacciate.
+   Internet Archive (o l'utente lo importa dall'editor). L'import ricompone i fotogrammi: pulldown interlacciato
+   e anche fotogrammi interi ripetuti (20 fps dentro 30).
 3. **Provino**: `video_contact_sheet` e guardalo con `view_image`: capisci com'e' fatto il film (didascalie,
-   notturni, primi piani) prima di toccarlo.
+   notturni, primi piani, copia virata, scene gia' a colori) prima di toccarlo.
 4. **Pulizia**: `video_restore_clean` sul bianco e nero (polvere, sfarfallio, tremolio), PRIMA del colore.
-   **Colore**: poi `video_recolor`, segui `video_job_status` con wait_s. Poi un nuovo provino: le didascalie
-   devono essere bianche su nero, niente dominanti viola o ciano su tutta la scena.
-5. **Testi**: `video_restore_read` con il titolo del film. Poi `video_restore_cards` e rileggi TUTTO:
+5. **Testi PRIMA del colore**: `video_restore_read` con il titolo del film (la ricolorazione usa i testi letti
+   per tenere i cartelli in grigio: DDColor colora di verde il testo). Poi `video_restore_cards` e rileggi TUTTO:
    il cast automatico sbaglia chi dice circa una battuta su tre (su Nosferatu: 46 giuste su 72). Parti da
    `query="needs_review"`, poi le altre: un nome dentro la battuta e' di solito chi viene chiamato, non chi
    parla; `seen` dice chi si vede in scena. Cerca anche testi troncati (pagine che scorrono), letture doppie,
    lo stesso personaggio con nomi diversi, il cast dei titoli di testa da non leggere. Correggi con
    `video_restore_card_fix`.
+   **Colore**: poi `video_recolor`, segui `video_job_status` con wait_s. Toglie la tinta, ricolora, lascia
+   originali le scene gia' a colori (Technicolor, colori dipinti a mano), tiene blu le notti virate. Poi
+   `video_restore_color_map` e un nuovo provino: se un tratto protetto e' sbagliato (o manca), correggi con
+   `video_restore_protect` e rilancia `video_recolor`. Didascalie bianche su nero, niente mani o scie verdi.
 6. **Voci**: `video_restore_narrate` nella lingua chiesta. In una lingua diversa dall'originale la traduzione
    automatica e' una bozza (su Nosferatu sbagliata in una riga su tre): rileggila battuta per battuta in
    `video_restore_cards` e correggi con `video_restore_card_fix` prima di consegnare. Se il risultato ha battute in `unclear`,

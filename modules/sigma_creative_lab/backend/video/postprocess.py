@@ -32,6 +32,41 @@ def _ff():
     return ffmpeg_bin, _run, probe
 
 
+_NVENC_OK: dict[int, bool] = {}
+
+
+def nvenc_available(gpu: int = 0) -> bool:
+    """NVENC funziona davvero su quella scheda? Una codifica di prova da 0,1 s, ricordata.
+
+    Non basta che ffmpeg elenchi h264_nvenc: la build portatile lo elenca anche
+    sul Raspberry, dove non c'e' una scheda NVIDIA e la codifica fallisce.
+    """
+    if gpu not in _NVENC_OK:
+        ffmpeg_bin, _run, _probe = _ff()
+        flags = subprocess.CREATE_NO_WINDOW if hasattr(subprocess, "CREATE_NO_WINDOW") else 0
+        try:
+            _NVENC_OK[gpu] = subprocess.run(
+                [ffmpeg_bin(), "-v", "error", "-f", "lavfi", "-i", "color=s=256x256:d=0.1", "-c:v", "h264_nvenc",
+                 "-gpu", str(gpu), "-f", "null", "-"], capture_output=True, timeout=60, creationflags=flags
+            ).returncode == 0
+        except (OSError, subprocess.TimeoutExpired):
+            _NVENC_OK[gpu] = False
+    return _NVENC_OK[gpu]
+
+
+def video_encoder_args(quality: int, gpu: int = 0) -> list[str]:
+    """Argomenti di codifica H.264: NVENC sulla scheda indicata, x264 su CPU se non c'e'.
+
+    Con x264 "medium" a 1440p la CPU stava al 100% mentre DDColor ed ESRGAN
+    aspettavano la codifica e le GPU restavano quasi ferme. `quality` e' il CRF
+    di x264; per NVENC lo stesso numero come CQ da' un risultato equivalente.
+    """
+    if nvenc_available(gpu):
+        return ["-c:v", "h264_nvenc", "-gpu", str(gpu), "-preset", "p6", "-tune", "hq", "-rc", "vbr",
+                "-cq", str(quality), "-b:v", "0", "-pix_fmt", "yuv420p"]
+    return ["-c:v", "libx264", "-crf", str(quality), "-preset", "medium", "-pix_fmt", "yuv420p"]
+
+
 def quality_check(clip: Path, continuous: bool = True) -> list[str]:
     """Difetti tecnici del clip; lista vuota = clip accettabile."""
     ffmpeg_bin, _run, probe = _ff()
@@ -131,7 +166,7 @@ def color_match(clip: Path, anchor: Path, out: Path, strength: float = 0.7, min_
     fps = int(round(info["frames"] / info["duration"])) if info["duration"] else 24
     cmd = [ffmpeg_bin(), "-v", "error", "-y", "-f", "rawvideo", "-pix_fmt", "rgb24", "-s", f"{size[0]}x{size[1]}",
            "-r", str(fps), "-i", "-", "-i", str(clip), "-map", "0:v", "-map", "1:a?", "-c:a", "copy",
-           "-c:v", "libx264", "-crf", "14", "-preset", "medium", "-pix_fmt", "yuv420p", str(out)]
+           *video_encoder_args(14), str(out)]
     flags = subprocess.CREATE_NO_WINDOW if hasattr(subprocess, "CREATE_NO_WINDOW") else 0
     proc = subprocess.run(cmd, input=out_frames.tobytes(), capture_output=True, timeout=900, creationflags=flags)
     if proc.returncode != 0:
@@ -190,12 +225,13 @@ def upscale_esrgan(clip: Path, target_height: int, gpu: int = 0) -> Path:
     decode.stdout.close()           # il worker resta l'unico lettore: se muore, ffmpeg riceve EPIPE e termina
     encode = subprocess.Popen([ffmpeg_bin(), "-v", "error", "-y", "-f", "rawvideo", "-pix_fmt", "rgb24",
                                "-s", f"{out_w}x{out_h}", "-framerate", f"{fps:.6f}", "-i", "-", "-i", str(clip),
-                               "-map", "0:v", "-map", "1:a?", "-c:a", "copy", "-c:v", "libx264", "-crf", "15",
-                               "-preset", "medium", "-pix_fmt", "yuv420p", str(tmp_out)],
+                               "-map", "0:v", "-map", "1:a?", "-c:a", "copy", *video_encoder_args(15, gpu),
+                               str(tmp_out)],
                               stdin=worker.stdout, stderr=subprocess.PIPE, creationflags=flags)
     worker.stdout.close()
     try:
-        _, enc_err = encode.communicate(timeout=3600)
+        # Un'ora bastava ai clip; un film da 110 mila fotogrammi ne chiede molte di piu'.
+        _, enc_err = encode.communicate(timeout=max(3600, int(info["frames"] or 0) * 2))
         w_err = worker.stderr.read()
         worker.wait(timeout=60)
         decode.wait(timeout=60)
@@ -308,8 +344,8 @@ def recolor_clip(clip: Path, out: Path, gpu: int = 0, window: int = 8, progress=
     decode.stdout.close()           # il worker resta l'unico lettore: se muore, ffmpeg riceve EPIPE e termina
     encode = subprocess.Popen([ffmpeg_bin(), "-v", "error", "-y", "-f", "rawvideo", "-pix_fmt", "rgb24",
                                "-s", f"{w}x{h}", "-framerate", f"{fps:.6f}", "-i", "-", "-i", str(clip),
-                               "-map", "0:v", "-map", "1:a?", "-c:a", "copy", "-c:v", "libx264", "-crf", "16",
-                               "-preset", "medium", "-pix_fmt", "yuv420p", str(tmp_out)],
+                               "-map", "0:v", "-map", "1:a?", "-c:a", "copy", *video_encoder_args(16, gpu),
+                               str(tmp_out)],
                               stdin=worker.stdout, stderr=subprocess.PIPE, creationflags=flags)
     worker.stdout.close()
     tail: list[str] = []

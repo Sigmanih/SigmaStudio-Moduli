@@ -598,6 +598,36 @@ def video_restore_mood_fix(prod_id: str, index: int, tags: str, item_id: str = "
                   hint="rilancia video_restore_score (senza redescribe) per rifare i brani corretti")
 
 
+def video_restore_color_map(prod_id: str, item_id: str = "") -> dict:
+    """Tratti lasciati com'erano (scene gia' a colori) e secondi di notte virata, dalla mappa delle tinte."""
+    from .production import manager
+    from . import color_finish as CF
+    from . import restoration as R
+    try:
+        item = _elemento(prod_id, item_id)
+    except ValueError as exc:
+        return _esito("video_restore_color_map", False, error=str(exc))
+    cmap = R.load_state(manager.store.path(prod_id), item["shot_id"]).get("color_map")
+    if not cmap:
+        return _esito("video_restore_color_map", False,
+                      error="nessuna mappa: si crea con video_recolor (prima ricolorazione)")
+    return _esito("video_restore_color_map", True, **CF.summary(cmap),
+                  hint="controlla i tratti protetti con video_contact_sheet; correggi con video_restore_protect")
+
+
+def video_restore_protect(prod_id: str, start_s: float, end_s: float, protect: bool = True, item_id: str = "") -> dict:
+    """Protegge (lascia originale) o sprotegge (ricolora) un tratto; vale alla prossima video_recolor."""
+    from .production import manager
+    from . import restoration as R
+    try:
+        item = _elemento(prod_id, item_id)
+        res = R.update_protection(manager.store.path(prod_id), item["shot_id"],
+                                  [{"start_s": float(start_s), "end_s": float(end_s), "protect": bool(protect)}])
+    except ValueError as exc:
+        return _esito("video_restore_protect", False, error=str(exc))
+    return _esito("video_restore_protect", True, **res, hint="rilancia video_recolor per applicare la mappa")
+
+
 def video_restore_cards(prod_id: str, item_id: str = "", start: int = 0, count: int = 40, query: str = "") -> dict:
     """Testi letti (con indice, tempo, tipo, personaggio) e voci assegnate; `query` filtra per parola."""
     from .production import manager
@@ -1334,6 +1364,8 @@ ESECUTORI: Dict[str, Callable] = {
     "video_restore_narrate": video_restore_narrate,
     "video_restore_score": video_restore_score,
     "video_restore_mood_fix": video_restore_mood_fix,
+    "video_restore_color_map": video_restore_color_map,
+    "video_restore_protect": video_restore_protect,
     "video_contact_sheet": video_contact_sheet,
 }
 
@@ -1341,7 +1373,7 @@ READ_TOOLS = frozenset({
     "video_char_list", "video_char_get", "video_char_view_prompt",
     "video_prod_list", "video_prod_get", "video_inspect_shot", "video_timeline_get",
     "video_render_status", "video_job_status", "video_manga_pages", "video_manga_panel", "video_manga_script",
-    "video_manga_next", "video_manga_cast", "video_restore_cards",
+    "video_manga_next", "video_manga_cast", "video_restore_cards", "video_restore_color_map",
 })
 
 WRITE_TOOLS = frozenset({
@@ -1354,6 +1386,7 @@ WRITE_TOOLS = frozenset({
     "video_manga_storyboard", "video_manga_exclude", "video_prod_remove_character", "video_manga_speakers",
     "video_restore_fetch", "video_restore_clean", "video_recolor", "video_upscale", "video_restore_read", "video_restore_card_fix",
     "video_restore_narrate", "video_restore_score", "video_restore_mood_fix", "video_contact_sheet",
+    "video_restore_protect",
 })
 
 

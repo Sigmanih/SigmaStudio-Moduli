@@ -450,6 +450,33 @@ def voice_plan(cards: list[dict], existing: dict | None = None) -> dict:
 
 
 CHATTERBOX_RETRIES = 4
+#: Voce dopo l'ultima parola riconosciuta oltre questa soglia = balbettio in coda. In tedesco
+#: "zweite Morgendämmerung" finiva con due secondi di sillabe inventate che Whisper ignorava:
+#: la somiglianza col testo era 1,00 e la battuta sembrava perfetta. Sotto il secondo e' l'eco
+#: del filtro del narratore (0,7-0,8 s su tutte le prove in arabo), non una voce in piu'.
+TAIL_MAX_S = 1.0
+
+
+def _listen(rt, wav: Path, language: str) -> tuple[str, float]:
+    """Cosa sente Whisper e quanti secondi di voce restano dopo l'ultima parola."""
+    res = rt.transcribe(wav, language)
+    heard = " ".join(s["text"] for s in res["segments"])
+    ends = [w["end"] for w in res.get("words") or []] or [s["end"] for s in res["segments"]]
+    if not ends:
+        return heard, 0.0
+    ffmpeg_bin, _probe = _ff()
+    raw = subprocess.run([ffmpeg_bin(), "-v", "error", "-i", str(wav), "-ac", "1", "-ar", "4000", "-f", "f32le", "-"],
+                         capture_output=True, timeout=120, creationflags=_flags()).stdout
+    a = np.frombuffer(raw, np.float32)
+    hop = 400                                             # finestre da 0,1 s
+    db = 20 * np.log10(np.sqrt((a[: len(a) // hop * hop].reshape(-1, hop) ** 2).mean(axis=1)) + 1e-9)
+    after = db[int((max(ends) + 0.3) * 10):]
+    return heard, float((after > -40).sum()) * 0.1
+
+
+def _take_score(text: str, heard: str, tail: float) -> tuple[int, float]:
+    """Per confrontare due prove: prima niente coda, poi la somiglianza col testo."""
+    return (int(tail <= TAIL_MAX_S), _match(text, heard))
 
 
 def _match(expected: str, heard: str) -> float:
@@ -493,11 +520,12 @@ def synthesize(cards: list[dict], plan: dict, language: str, out_dir: Path, prog
             subprocess.run([ffmpeg_bin(), "-v", "error", "-y", "-i", str(raw), "-af", af, "-ar", "48000", "-ac", "2",
                             str(final)], check=True, timeout=300, creationflags=_flags())
             raw.unlink(missing_ok=True)
-            heard = " ".join(s["text"] for s in rt.transcribe(final, language)["segments"])
+            heard, tail = _listen(rt, final, language)
             # Chatterbox non e' deterministico (Renfield diceva "sangue" tre volte invece di due): se
-            # Whisper non ritrova la battuta, si riprova con altri semi e si tiene la migliore.
+            # Whisper non ritrova la battuta, o se dopo l'ultima parola c'e' ancora voce, si riprova
+            # con altri semi e si tiene la migliore.
             tries = 0
-            while language != "en" and _match(text, heard) < 0.85 and tries < CHATTERBOX_RETRIES:
+            while language != "en" and _take_score(text, heard, tail) < (1, 0.85) and tries < CHATTERBOX_RETRIES:
                 tries += 1
                 alt = out_dir / f"{i:03d}_{c['speaker']}_alt.wav"
                 rt.synthesize(text, raw, engine="chatterbox", language=language, voice_ref=str(refs[c["speaker"]]),
@@ -505,16 +533,16 @@ def synthesize(cards: list[dict], plan: dict, language: str, out_dir: Path, prog
                 subprocess.run([ffmpeg_bin(), "-v", "error", "-y", "-i", str(raw), "-af", af, "-ar", "48000", "-ac",
                                 "2", str(alt)], check=True, timeout=300, creationflags=_flags())
                 raw.unlink(missing_ok=True)
-                alt_heard = " ".join(s["text"] for s in rt.transcribe(alt, language)["segments"])
-                if _match(text, alt_heard) > _match(text, heard):
+                alt_heard, alt_tail = _listen(rt, alt, language)
+                if _take_score(text, alt_heard, alt_tail) > _take_score(text, heard, tail):
                     alt.replace(final)
-                    heard = alt_heard
+                    heard, tail = alt_heard, alt_tail
                 else:
                     alt.unlink(missing_ok=True)
             info = probe(final)
             dur = float(info["audio_duration"] or info["duration"] or 0.0)
             done.append({**c, "wav": str(final), "duration": round(dur, 2), "heard": heard.strip(),
-                         "match": _match(text, heard)})
+                         "match": _match(text, heard), "tail_s": round(tail, 2)})
     finally:
         rt.unload()
     return done
@@ -784,6 +812,25 @@ def update_cards(prod_dir: Path, shot_id: str, edits: list[dict]) -> list[dict]:
     return cards
 
 
+def update_protection(prod_dir: Path, shot_id: str, ranges: list[dict]) -> dict:
+    """Tratti da lasciare com'erano (o da ricolorare) corretti a mano; valgono alla prossima ricolorazione.
+
+    La mappa automatica sbagliava nei due versi: inquadrature Technicolor fredde prese per notti virate,
+    e un'inquadratura in bianco e nero inclusa nel blocco del ballo perche' finiva in dissolvenza.
+    """
+    from core.modules.sigma_creative_lab.video import color_finish as CF
+    state = load_state(prod_dir, shot_id)
+    cmap = state.get("color_map")
+    if not cmap:
+        raise ValueError("nessuna mappa delle tinte: lancia prima la ricolorazione")
+    for r in ranges:
+        if "start_s" not in r or "end_s" not in r or float(r["end_s"]) <= float(r["start_s"]):
+            raise ValueError("ogni tratto vuole start_s < end_s (secondi) e protect true/false")
+    state["color_map"] = CF.set_protection(cmap, ranges)
+    save_state(prod_dir, shot_id, state)
+    return CF.summary(state["color_map"])
+
+
 def update_moods(prod_dir: Path, shot_id: str, edits: list[dict]) -> list[dict]:
     """Atmosfere corrette a mano: alla prossima colonna sonora si rifanno solo i brani cambiati.
 
@@ -869,7 +916,8 @@ def clean_film(src: Path, out: Path, progress: Progress = _nop) -> dict:
     pre = ivtc_filter(src)
     fps, total = _rate_and_frames(src, info)
     if pre:
-        fps, total = fps * 4 / 5, int(total * 4 / 5)          # decimate: 29,97 -> 23,976
+        k = ivtc_rate(pre)                                     # 29,97 -> 23,976 (pulldown) o -> 19,98 (doppioni)
+        fps, total = fps * k, int(total * k)
     py = torch_python()
     if py is None:
         raise RuntimeError("serve un Python con OpenCV (installa le Voci)")
@@ -929,5 +977,23 @@ def clean_film(src: Path, out: Path, progress: Progress = _nop) -> dict:
 
 
 def ivtc_filter(src: Path) -> str:
-    """Filtro che ricompone i fotogrammi della pellicola (o stringa vuota se la sorgente e' progressiva)."""
-    return "fieldmatch=order=auto:combmatch=full,yadif=deint=interlaced,decimate," if interlaced(src) else ""
+    """Filtro che riporta la pellicola ai suoi fotogrammi (o stringa vuota se non serve).
+
+    Due casi: pulldown interlacciato (Nosferatu 1947, 24 fps in 29,97 a semiquadri) e fotogrammi interi
+    ripetuti (Il fantasma dell'Opera, 20 fps in 29,97: uno ogni tre e' il doppione del precedente). Il
+    secondo idet non lo vede, perche' ogni fotogramma e' progressivo.
+    """
+    if interlaced(src):
+        return "fieldmatch=order=auto:combmatch=full,yadif=deint=interlaced,decimate,"
+    from core.modules.sigma_creative_lab.video.color_finish import repeat_cycle
+    n = repeat_cycle(src)
+    return f"decimate=cycle={n}," if n else ""
+
+
+def ivtc_rate(pre: str) -> float:
+    """Quanta parte dei fotogrammi resta dopo ivtc_filter (4/5 col pulldown, (n-1)/n coi doppioni)."""
+    m = re.search(r"decimate=cycle=(\d+)", pre)
+    if m:
+        n = int(m.group(1))
+        return (n - 1) / n
+    return 4 / 5 if pre else 1.0

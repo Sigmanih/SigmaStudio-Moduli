@@ -246,10 +246,12 @@ def handle_editor_voices(self):
 
 def _restoration_view(state: dict) -> dict:
     """Quello che serve all'Inspector: testi e voci, senza l'analisi fotogramma per fotogramma."""
+    from core.modules.sigma_creative_lab.video import color_finish as CF
     analysis = state.get("analysis") or {}
+    cmap = state.get("color_map")
     return {"title": state.get("title", ""), "cards": state.get("cards") or [], "voices": state.get("voices") or {},
             "moods": state.get("moods") or [], "titles": len(analysis.get("titles") or []),
-            "pages": len(analysis.get("pages") or [])}
+            "pages": len(analysis.get("pages") or []), "color": CF.summary(cmap) if cmap else None}
 
 
 def handle_editor_restoration(self):
@@ -290,6 +292,20 @@ def handle_editor_restoration_moods(self):
         _err(self, str(e))
 
 
+def handle_editor_restoration_protect(self):
+    """POST /api/creative/editor/restoration/protect {id, shot, ranges:[{start_s, end_s, protect}]}"""
+    from core.modules.sigma_creative_lab.video import restoration as R
+    data = self.read_json_body()
+    prods, _ts = _store()
+    try:
+        if prods.get(data.get("id", "")) is None:
+            return _err(self, "produzione inesistente", 404)
+        R.update_protection(prods.path(data["id"]), str(data.get("shot", "")), list(data.get("ranges") or []))
+        _ok(self, **_restoration_view(R.load_state(prods.path(data["id"]), str(data.get("shot", "")))))
+    except ValueError as e:
+        _err(self, str(e))
+
+
 GET_ROUTES = {
     "/api/creative/editor/restoration": handle_editor_restoration,
     "/api/creative/editor/timeline": handle_editor_timeline,
@@ -309,4 +325,5 @@ POST_ROUTES = {
     "/api/creative/editor/import": handle_editor_import,
     "/api/creative/editor/restoration/cards": handle_editor_restoration_cards,
     "/api/creative/editor/restoration/moods": handle_editor_restoration_moods,
+    "/api/creative/editor/restoration/protect": handle_editor_restoration_protect,
 }

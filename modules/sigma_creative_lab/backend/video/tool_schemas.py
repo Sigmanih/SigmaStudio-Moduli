@@ -1015,6 +1015,35 @@ SCHEMI = (
     {
         "type": "function",
         "function": {
+            "name": "video_restore_color_map",
+            "description": "Mappa delle tinte dopo video_recolor: tratti lasciati originali (Technicolor, colori "
+                           "dipinti a mano: start_s, end_s, reason) e secondi di notte virata blu. Controlla i tratti "
+                           "col provino: la mappa automatica puo' prendere per notte un'inquadratura a colori fredda.",
+            "parameters": {
+                "type": "object",
+                "properties": {"prod_id": {"type": "string"}, "item_id": {"type": "string", "default": ""}},
+                "required": ["prod_id"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "video_restore_protect",
+            "description": "Corregge la mappa delle tinte: protect=true lascia il tratto com'era nel film (scene gia' "
+                           "a colori), protect=false lo ricolora. Vale alla prossima video_recolor.",
+            "parameters": {
+                "type": "object",
+                "properties": {"prod_id": {"type": "string"}, "item_id": {"type": "string", "default": ""},
+                               "start_s": {"type": "number"}, "end_s": {"type": "number"},
+                               "protect": {"type": "boolean", "default": True}},
+                "required": ["prod_id", "start_s", "end_s"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "video_contact_sheet",
             "description": "Provino dell'elemento: 36 fotogrammi su tutta la durata in un'immagine. Guardalo con "
                            "view_image per controllare colori, didascalie e difetti dopo ogni passo.",

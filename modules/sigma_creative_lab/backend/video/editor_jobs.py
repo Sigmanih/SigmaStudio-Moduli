@@ -16,6 +16,7 @@ import asyncio
 import difflib
 import os
 import re
+import subprocess
 import threading
 import time
 import uuid
@@ -294,23 +295,44 @@ async def job_redo(self: EditorJobs, job: dict) -> dict:
 
 
 async def job_recolor(self: EditorJobs, job: dict) -> dict:
-    """Nuova versione a colori di un elemento in bianco e nero, stessa durata e stesso audio."""
-    from core.modules.sigma_creative_lab.video.postprocess import recolor_clip
+    """Nuova versione a colori di un elemento in bianco e nero o virato, stessa durata e stesso audio.
+
+    Catena del Fantasma dell'Opera: copia in grigio (via la tinta), DDColor, mappa delle tinte (scene
+    gia' a colori protette, notti virate blu), cartelli in grigio, finitura giorno/notte con il verde
+    inventato spento. La mappa resta nello stato del restauro: le correzioni a mano valgono al giro dopo.
+    """
+    from core.modules.sigma_creative_lab.video import color_finish as CF
+    from core.modules.sigma_creative_lab.video import restoration as R
+    from core.modules.sigma_creative_lab.video.postprocess import recolor_clip, video_encoder_args
+    from core.modules.sigma_creative_lab.video.production import ffmpeg_bin
     pid, a = job["production"], job["args"]
-    prod = self.prods.get(pid)
-    tl = self.timelines.get(pid)
-    _idx, item = T._find(tl["video"], a["item_id"], "elemento")
-    shot = T.shot_by_id(prod, item["shot_id"])
-    if shot is None:
-        raise ValueError("inquadratura dell'elemento non trovata")
-    source = T.active_take(shot, item.get("take_id"))
-    src = Path((source or {}).get("clip_path") or "")
-    if not source or not src.is_file():
-        raise ValueError("il clip dell'elemento non esiste piu' sul disco")
-    out = self.prods.path(pid) / "clips" / f"recolor_{shot['id']}_t{len(T.ensure_takes(shot)) + 1}.mp4"
-    self._note(job, "Ricolorazione", 0.02)
-    res = await asyncio.to_thread(recolor_clip, src, out, 0, int(a.get("window") or 8),
-                                  lambda p: self._note(job, f"Ricolorazione {p * 100:.0f}%", 0.02 + 0.93 * p))
+    item, shot, source, src = _item_source(self, pid, a["item_id"])
+    pdir = self.prods.path(pid)
+    n = len(T.ensure_takes(shot)) + 1
+    out = pdir / "clips" / f"recolor_{shot['id']}_t{n}.mp4"
+    gray = pdir / "clips" / f"recolor_{shot['id']}_t{n}.grigio.mp4"
+    raw = pdir / "clips" / f"recolor_{shot['id']}_t{n}.ddcolor.mp4"
+    self._note(job, "Mappa delle tinte", 0.01)
+    state = R.load_state(pdir, shot["id"])
+    cmap = state.get("color_map")
+    if not cmap or cmap.get("source") != str(src):
+        cmap = await asyncio.to_thread(CF.color_map, src, 0, lambda m, p: self._note(job, m, 0.01 + 0.07 * p))
+        cmap["source"] = str(src)
+        state = R.load_state(pdir, shot["id"])
+        state["color_map"] = cmap
+        R.save_state(pdir, shot["id"], state)
+    self._note(job, "Copia in grigio", 0.09)
+    await asyncio.to_thread(subprocess.run, [ffmpeg_bin(), "-v", "error", "-y", "-i", str(src), "-an", "-vf",
+                                             "format=gray,format=yuv420p", *video_encoder_args(14), str(gray)],
+                            check=True, timeout=max(3600, cmap["frames"]))
+    res = await asyncio.to_thread(recolor_clip, gray, raw, 0, int(a.get("window") or 8),
+                                  lambda p: self._note(job, f"Ricolorazione {p * 100:.0f}%", 0.1 + 0.65 * p))
+    self._note(job, "Cartelli", 0.76)
+    cards = await asyncio.to_thread(CF.card_spans, src, state.get("cards") or [], cmap["fps"], 0)
+    res = await asyncio.to_thread(CF.finish, src, raw, gray, cmap, cards, out, 0,
+                                  lambda m, p: self._note(job, m, 0.8 + 0.18 * p))
+    raw.unlink(missing_ok=True)
+    gray.unlink(missing_ok=True)
     prod = self.prods.get(pid)
     shot = T.shot_by_id(prod, item["shot_id"])
     take = T.add_take(shot, str(out), frames=res["frames"], prompt=source.get("prompt", ""), kind="recolor",
