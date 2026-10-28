@@ -11,7 +11,7 @@ import { Palette, Maximize2, ScanText, Mic, Music, Trash2, Skull, Sparkles, Shie
 const LANGUAGES = [['en', 'Inglese'], ['it', 'Italiano'], ['fr', 'Francese'], ['de', 'Tedesco'], ['es', 'Spagnolo'],
   ['pt', 'Portoghese'], ['ar', 'Arabo'], ['zh', 'Cinese']];
 
-const REASONS = { technicolor: 'Technicolor', dipinto: 'colore dipinto', sequenza: 'stessa sequenza', 'a mano': 'a mano' };
+const REASONS = { technicolor: 'Technicolor', dipinto: 'colore dipinto', sequenza: 'stessa sequenza', buia: 'troppo buia', 'a mano': 'a mano' };
 
 function seconds(text) {
   // Accetta "49:13", "1:02:21" o secondi semplici.

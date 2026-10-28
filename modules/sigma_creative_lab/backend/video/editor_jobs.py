@@ -303,7 +303,7 @@ async def job_recolor(self: EditorJobs, job: dict) -> dict:
     """
     from core.modules.sigma_creative_lab.video import color_finish as CF
     from core.modules.sigma_creative_lab.video import restoration as R
-    from core.modules.sigma_creative_lab.video.postprocess import recolor_clip, video_encoder_args
+    from core.modules.sigma_creative_lab.video.postprocess import LOOK_THEATRE, recolor_clip, video_encoder_args
     from core.modules.sigma_creative_lab.video.production import ffmpeg_bin
     pid, a = job["production"], job["args"]
     item, shot, source, src = _item_source(self, pid, a["item_id"])
@@ -325,8 +325,11 @@ async def job_recolor(self: EditorJobs, job: dict) -> dict:
     await asyncio.to_thread(subprocess.run, [ffmpeg_bin(), "-v", "error", "-y", "-i", str(src), "-an", "-vf",
                                              "format=gray,format=yuv420p", *video_encoder_args(14), str(gray)],
                             check=True, timeout=max(3600, cmap["frames"]))
+    # I cartelli li toglie la composizione (card_spans): il worker non deve scambiare per didascalie le
+    # scene buie, che restavano grigie. Tavolozza piu' viva per i film girati in penombra.
     res = await asyncio.to_thread(recolor_clip, gray, raw, 0, int(a.get("window") or 8),
-                                  lambda p: self._note(job, f"Ricolorazione {p * 100:.0f}%", 0.1 + 0.65 * p))
+                                  lambda p: self._note(job, f"Ricolorazione {p * 100:.0f}%", 0.1 + 0.65 * p),
+                                  LOOK_THEATRE)
     self._note(job, "Cartelli", 0.76)
     cards = await asyncio.to_thread(CF.card_spans, src, state.get("cards") or [], cmap["fps"], 0)
     res = await asyncio.to_thread(CF.finish, src, raw, gray, cmap, cards, out, 0,

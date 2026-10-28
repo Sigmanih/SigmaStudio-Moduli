@@ -1,7 +1,7 @@
-import React, { useState, useEffect, useRef, useMemo } from 'react';
+import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { 
   X, Save, Copy, Check, Play, FileCode, SplitSquareVertical, 
-  RotateCcw, Sparkles, Eye, Code, Download, BookOpen, PieChart 
+  RotateCcw, RotateCw, Sparkles, Eye, Code, Download, BookOpen, PieChart 
 } from 'lucide-react';
 import { getFileIcon } from './WorkspaceExplorer';
 import DevGraphView from './DevGraphView';
@@ -71,9 +71,11 @@ export default function CodeEditor({
   const [copied, setCopied] = useState(false);
   const [showDiffView, setShowDiffView] = useState(false);
   const [showPreview, setShowPreview] = useState(false);
+  const [previewRefreshKey, setPreviewRefreshKey] = useState(0);
   const [isStudyMode, setIsStudyMode] = useState(false);
   const [imageZoom, setImageZoom] = useState(1);
   const textareaRef = useRef(null);
+  const iframeRef = useRef(null);
 
   const norm = (p) => String(p || '').replace(/\\/g, '/').toLowerCase();
   const activeFile = openFiles.find(f => 
@@ -81,6 +83,18 @@ export default function CodeEditor({
     norm(f.path).endsWith(norm(activeFilePath)) || 
     norm(activeFilePath).endsWith(norm(f.path))
   ) || openFiles[0];
+
+  // Il testo appena salvato dall'anteprima HTML coincide gia' con il suo DOM:
+  // ripassarlo a srcDoc ricaricherebbe l'iframe, facendo perdere modalita' modifica
+  // e scorrimento a ogni salvataggio.
+  const frameEchoRef = useRef(null);
+  const [frameDoc, setFrameDoc] = useState(activeFile?.content || '');
+  useEffect(() => {
+    const content = activeFile?.content || '';
+    const isEcho = frameEchoRef.current !== null && content === frameEchoRef.current;
+    frameEchoRef.current = null;
+    if (!isEcho) setFrameDoc(content);
+  }, [activeFile?.path, activeFile?.content]);
 
   // Auto-switch to diff view if activeDiff is provided
   useEffect(() => {
@@ -112,19 +126,91 @@ export default function CodeEditor({
     return '';
   }, [activeFile?.path, activeFile?.content]);
 
+  // Salva file: sincronizza con iframe HTML se siamo in anteprima, o salva direttamente
+  const handleSave = useCallback(() => {
+    if (!activeFile) return;
+    const ext = (activeFile.filename || '').split('.').pop().toLowerCase();
+    if (showPreview && ext === 'html' && iframeRef.current?.contentWindow) {
+      try {
+        iframeRef.current.contentWindow.postMessage({ type: 'SIGMA_DEV_TRIGGER_SAVE' }, '*');
+        return;
+      } catch (e) {
+        console.warn('Trigger save iframe error:', e);
+      }
+    }
+    onSaveFile?.(activeFile.path, activeFile.content);
+  }, [activeFile, showPreview, onSaveFile]);
+
+  // Ricarica esplicitamente l'anteprima leggendo l'ultimo contenuto da disco/memoria
+  const handleRefreshPreview = useCallback(async () => {
+    if (activeFile?.path) {
+      try {
+        const res = await fetch(`/api/developer/fs/raw?path=${encodeURIComponent(activeFile.path)}&_t=${Date.now()}`);
+        if (res.ok) {
+          const freshText = await res.text();
+          onContentChange?.(activeFile.path, freshText);
+          setTimeout(() => {
+            setPreviewRefreshKey(prev => prev + 1);
+          }, 80);
+          return;
+        }
+      } catch (err) {
+        console.warn('Ricarica preview fallback:', err);
+      }
+    }
+    setPreviewRefreshKey(prev => prev + 1);
+  }, [activeFile?.path, onContentChange]);
+
+  // Ascolta messaggi da iframe HTML (es. salvataggio interattivo da data/cv.html)
+  useEffect(() => {
+    const handleFrameMessage = (e) => {
+      // Il download e' accettato solo dalla nostra anteprima: qualsiasi altra finestra
+      // potrebbe altrimenti far scaricare file arbitrari all'utente.
+      if (e.data && e.data.type === 'SIGMA_DEV_DOWNLOAD_FILE'
+          && e.source === iframeRef.current?.contentWindow
+          && e.data.blob instanceof Blob) {
+        const url = URL.createObjectURL(e.data.blob);
+        const link = document.createElement('a');
+        link.style.display = 'none';
+        link.href = url;
+        link.download = String(e.data.filename || 'download');
+        document.body.appendChild(link);
+        link.click();
+        setTimeout(() => {
+          link.remove();
+          URL.revokeObjectURL(url);
+        }, 60000);
+        return;
+      }
+      if (e.data && e.data.type === 'SIGMA_DEV_RELOAD_PREVIEW') {
+        handleRefreshPreview();
+        return;
+      }
+      if (e.data && e.data.type === 'SIGMA_DEV_SAVE_CONTENT') {
+        const { filePath, content } = e.data;
+        const targetPath = activeFile?.path || filePath;
+        if (targetPath && content) {
+          frameEchoRef.current = content;
+          onContentChange?.(targetPath, content);
+          onSaveFile?.(targetPath, content);
+        }
+      }
+    };
+    window.addEventListener('message', handleFrameMessage);
+    return () => window.removeEventListener('message', handleFrameMessage);
+  }, [activeFile?.path, onContentChange, onSaveFile, handleRefreshPreview]);
+
   // Keyboard shortcut Ctrl+S
   useEffect(() => {
     const handleKeyDown = (e) => {
       if ((e.ctrlKey || e.metaKey) && e.key === 's') {
         e.preventDefault();
-        if (activeFile) {
-          onSaveFile(activeFile.path, activeFile.content);
-        }
+        handleSave();
       }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [activeFile, onSaveFile]);
+  }, [handleSave]);
 
   const handleCopy = () => {
     if (activeFile?.content) {
@@ -345,7 +431,12 @@ export default function CodeEditor({
           {isPreviewable && !isImage && !activeFile.is_graph && !isStudyMode && (
             <button
               type="button"
-              onClick={() => setShowPreview(!showPreview)}
+              onClick={() => {
+                if (!showPreview) {
+                  setPreviewRefreshKey(k => k + 1);
+                }
+                setShowPreview(!showPreview);
+              }}
               style={{
                 display: 'flex',
                 alignItems: 'center',
@@ -363,6 +454,31 @@ export default function CodeEditor({
             >
               {showPreview ? <Code size={12} /> : <Eye size={12} />}
               <span>{showPreview ? 'Mostra Codice' : 'Mostra Preview'}</span>
+            </button>
+          )}
+
+          {/* Aggiorna / Ricarica Preview */}
+          {showPreview && isPreviewable && !activeFile.is_graph && (
+            <button
+              type="button"
+              onClick={handleRefreshPreview}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '5px',
+                padding: '4px 10px',
+                borderRadius: '6px',
+                background: isLight ? '#ffffff' : '#161b22',
+                border: isLight ? '1px solid #d0d7de' : '1px solid rgba(255,255,255,0.1)',
+                color: isLight ? '#24292f' : '#c9d1d9',
+                fontSize: '0.68rem',
+                fontWeight: 600,
+                cursor: 'pointer'
+              }}
+              title="Ricarica l'anteprima e sincronizza con il file su disco"
+            >
+              <RotateCw size={12} />
+              <span>Aggiorna Preview</span>
             </button>
           )}
 
@@ -395,7 +511,7 @@ export default function CodeEditor({
           {!isImage && !activeFile.is_graph && (
             <button
               type="button"
-              onClick={() => onSaveFile(activeFile.path, activeFile.content)}
+              onClick={handleSave}
               style={{
                 display: 'flex',
                 alignItems: 'center',
@@ -799,19 +915,28 @@ export default function CodeEditor({
           flex: 1,
           display: 'flex',
           flexDirection: 'column',
-          overflowY: 'auto',
-          padding: '20px 24px',
+          minHeight: 0,
+          overflow: fileExt === 'html' ? 'hidden' : 'auto',
+          padding: fileExt === 'html' ? 0 : '20px 24px',
           background: isLight ? '#ffffff' : '#0d1117',
           color: isLight ? '#24292f' : '#e6edf3',
           lineHeight: 1.6
         }}>
           {fileExt === 'html' ? (
             <iframe
-              key={`html-${activeFile.path}`}
+              ref={iframeRef}
+              key={`html-${activeFile.path}-${previewRefreshKey}`}
               title="HTML Preview"
-              srcDoc={activeFile.content || ''}
-              style={{ width: '100%', height: '100%', border: 'none', background: '#fff', borderRadius: '8px' }}
-              sandbox="allow-scripts allow-same-origin"
+              srcDoc={frameDoc}
+              style={{
+                flex: 1,
+                width: '100%',
+                height: '100%',
+                minHeight: 0,
+                border: 'none',
+                background: '#fff'
+              }}
+              sandbox="allow-scripts allow-same-origin allow-modals allow-downloads allow-popups allow-popups-to-escape-sandbox allow-forms"
             />
           ) : fileExt === 'svg' ? (
             <div 

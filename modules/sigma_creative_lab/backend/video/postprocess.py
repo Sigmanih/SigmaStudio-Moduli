@@ -322,7 +322,30 @@ def _rate_and_frames(clip: Path, info: dict) -> tuple[float, int]:
     return fps, max(1, int(round(fps * duration)))
 
 
-def recolor_clip(clip: Path, out: Path, gpu: int = 0, window: int = 8, progress=None) -> dict:
+def look_args(look: dict | None) -> list[str]:
+    """Opzioni del worker per l'aspetto: chroma, dark (L0, L1, minimo), warm, titles, stretch."""
+    look = look or {}
+    args = []
+    if "chroma" in look:
+        args += ["--chroma", f"{float(look['chroma']):g}"]
+    if "dark" in look:
+        args += ["--dark", ",".join(f"{float(x):g}" for x in look["dark"])]
+    if "warm" in look:
+        args += ["--warm", f"{float(look['warm']):g}"]
+    if look.get("titles") is False:
+        args.append("--no-titles")
+    if look.get("stretch"):
+        args.append("--stretch")
+    return args
+
+
+#: Aspetto dei film teatrali in penombra (Fantasma dell'Opera): tavolozza piu' varia, meno colore
+#: tolto nel buio, livelli stesi per DDColor. I cartelli li toglie chi compone, non il worker.
+LOOK_THEATRE = {"chroma": 1.45, "dark": (6.0, 40.0, 0.45), "warm": 3.0, "titles": False, "stretch": True}
+
+
+def recolor_clip(clip: Path, out: Path, gpu: int = 0, window: int = 8, progress=None,
+                 look: dict | None = None) -> dict:
     """Copia a colori del clip in `out`, con l'audio originale."""
     import threading
     ffmpeg_bin, _run, probe = _ff()
@@ -339,7 +362,7 @@ def recolor_clip(clip: Path, out: Path, gpu: int = 0, window: int = 8, progress=
                               stderr=subprocess.PIPE, creationflags=flags)
     worker = subprocess.Popen([str(py), str(Path(__file__).with_name("recolor_worker.py")),
                                "--weights", str(ddcolor_weights()), "--width", str(w), "--height", str(h),
-                               "--gpu", str(gpu), "--window", str(window)],
+                               "--gpu", str(gpu), "--window", str(window), *look_args(look)],
                               stdin=decode.stdout, stdout=subprocess.PIPE, stderr=subprocess.PIPE, creationflags=flags)
     decode.stdout.close()           # il worker resta l'unico lettore: se muore, ffmpeg riceve EPIPE e termina
     encode = subprocess.Popen([ffmpeg_bin(), "-v", "error", "-y", "-f", "rawvideo", "-pix_fmt", "rgb24",

@@ -480,43 +480,96 @@ async def handle_agent_chat(request: Request):
     )
 
 
+def _custom_roots_file() -> Path:
+    from core import paths
+    return paths.config_dir() / "developer_custom_roots.json"
+
+
+def _load_custom_workspace_roots() -> list[dict]:
+    p = _custom_roots_file()
+    if not p.is_file():
+        return []
+    try:
+        data = json.loads(p.read_text(encoding="utf-8"))
+        return data if isinstance(data, list) else []
+    except Exception as exc:
+        log.warning("[Developer] Errore lettura developer_custom_roots.json: %s", exc)
+        return []
+
+
+def _save_custom_workspace_roots(roots_list: list[dict]) -> None:
+    p = _custom_roots_file()
+    try:
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(json.dumps(roots_list, indent=2, ensure_ascii=False), encoding="utf-8")
+    except Exception as exc:
+        log.error("[Developer] Errore salvataggio developer_custom_roots.json: %s", exc)
+
+
 async def handle_workspace_roots(request: Request):
     """GET /api/developer/workspace/roots — le cartelle su cui si puo' lavorare.
 
-    In cima sta l'indirizzo di sviluppo con i suoi progetti, perche' e' li' che
-    nascono gli applicativi: lavorare su Sigma Studio stesso e' il caso
-    speciale, non la norma, e va scelto apposta.
-
-    L'ordine non e' un dettaglio estetico. Con Sigma Studio in cima, un
-    compito che diceva «crea un programma **staccato da sigma**» e' stato
-    lanciato sulla radice di Sigma Studio: l'agente ha scritto `backend/`,
-    `frontend/` e `landing/` dentro il sorgente del programma che lo stava
-    eseguendo, e un commit se li e' portati dentro insieme al resto. La prima
-    voce di un elenco e' la scelta che si fa senza decidere.
-
-    Le lettere di unita' restano perche' servono a navigare verso un progetto
-    che sta altrove, ma portano `unsafe` con il motivo: un agente su `C:/` puo'
-    scrivere ovunque, e chi sceglie deve vederlo scritto prima, non dopo.
+    Di base Developer Studio si apre sulla cartella `data/` dell'utente
+    (la sandbox sicura di lavoro). Da qui l'utente puo' scegliere se passare
+    all'intero sorgente di Sigma Studio o aggiungere cartelle dal PC salvate
+    nella Developer Map.
     """
+    from core import paths
     from core.progetti import elenca_progetti, radice_pericolosa, radice_progetti
 
     roots = []
+
+    # 1. Cartella base: Workspace Utente (data/) — SEMPRE PRIMA e di DEFAULT
+    data_dir = paths.workspace_dir()
+    data_dir.mkdir(parents=True, exist_ok=True)
+    data_root_str = str(data_dir).replace("\\", "/")
+    roots.append({
+        "label": f"📁 Workspace Utente ({data_dir.name}) — Cartella Dati & Progetti",
+        "path": data_root_str,
+        "kind": "data_workspace",
+        "is_default": True,
+    })
+
+    # 2. Cartelle personalizzate aggiunte dall'utente e salvate nella Developer Map
+    custom_saved = _load_custom_workspace_roots()
+    for entry in custom_saved:
+        c_path = entry.get("path")
+        if c_path and Path(c_path).exists():
+            clean_c_path = str(Path(c_path)).replace("\\", "/")
+            roots.append({
+                "label": entry.get("label") or f"📂 {Path(c_path).name} ({clean_c_path})",
+                "path": clean_c_path,
+                "kind": "custom_workspace",
+                "is_custom": True,
+            })
+
+    # 3. Progetti catalogati
     try:
         radice = radice_progetti()
-        roots.append({"label": f"Progetti ({radice.name})",
-                      "path": str(radice).replace("\\", "/"), "kind": "projects_root"})
-        for progetto in elenca_progetti():
+        if radice.exists():
             roots.append({
-                "label": f"  {progetto['name']}" + (" ·git" if progetto["is_git"] else ""),
-                "path": progetto["path"], "kind": "project",
+                "label": f"Progetti ({radice.name})",
+                "path": str(radice).replace("\\", "/"),
+                "kind": "projects_root"
             })
-    except Exception as exc:  # l'elenco non deve poter rompere la pagina
+            for progetto in elenca_progetti():
+                roots.append({
+                    "label": f"  {progetto['name']}" + (" ·git" if progetto["is_git"] else ""),
+                    "path": progetto["path"],
+                    "kind": "project",
+                })
+    except Exception as exc:
         log.warning("[Developer] progetti non elencati: %s", exc)
 
-    default_root = get_default_workspace_root()
-    roots.append({"label": f"Sigma Studio ({Path(default_root).name}) — il programma stesso",
-                  "path": default_root.replace("\\", "/"), "kind": "studio"})
+    # 4. Sorgente completo di Sigma Studio (opzione avanzata consapevole)
+    studio_root = str(paths.project_root()).replace("\\", "/")
+    roots.append({
+        "label": f"⚡ Sigma Studio ({Path(studio_root).name}) — Sorgente Completo",
+        "path": studio_root,
+        "kind": "studio"
+    })
 
+    # 5. Drive e unita' esterne
     altre = [str(Path.home())]
     if os.name == "nt":
         import string
@@ -524,19 +577,22 @@ async def handle_workspace_roots(request: Request):
                   if os.path.exists(f"{letter}:\\")]
     for percorso in altre:
         motivo = radice_pericolosa(percorso)
-        voce = {"label": Path(percorso).name or percorso,
-                "path": percorso.replace("\\", "/"), "kind": "other"}
+        voce = {
+            "label": Path(percorso).name or percorso,
+            "path": percorso.replace("\\", "/"),
+            "kind": "other"
+        }
         if motivo:
             voce["unsafe"] = motivo
         roots.append(voce)
 
+    # 6. Container Docker (se attivi)
     try:
         from core.harness.docker_fs import container_attivi
         for c in container_attivi():
             cid = c.get("id", "")
             cname = c.get("name", cid[:12])
             mounts = c.get("mounts", [])
-            # Aggiunge i bind mounts host del container
             for m in mounts:
                 src = m.get("Source")
                 dst = m.get("Destination", "")
@@ -548,7 +604,6 @@ async def handle_workspace_roots(request: Request):
                         "container_id": cid,
                         "container_name": cname,
                     })
-            # Aggiunge anche l'accesso diretto ai file interni del container
             roots.append({
                 "label": f"🐳 [Container] {cname} ({c.get('image', '')})",
                 "path": f"docker://{cid}/",
@@ -560,8 +615,55 @@ async def handle_workspace_roots(request: Request):
         log.debug("[Developer] container docker non inclusi nelle radici: %s", exc_dock)
 
     return JSONResponse(status_code=200, content={
-        "success": True, "roots": roots,
-        "current": default_root.replace("\\", "/")})
+        "success": True,
+        "roots": roots,
+        "current": data_root_str,
+    })
+
+
+async def handle_add_workspace_root(request: Request):
+    """POST /api/developer/workspace/roots/add — Salva una nuova cartella nella Developer Map."""
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+
+    raw_path = str(body.get("path") or "").strip()
+    if not raw_path:
+        return JSONResponse(status_code=400, content={"success": False, "error": "Percorso mancante"})
+
+    target_p = Path(raw_path).expanduser().resolve()
+    if not target_p.exists() or not target_p.is_dir():
+        return JSONResponse(status_code=400, content={"success": False, "error": f"La cartella '{raw_path}' non esiste sul sistema."})
+
+    clean_path = str(target_p).replace("\\", "/")
+    label = str(body.get("label") or "").strip() or f"📂 {target_p.name} ({clean_path})"
+
+    existing = _load_custom_workspace_roots()
+    if not any(e.get("path") == clean_path for e in existing):
+        existing.append({"label": label, "path": clean_path})
+        _save_custom_workspace_roots(existing)
+
+    return JSONResponse(status_code=200, content={"success": True, "path": clean_path, "roots": existing})
+
+
+async def handle_remove_workspace_root(request: Request):
+    """POST /api/developer/workspace/roots/remove — Rimuove una cartella dalla Developer Map."""
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+
+    raw_path = str(body.get("path") or "").strip()
+    if not raw_path:
+        return JSONResponse(status_code=400, content={"success": False, "error": "Percorso mancante"})
+
+    clean_path = raw_path.replace("\\", "/").rstrip("/")
+    existing = _load_custom_workspace_roots()
+    nuovi = [e for e in existing if e.get("path", "").replace("\\", "/").rstrip("/") != clean_path]
+    _save_custom_workspace_roots(nuovi)
+
+    return JSONResponse(status_code=200, content={"success": True, "removed": clean_path, "roots": nuovi})
 
 
 async def handle_sandbox(request: Request):
@@ -1437,6 +1539,8 @@ ROUTES = (
     ("/api/developer/terminal/exec", handle_terminal_exec, ["POST"]),
     ("/api/developer/agent/chat", handle_agent_chat, ["POST"]),
     ("/api/developer/workspace/roots", handle_workspace_roots, ["GET"]),
+    ("/api/developer/workspace/roots/add", handle_add_workspace_root, ["POST"]),
+    ("/api/developer/workspace/roots/remove", handle_remove_workspace_root, ["POST"]),
     ("/api/developer/projects", handle_projects, ["GET"]),
     ("/api/developer/projects", handle_project_create, ["POST"]),
     ("/api/developer/projects/root", handle_projects_root, ["POST"]),

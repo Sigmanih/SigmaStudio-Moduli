@@ -1,0 +1,28 @@
+{
+  "id": "sigma_youtube_studio",
+  "name": "YouTube Studio",
+  "version": "v1.0.0",
+  "category": "Comunicazione & Social",
+  "tabType": "youtube_studio",
+  "sidebarLabel": "YouTube",
+  "sidebarIcon": "MonitorPlay",
+  "sidebarBadge": "YT",
+  "sidebarBadgeColor": "rgba(255,80,80,0.15)",
+  "sidebarCategory": "Comunicazione & Social",
+  "description": "Collega il canale YouTube con OAuth: caricamento ripristinabile, titoli e descrizioni in più lingue, sottotitoli, miniature, statistiche e YouTube MCP Server per gli agenti.",
+  "author": "Sigma Core Team",
+  "repository": "https://github.com/Sigmanih/SigmaStudio-Moduli",
+  "branch": "main",
+  "path": "modules/sigma_youtube_studio",
+  "tags": [
+    "YouTube",
+    "OAuth",
+    "Upload",
+    "Analytics",
+    "YouTube MCP"
+  ],
+  "size": "~1 MB",
+  "icon": "MonitorPlay",
+  "color": "#ff5050",
+  "requirements": "requirements.txt"
+}

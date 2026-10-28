@@ -75,8 +75,16 @@ def _nop(_msg: str, _p: float) -> None:
 # ---------------------------------------------------------------------------
 
 def is_page(l_work: np.ndarray) -> bool:
-    """Pagina scritta su carta chiara: molti pixel chiari, pochi toni medi (una spiaggia ne ha di piu')."""
-    return bool((l_work > 55).mean() > 0.45 and ((l_work >= 20) & (l_work <= 55)).mean() < 0.25)
+    """Pagina scritta su carta chiara: molti pixel chiari, pochi toni medi (una spiaggia ne ha di piu').
+
+    Chiari rispetto al bianco del fotogramma, non in assoluto: nel grigio di una copia virata la carta
+    sta intorno a L 45 e le lettere del Fantasma a Carlotta non venivano trovate (3 pagine su 7).
+    """
+    lo, hi = np.percentile(l_work, (1, 99))
+    if hi - lo < 25:
+        return False                                   # quadro uniforme: niente scritta
+    n = (l_work - lo) * (100.0 / (hi - lo))
+    return bool((n > 55).mean() > 0.45 and ((n >= 20) & (n <= 55)).mean() < 0.25)
 
 
 def _runs(flags: list[bool], fps: float, min_s: float, join_gap: int = 6) -> list[list[float]]:

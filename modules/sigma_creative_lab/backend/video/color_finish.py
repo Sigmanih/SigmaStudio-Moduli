@@ -96,6 +96,9 @@ def repeat_cycle(src: Path, samples: int = 3, sample_s: float = 12.0) -> int:
 #: a colori che le stanno in mezzo, se il buco e' sotto questi secondi: nel Fantasma il ballo alternava
 #: inquadrature Technicolor e virate, e il tetto alternava il mantello rosso a inquadrature senza.
 PROTECT_GAP_S = 40.0
+#: Sotto questo 90esimo percentile di luminanza (0-255) DDColor indovina a caso (silhouette verdi,
+#: organo azzurro, statue gialle nel Fantasma): l'inquadratura resta col virato originale.
+DARK_P90 = 55.0
 
 
 def color_map(clip: Path, gpu: int = 0, progress: Progress = _nop) -> dict:
@@ -133,7 +136,8 @@ def color_map(clip: Path, gpu: int = 0, progress: Progress = _nop) -> dict:
                 tinta = "colore" if 1 - np.hypot(c, s) > 0.25 else (
                     "blu" if 190 <= media <= 280 else "verde" if 80 <= media < 190 else "ambra")
             rosso = float(((r > 0.25) & (r > 1.8 * g) & (r > 1.8 * b)).mean())
-            kinds.append((tinta, rosso))
+            luma = (0.299 * r + 0.587 * g + 0.114 * b) * 255.0
+            kinds.append((tinta, rosso, float(np.percentile(luma, 90))))
             if len(kinds) % 2000 == 0:
                 progress("Mappa delle tinte", min(0.99, len(kinds) / max(1, total)))
     finally:
@@ -159,16 +163,18 @@ def color_map(clip: Path, gpu: int = 0, progress: Progress = _nop) -> dict:
         rosso = max(kinds[i][1] for i in range(a, b))
         tech = conta.get("colore", 0) > 0.5 * (b - a)
         dipinto = dom == "blu" and rosso > 0.004 and (b - a) > 4
+        buia = dom != "bn" and float(np.median([kinds[i][2] for i in range(a, b)])) < DARK_P90
+        motivo = "technicolor" if tech else "dipinto" if dipinto else "buia" if buia else ""
         shots.append({"start": a, "end": b, "tinta": dom, "grado": "notte" if dom == "blu" else "giorno",
-                      "protetta": bool(tech or dipinto), "motivo": "technicolor" if tech else (
-                          "dipinto" if dipinto else "")})
+                      "protetta": bool(motivo), "motivo": motivo})
     _extend_protection(shots, fps)
     virati = sum(s["end"] - s["start"] for s in shots if s["tinta"] not in ("bn",))
     return {"fps": fps, "frames": n, "shots": shots, "tinted_ratio": round(virati / n, 3)}
 
 
 def _extend_protection(shots: list[dict], fps: float) -> None:
-    prot = [i for i, s in enumerate(shots) if s["protetta"]]
+    # Solo le scene a colori nate col film fanno blocco: una scena buia non e' una sequenza da proteggere.
+    prot = [i for i, s in enumerate(shots) if s["protetta"] and s["motivo"] != "buia"]
     for a, b in zip(prot[:-1], prot[1:]):
         if b - a < 2:
             continue
@@ -218,18 +224,21 @@ def card_spans(clip: Path, cards: list[dict], fps: float, gpu: int = 0) -> list[
 
     L'aspetto da solo (fondo scuro, tante lettere chiare) scambia per cartelli molte scene notturne:
     togliere il colore li' farebbe ingrigire il film a lampi. Serve anche che il restauro ci abbia letto
-    un testo (state["cards"]).
+    un testo (state["cards"]). Le pagine su carta chiara (lettere, biglietti) hanno l'aspetto opposto e
+    si riconoscono con is_page: DDColor le macchiava di rosa e azzurro, diversi a ogni fotogramma.
     """
     from scipy import ndimage
+    from core.modules.sigma_creative_lab.video.restoration import is_page
     ffmpeg_bin, _probe = _ff()
     w, h = 240, 174
     proc = subprocess.Popen([ffmpeg_bin(), "-v", "error", *_hw(gpu), "-i", str(clip), "-vf",
                              f"scale={w}:{h},format=gray", "-f", "rawvideo", "-"], stdout=subprocess.PIPE,
                             creationflags=_flags())
-    flags = []
+    flags, pagine = [], []
     try:
         while len(buf := proc.stdout.read(w * h)) == w * h:
             g = np.frombuffer(buf, np.uint8).reshape(h, w)[12:-12, 18:-18]
+            pagine.append(is_page(g.astype(np.float32) * (100.0 / 255.0)))
             ok = False
             if (g < 50).mean() > 0.7:
                 bright = g > 105
@@ -240,11 +249,20 @@ def card_spans(clip: Path, cards: list[dict], fps: float, gpu: int = 0) -> list[
     finally:
         proc.stdout.close()
         proc.wait(timeout=120)
-    f = ndimage.binary_closing(np.array(flags), structure=np.ones(5))
-    lab, _n = ndimage.label(f)
-    tratti = [(sl[0].start, sl[0].stop) for sl in ndimage.find_objects(lab) if sl[0].stop - sl[0].start >= 15]
-    letti = [(c["start"] * fps - 20, c["end"] * fps + 20) for c in cards if not c.get("deleted")]
-    return [[int(a), int(b)] for a, b in tratti if any(la <= b and a <= lb for la, lb in letti)]
+    def tratti(fl: list[bool]) -> list[tuple[int, int]]:
+        if not fl:
+            return []
+        lab, _n = ndimage.label(ndimage.binary_closing(np.array(fl), structure=np.ones(5)))
+        return [(sl[0].start, sl[0].stop) for sl in ndimage.find_objects(lab) if sl[0].stop - sl[0].start >= 15]
+
+    def letti(kinds: tuple[str, ...]) -> list[tuple[float, float]]:
+        return [(c["start"] * fps - 20, c["end"] * fps + 20) for c in cards
+                if not c.get("deleted") and c.get("kind", "title") in kinds]
+
+    out = []
+    for spans, lette in ((tratti(flags), letti(("title", "page"))), (tratti(pagine), letti(("page",)))):
+        out += [[int(a), int(b)] for a, b in spans if any(la <= b and a <= lb for la, lb in lette)]
+    return sorted(out)
 
 
 # ---------------------------------------------------------------------------

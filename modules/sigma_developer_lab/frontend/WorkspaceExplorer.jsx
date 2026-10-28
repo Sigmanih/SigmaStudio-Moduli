@@ -195,18 +195,26 @@ export default function WorkspaceExplorer({
   onAiCreate,
   onOpenStudy,
   onShowDiff,
+  onAddCustomRoot,
+  onRemoveCustomRoot,
   theme,
   isLight
 }) {
   const [searchFilter, setSearchFilter] = useState('');
   const [showDockerModal, setShowDockerModal] = useState(false);
+  const [showAddFolderInput, setShowAddFolderInput] = useState(false);
+  const [customPathInput, setCustomPathInput] = useState('');
+  const [customLabelInput, setCustomLabelInput] = useState('');
   const [contextMenu, setContextMenu] = useState({ visible: false, x: 0, y: 0, node: null });
   const textMuted = isLight ? '#57606a' : '#8b949e';
 
   const normPath = (p) => String(p || '').replace(/\\/g, '/').replace(/\/+$/, '');
+  const dataRootObj = workspaceRoots.find(r => r.kind === 'data_workspace' || r.is_default);
   const studioRootObj = workspaceRoots.find(r => r.kind === 'studio');
   const projectsRootObj = workspaceRoots.find(r => r.kind === 'projects_root');
+  const customRoots = workspaceRoots.filter(r => r.is_custom || r.kind === 'custom_workspace');
 
+  let dataRoot = dataRootObj ? normPath(dataRootObj.path) : '';
   let studioRoot = studioRootObj ? normPath(studioRootObj.path) : '';
   let projectsRoot = projectsRootObj ? normPath(projectsRootObj.path) : '';
 
@@ -216,14 +224,28 @@ export default function WorkspaceExplorer({
   if (!projectsRoot && studioRoot) {
     projectsRoot = `${studioRoot}/projects`;
   }
+  if (!dataRoot && studioRoot) {
+    dataRoot = `${studioRoot}/data`;
+  }
   if (!studioRoot) {
     const cur = normPath(workspaceRoot);
     const idx = cur.toLowerCase().indexOf('/sigma_studio');
     studioRoot = idx !== -1 ? cur.slice(0, idx + '/sigma_studio'.length) : cur;
   }
-  if (!projectsRoot) {
-    projectsRoot = `${studioRoot}/projects`;
+  if (!dataRoot) {
+    dataRoot = `${studioRoot}/data`;
   }
+
+  const handleAddFolderSubmit = async (e) => {
+    e?.preventDefault();
+    if (!customPathInput.trim()) return;
+    if (onAddCustomRoot) {
+      await onAddCustomRoot(customPathInput.trim(), customLabelInput.trim() || undefined);
+      setCustomPathInput('');
+      setCustomLabelInput('');
+      setShowAddFolderInput(false);
+    }
+  };
 
   const handleContextMenu = (e, node) => {
     e.preventDefault();
@@ -273,8 +295,8 @@ export default function WorkspaceExplorer({
       }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.74rem', fontWeight: 800, color: isLight ? '#24292f' : '#f0f6fc' }}>
-            <HardDrive size={14} color="#00f2fe" />
-            <span>WORKSPACE (ADMIN)</span>
+            <HardDrive size={14} color="#00d2ff" />
+            <span>DEVELOPER WORKSPACE</span>
           </div>
 
           <div style={{ display: 'flex', alignItems: 'center', gap: '3px' }}>
@@ -301,12 +323,13 @@ export default function WorkspaceExplorer({
           onChange={e => onSelectWorkspaceRoot(e.target.value)}
           style={{
             width: '100%',
-            padding: '4px 6px',
+            padding: '5px 7px',
             borderRadius: '6px',
-            fontSize: '0.68rem',
+            fontSize: '0.70rem',
+            fontWeight: 600,
             background: isLight ? '#ffffff' : '#161b22',
-            border: isLight ? '1px solid #d0d7de' : '1px solid rgba(255,255,255,0.12)',
-            color: isLight ? '#24292f' : '#c9d1d9',
+            border: isLight ? '1px solid #d0d7de' : '1px solid rgba(0, 210, 255, 0.25)',
+            color: isLight ? '#24292f' : '#e2e8f0',
             outline: 'none',
             cursor: 'pointer'
           }}
@@ -341,65 +364,232 @@ export default function WorkspaceExplorer({
             fontWeight: 700,
             color: textMuted
           }}>
-            <span style={{ textTransform: 'uppercase', letterSpacing: '0.5px' }}>Navigazione Rapida</span>
-            <span style={{ color: '#00d2ff', fontSize: '0.58rem' }}>Dev Map</span>
+            <span style={{ textTransform: 'uppercase', letterSpacing: '0.5px' }}>Developer Map</span>
+            <button
+              type="button"
+              onClick={() => setShowAddFolderInput(v => !v)}
+              style={{
+                background: 'none',
+                border: 'none',
+                color: '#00d2ff',
+                cursor: 'pointer',
+                fontSize: '0.62rem',
+                fontWeight: 700,
+                display: 'flex',
+                alignItems: 'center',
+                gap: '2px'
+              }}
+              title="Aggiungi una cartella dal computer alla Developer Map"
+            >
+              <Plus size={11} />
+              <span>Aggiungi Cartella</span>
+            </button>
           </div>
 
+          {/* Form inline per aggiungere una cartella dal PC */}
+          {showAddFolderInput && (
+            <form onSubmit={handleAddFolderSubmit} style={{
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '4px',
+              padding: '6px',
+              borderRadius: '6px',
+              background: isLight ? '#ffffff' : 'rgba(0, 210, 255, 0.05)',
+              border: '1px solid rgba(0, 210, 255, 0.25)',
+              marginTop: '2px'
+            }}>
+              <input
+                type="text"
+                placeholder="Percorso cartella (es: C:\Progetti\App o /home/...)"
+                value={customPathInput}
+                onChange={e => setCustomPathInput(e.target.value)}
+                style={{
+                  width: '100%',
+                  padding: '4px 6px',
+                  borderRadius: '4px',
+                  fontSize: '0.66rem',
+                  background: isLight ? '#f6f8fa' : '#090d16',
+                  border: '1px solid rgba(255,255,255,0.12)',
+                  color: isLight ? '#1f2937' : '#f1f5f9',
+                  outline: 'none'
+                }}
+                autoFocus
+              />
+              <div style={{ display: 'flex', gap: '4px', justifyContent: 'flex-end' }}>
+                <button
+                  type="button"
+                  onClick={() => setShowAddFolderInput(false)}
+                  style={{
+                    padding: '2px 8px',
+                    borderRadius: '4px',
+                    fontSize: '0.62rem',
+                    background: 'transparent',
+                    border: '1px solid rgba(255,255,255,0.1)',
+                    color: textMuted,
+                    cursor: 'pointer'
+                  }}
+                >
+                  Annulla
+                </button>
+                <button
+                  type="submit"
+                  style={{
+                    padding: '2px 8px',
+                    borderRadius: '4px',
+                    fontSize: '0.62rem',
+                    fontWeight: 700,
+                    background: '#00d2ff',
+                    border: 'none',
+                    color: '#000000',
+                    cursor: 'pointer'
+                  }}
+                >
+                  Salva nella Mappa
+                </button>
+              </div>
+            </form>
+          )}
+
+          {/* Pinned Bookmarks List (data/ di base, custom roots con cestino, sigma studio) */}
           <div style={{
             display: 'flex',
             gap: '4px',
             overflowX: 'auto',
             paddingBottom: '2px',
             scrollbarWidth: 'none',
-            msOverflowStyle: 'none'
+            msOverflowStyle: 'none',
+            alignItems: 'center'
           }}>
-            {[
-              { id: 'studio', label: '🏠 SigmaStudio', path: studioRoot },
-              { id: 'projects', label: '📁 Progetti', path: projectsRoot },
-              { id: 'userdata', label: '📌 User Data', path: `${studioRoot}/data` },
-              { id: 'roles', label: '🎭 Ruoli', path: `${studioRoot}/roles` },
-              { id: 'memory', label: '🧠 Memoria', path: `${studioRoot}/var/agent_memory` },
-              { id: 'docker', label: '🐳 Docker', isDocker: true },
-            ].map(pin => {
-              const isPinnedActive = pin.isDocker
-                ? Boolean(workspaceRoot?.startsWith('docker://'))
-                : (Boolean(pin.path) && normPath(workspaceRoot).toLowerCase() === normPath(pin.path).toLowerCase());
+            {/* 1. Base User Data Workspace */}
+            <button
+              type="button"
+              title={`Spazio di lavoro di base: ${dataRoot}`}
+              onClick={() => onSelectWorkspaceRoot(dataRoot)}
+              style={{
+                padding: '3px 7px',
+                borderRadius: '5px',
+                fontSize: '0.62rem',
+                fontWeight: 700,
+                background: normPath(workspaceRoot).toLowerCase() === normPath(dataRoot).toLowerCase()
+                  ? (isLight ? 'rgba(0, 210, 255, 0.18)' : 'rgba(0, 210, 255, 0.22)')
+                  : (isLight ? '#ffffff' : 'rgba(255, 255, 255, 0.05)'),
+                border: normPath(workspaceRoot).toLowerCase() === normPath(dataRoot).toLowerCase()
+                  ? '1px solid #00d2ff'
+                  : (isLight ? '1px solid #d0d7de' : '1px solid rgba(255, 255, 255, 0.08)'),
+                color: normPath(workspaceRoot).toLowerCase() === normPath(dataRoot).toLowerCase() ? '#00d2ff' : (isLight ? '#24292f' : '#c9d1d9'),
+                cursor: 'pointer',
+                whiteSpace: 'nowrap',
+                transition: 'all 0.15s ease'
+              }}
+            >
+              📁 User Data (data/)
+            </button>
 
+            {/* 2. Custom Folders salvate */}
+            {customRoots.map(cr => {
+              const isActive = normPath(workspaceRoot).toLowerCase() === normPath(cr.path).toLowerCase();
               return (
-                <button
-                  key={pin.label}
-                  type="button"
-                  title={pin.isDocker ? 'Apri e naviga container Docker' : `Passa alla cartella: ${pin.path}`}
-                  onClick={() => {
-                    if (pin.isDocker) {
-                      setShowDockerModal(true);
-                    } else if (pin.path) {
-                      onSelectWorkspaceRoot(pin.path);
-                    }
-                  }}
+                <div
+                  key={cr.path}
                   style={{
-                    padding: '3px 7px',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '3px',
+                    padding: '2px 5px',
                     borderRadius: '5px',
+                    background: isActive ? 'rgba(16, 185, 129, 0.18)' : 'rgba(255, 255, 255, 0.04)',
+                    border: isActive ? '1px solid #10b981' : '1px solid rgba(255, 255, 255, 0.08)',
                     fontSize: '0.62rem',
                     fontWeight: 700,
-                    background: isPinnedActive 
-                      ? (isLight ? 'rgba(0, 210, 255, 0.15)' : 'rgba(0, 210, 255, 0.18)')
-                      : (isLight ? '#ffffff' : 'rgba(255, 255, 255, 0.05)'),
-                    border: isPinnedActive 
-                      ? '1px solid rgba(0, 210, 255, 0.5)'
-                      : (isLight ? '1px solid #d0d7de' : '1px solid rgba(255, 255, 255, 0.08)'),
-                    color: isPinnedActive ? '#00d2ff' : (isLight ? '#24292f' : '#c9d1d9'),
-                    cursor: 'pointer',
-                    whiteSpace: 'nowrap',
-                    transition: 'all 0.15s ease',
-                    boxShadow: isPinnedActive ? '0 1px 4px rgba(0,210,255,0.2)' : 'none'
+                    color: isActive ? '#10b981' : (isLight ? '#24292f' : '#cbd5e1'),
+                    whiteSpace: 'nowrap'
                   }}
                 >
-                  {pin.label}
-                </button>
+                  <span
+                    onClick={() => onSelectWorkspaceRoot(cr.path)}
+                    style={{ cursor: 'pointer' }}
+                    title={`Passa alla cartella: ${cr.path}`}
+                  >
+                    📂 {cr.path.split(/[/\\]/).filter(Boolean).pop() || cr.label}
+                  </span>
+                  {onRemoveCustomRoot && (
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        if (confirm(`Rimuovere la cartella "${cr.path}" dalla Developer Map?`)) {
+                          onRemoveCustomRoot(cr.path);
+                        }
+                      }}
+                      title="Rimuovi questa cartella dalla Developer Map"
+                      style={{
+                        background: 'none',
+                        border: 'none',
+                        color: textMuted,
+                        cursor: 'pointer',
+                        padding: '1px',
+                        display: 'flex',
+                        alignItems: 'center'
+                      }}
+                    >
+                      <Trash2 size={10} />
+                    </button>
+                  )}
+                </div>
               );
             })}
+
+            {/* 3. Progetti se presenti */}
+            {projectsRoot && (
+              <button
+                type="button"
+                title={`Progetti utente: ${projectsRoot}`}
+                onClick={() => onSelectWorkspaceRoot(projectsRoot)}
+                style={{
+                  padding: '3px 7px',
+                  borderRadius: '5px',
+                  fontSize: '0.62rem',
+                  fontWeight: 600,
+                  background: normPath(workspaceRoot).toLowerCase() === normPath(projectsRoot).toLowerCase()
+                    ? 'rgba(0, 210, 255, 0.15)'
+                    : 'transparent',
+                  border: '1px solid rgba(255, 255, 255, 0.08)',
+                  color: (isLight ? '#24292f' : '#c9d1d9'),
+                  cursor: 'pointer',
+                  whiteSpace: 'nowrap'
+                }}
+              >
+                📁 Progetti
+              </button>
+            )}
+
+            {/* 4. SigmaStudio Source Code */}
+            {studioRoot && (
+              <button
+                type="button"
+                title={`Sorgente completo di Sigma Studio: ${studioRoot}`}
+                onClick={() => onSelectWorkspaceRoot(studioRoot)}
+                style={{
+                  padding: '3px 7px',
+                  borderRadius: '5px',
+                  fontSize: '0.62rem',
+                  fontWeight: 600,
+                  background: normPath(workspaceRoot).toLowerCase() === normPath(studioRoot).toLowerCase()
+                    ? 'rgba(234, 179, 8, 0.15)'
+                    : 'transparent',
+                  border: normPath(workspaceRoot).toLowerCase() === normPath(studioRoot).toLowerCase()
+                    ? '1px solid rgba(234, 179, 8, 0.4)'
+                    : '1px solid rgba(255, 255, 255, 0.08)',
+                  color: normPath(workspaceRoot).toLowerCase() === normPath(studioRoot).toLowerCase() ? '#eab308' : (isLight ? '#24292f' : '#c9d1d9'),
+                  cursor: 'pointer',
+                  whiteSpace: 'nowrap'
+                }}
+              >
+                ⚡ Sigma Source
+              </button>
+            )}
           </div>
+
 
           {/* Tasto Dedicato: Visualizza Docker */}
           <button

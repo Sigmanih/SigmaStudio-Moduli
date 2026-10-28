@@ -103,8 +103,14 @@ class Frame:
 
 
 class Recolorer:
-    def __init__(self, model, device, width: int, height: int, window: int):
+    def __init__(self, model, device, width: int, height: int, window: int, chroma: float = 1.0,
+                 dark: tuple[float, float, float] = (DARK_L0, DARK_L1, DARK_MIN), warm: float = NEUTRAL[1],
+                 titles: bool = True, stretch: bool = False):
         self.model, self.device = model, device
+        # Aspetto regolabile per film: la tavolozza dei Lumiere (esterni al sole) spegneva il Fantasma,
+        # girato in teatro e quasi tutto in penombra (collaudo del 2026-10-26).
+        self.chroma, self.dark, self.warm = chroma, dark, warm
+        self.titles, self.stretch = titles, stretch
         self.w, self.h = width, height
         self.sh = min(WORK_H, height)
         self.sw = max(16, int(round(width * self.sh / height)))
@@ -127,6 +133,11 @@ class Recolorer:
         """
         l_full = cv2.cvtColor(rgb.astype(np.float32) * (1.0 / 255.0), cv2.COLOR_RGB2LAB)[..., 0]
         l_in = cv2.resize(l_full, (DD_SIZE, DD_SIZE), interpolation=cv2.INTER_AREA)
+        if self.stretch:
+            # Il grigio di una copia virata ha neri lattiginosi e poco contrasto: DDColor lo colora
+            # timidamente. Lui vede i livelli stesi, l'uscita tiene la luminanza della pellicola.
+            lo, hi = np.percentile(l_in, (0.5, 99.7))
+            l_in = np.clip((l_in - lo) * (100.0 / max(1.0, hi - lo)), 0.0, 100.0).astype(np.float32)
         gray_lab = np.dstack([l_in, np.zeros_like(l_in), np.zeros_like(l_in)])
         gray_rgb = cv2.cvtColor(gray_lab, cv2.COLOR_LAB2RGB)
         x = torch.from_numpy(np.ascontiguousarray(gray_rgb.transpose(2, 0, 1))).unsqueeze(0).to(self.device)
@@ -150,7 +161,7 @@ class Recolorer:
               float(ab[..., 1].std()), float(b_mean[0]), float(b_mean[1]), float(bright.mean()))
         self.stats.append(st)
         cur = Frame(idx, self.seg, l_full, l_small, ab, st)
-        cur.title = is_title_card(l_work)
+        cur.title = self.titles and is_title_card(l_work)
         if prev is not None and prev.seg == cur.seg:
             # Solo i flussi fra fotogrammi adiacenti: quelli verso i vicini lontani si ottengono
             # concatenandoli. Prima se ne calcolavano 16 a fotogramma ed erano meta' del tempo.
@@ -173,12 +184,12 @@ class Recolorer:
         lo, hi = max(0, t - STATS_HALF), min(len(self.stats), t + STATS_HALF + 1)
         rows = np.array([s[1:] for s in self.stats[lo:hi] if s[0] == seg], np.float64)
         m_a, s_a, m_b, s_b, br_a, br_b, br_frac = rows.mean(axis=0)
-        k_a = min(3.0, PALETTE["a_std"] / max(s_a, 1.0))
-        k_b = min(3.0, PALETTE["b_std"] / max(s_b, 1.0))
+        k_a = min(3.0 * self.chroma, PALETTE["a_std"] * self.chroma / max(s_a, 1.0))
+        k_b = min(3.0 * self.chroma, PALETTE["b_std"] * self.chroma / max(s_b, 1.0))
         shift_a = shift_b = 0.0
         if br_frac > 0.02:
             shift_a = NEUTRAL[0] - ((br_a - m_a) * k_a + PALETTE["a_mean"])
-            shift_b = NEUTRAL[1] - ((br_b - m_b) * k_b + PALETTE["b_mean"])
+            shift_b = self.warm - ((br_b - m_b) * k_b + PALETTE["b_mean"])
         return m_a, k_a, PALETTE["a_mean"] + shift_a, m_b, k_b, PALETTE["b_mean"] + shift_b
 
     def _emit(self) -> np.ndarray:
@@ -223,7 +234,8 @@ class Recolorer:
         ab_full = cv2.resize(ab, (self.w, self.h), interpolation=cv2.INTER_LINEAR)
         # Nelle zone scure DDColor tira a caso verso il blu o il viola (scene notturne di
         # Nosferatu): il colore si attenua con la luminanza, come succede davvero nell'ombra.
-        dim = np.clip((cur.l_full - DARK_L0) * (1.0 / (DARK_L1 - DARK_L0)), DARK_MIN, 1.0)
+        l0, l1, floor = self.dark
+        dim = np.clip((cur.l_full - l0) * (1.0 / (l1 - l0)), floor, 1.0)
         lab = np.dstack([cur.l_full, np.clip(ab_full * dim[..., None], -110, 110)])
         rgb = cv2.cvtColor(lab.astype(np.float32), cv2.COLOR_LAB2RGB)
         return (np.clip(rgb, 0, 1) * 255.0 + 0.5).astype(np.uint8)
@@ -236,10 +248,21 @@ def main() -> int:
     ap.add_argument("--height", type=int, required=True)
     ap.add_argument("--gpu", type=int, default=0)
     ap.add_argument("--window", type=int, default=8)
+    ap.add_argument("--chroma", type=float, default=1.0, help="moltiplica la varieta' della tavolozza")
+    ap.add_argument("--dark", default=f"{DARK_L0},{DARK_L1},{DARK_MIN}", help="L0,L1,minimo dell'attenuazione")
+    ap.add_argument("--warm", type=float, default=NEUTRAL[1], help="b* delle superfici chiare")
+    ap.add_argument("--no-titles", action="store_true", help="i cartelli li gestisce chi chiama")
+    ap.add_argument("--stretch", action="store_true", help="livelli stesi per DDColor")
     args = ap.parse_args()
+    l0, l1, floor = (float(x) for x in args.dark.split(","))
+    if not (l1 > l0 and 0.0 <= floor <= 1.0):
+        print(f"--dark non valido: {args.dark}", file=sys.stderr)
+        return 2
 
     device = torch.device(f"cuda:{args.gpu}" if torch.cuda.is_available() else "cpu")
-    rec = Recolorer(load_model(Path(args.weights), device), device, args.width, args.height, max(1, args.window))
+    rec = Recolorer(load_model(Path(args.weights), device), device, args.width, args.height, max(1, args.window),
+                    chroma=args.chroma, dark=(l0, l1, floor), warm=args.warm, titles=not args.no_titles,
+                    stretch=args.stretch)
     frame_bytes = args.width * args.height * 3
     src, dst = sys.stdin.buffer, sys.stdout.buffer
     ready: queue.Queue = queue.Queue(maxsize=8)

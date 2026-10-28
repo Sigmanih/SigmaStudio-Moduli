@@ -11,6 +11,14 @@ import AdminAgentChat from './AdminAgentChat';
 import McpQuickActionsBar from './McpQuickActionsBar';
 import AiCreateFileModal from './AiCreateFileModal';
 
+const normPath = (p) => String(p || '').replace(/\\/g, '/').toLowerCase().trim();
+const isSamePath = (p1, p2) => {
+  if (!p1 || !p2) return false;
+  const n1 = normPath(p1);
+  const n2 = normPath(p2);
+  return n1 === n2 || n1.endsWith(n2) || n2.endsWith(n1);
+};
+
 export default function DeveloperStudio() {
   const { theme, addToast } = useApp();
   const isLight = theme === 'light';
@@ -53,7 +61,7 @@ export default function DeveloperStudio() {
   const [isRunningCommand, setIsRunningCommand] = useState(false);
 
   // 1. Fetch workspace roots
-  useEffect(() => {
+  const fetchRoots = useCallback(() => {
     fetch('/api/developer/workspace/roots')
       .then(r => r.json())
       .then(d => {
@@ -65,7 +73,48 @@ export default function DeveloperStudio() {
         }
       })
       .catch(err => console.error('Error fetching workspace roots:', err));
-  }, []);
+  }, [workspaceRoot]);
+
+  useEffect(() => {
+    fetchRoots();
+  }, [fetchRoots]);
+
+  const handleAddCustomRoot = useCallback(async (path, label) => {
+    try {
+      const res = await fetch('/api/developer/workspace/roots/add', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ path, label })
+      });
+      const d = await res.json();
+      if (d.success) {
+        if (addToast) addToast({ type: 'success', message: 'Cartella salvata nella Developer Map!' });
+        fetchRoots();
+        if (d.path) setWorkspaceRoot(d.path);
+      } else {
+        if (addToast) addToast({ type: 'error', message: d.error || 'Errore aggiunta cartella' });
+      }
+    } catch (e) {
+      if (addToast) addToast({ type: 'error', message: String(e) });
+    }
+  }, [addToast, fetchRoots]);
+
+  const handleRemoveCustomRoot = useCallback(async (path) => {
+    try {
+      const res = await fetch('/api/developer/workspace/roots/remove', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ path })
+      });
+      const d = await res.json();
+      if (d.success) {
+        if (addToast) addToast({ type: 'info', message: 'Cartella rimossa dalla Developer Map' });
+        fetchRoots();
+      }
+    } catch (e) {
+      if (addToast) addToast({ type: 'error', message: String(e) });
+    }
+  }, [addToast, fetchRoots]);
 
   // 2. Fetch file tree when workspaceRoot changes
   const fetchTree = useCallback(() => {
@@ -89,15 +138,10 @@ export default function DeveloperStudio() {
   const handleOpenFile = useCallback(async (filePath) => {
     if (!filePath) return;
     const cleanPath = String(filePath).trim().replace(/^["']|["']$/g, '');
-    const norm = (p) => String(p || '').replace(/\\/g, '/').toLowerCase();
 
     // Controlla se il file è già aperto nella lista
     setOpenFiles(prev => {
-      const existing = prev.find(f =>
-        norm(f.path) === norm(cleanPath) ||
-        norm(f.path).endsWith(norm(cleanPath)) ||
-        norm(cleanPath).endsWith(norm(f.path))
-      );
+      const existing = prev.find(f => isSamePath(f.path, cleanPath));
       if (existing) {
         setActiveFilePath(existing.path);
         return prev;
@@ -124,7 +168,7 @@ export default function DeveloperStudio() {
           dirty: false
         };
         setOpenFiles(prev => {
-          const already = prev.find(f => norm(f.path) === norm(resolvedPath));
+          const already = prev.find(f => isSamePath(f.path, resolvedPath));
           if (already) return prev;
           return [...prev, newFile];
         });
@@ -176,7 +220,7 @@ export default function DeveloperStudio() {
       });
       const data = await res.json();
       if (data.success) {
-        setOpenFiles(prev => prev.map(f => f.path === filePath ? { ...f, content, originalContent: content, dirty: false } : f));
+        setOpenFiles(prev => prev.map(f => isSamePath(f.path, filePath) ? { ...f, content, originalContent: content, dirty: false } : f));
         addToast?.('File salvato con successo', 'success');
         fetchTree();
       } else {
@@ -299,7 +343,7 @@ export default function DeveloperStudio() {
   // Content edit handler
   const handleContentChange = (path, newContent) => {
     setOpenFiles(prev => prev.map(f => {
-      if (f.path === path) {
+      if (isSamePath(f.path, path)) {
         return {
           ...f,
           content: newContent,
@@ -312,9 +356,9 @@ export default function DeveloperStudio() {
 
   // Tab close handler
   const handleCloseTab = (path) => {
-    const nextFiles = openFiles.filter(f => f.path !== path);
+    const nextFiles = openFiles.filter(f => !isSamePath(f.path, path));
     setOpenFiles(nextFiles);
-    if (activeFilePath === path) {
+    if (isSamePath(activeFilePath, path)) {
       setActiveFilePath(nextFiles[nextFiles.length - 1]?.path || null);
     }
   };
@@ -402,6 +446,9 @@ export default function DeveloperStudio() {
             onAiCreate={(node) => setAiModalState({ isOpen: true, node })}
             onOpenStudy={(node) => handleOpenFile(node?.path)}
             onShowDiff={(node) => handleOpenFile(node?.path)}
+            onAddCustomRoot={handleAddCustomRoot}
+            onRemoveCustomRoot={handleRemoveCustomRoot}
+            onRefreshRoots={fetchRoots}
             theme={theme}
             isLight={isLight}
           />
