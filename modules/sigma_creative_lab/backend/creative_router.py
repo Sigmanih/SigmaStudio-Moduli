@@ -433,9 +433,18 @@ def handle_creative_3d(self):
             elif task_type == "text_to_3d":
                 prompt = params.pop("prompt", "")
                 return await model_generator_3d.text_to_3d(prompt, **params)
+            elif task_type == "agente_3d":
+                # Dal ritratto al personaggio animabile della plancia (three_d/locale/agenti.py)
+                from .three_d.locale.agenti import genera_agente, ritratto_da
+                nome = str(params.get("nome") or "").strip()
+                if not nome or not nome.replace("_", "").isalnum():
+                    raise ValueError("nome dell'agente mancante o non valido (lettere, cifre, _)")
+                foto = ritratto_da(nome, params.get("asset_id", ""), params.get("ritratto", ""))
+                return await genera_agente(nome, foto, int(params.get("varianti") or 4))
             else:
                 raise ValueError(
-                    f"Task type '{task_type}' non supportato in 3d (image_to_3d, multiview_to_3d, text_to_3d)"
+                    f"Task type '{task_type}' non supportato in 3d "
+                    "(image_to_3d, multiview_to_3d, text_to_3d, agente_3d)"
                 )
 
         asset = asyncio.run(_run())

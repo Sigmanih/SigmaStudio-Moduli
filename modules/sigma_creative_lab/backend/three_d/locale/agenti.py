@@ -68,6 +68,10 @@ def registra_asset(nome: str, personaggio: Path, anteprima: Path | None, metadat
     from core.modules.sigma_creative_lab.asset_graph import AssetGraph, AssetType
 
     grafo = AssetGraph()
+    # Un agente ha un solo personaggio corrente: rigenerarlo sostituisce il precedente
+    for vecchio in grafo.list_assets(tag_filter="agente", limit=1000):
+        if vecchio.name == f"agente_{nome}":
+            grafo.delete_asset(vecchio.asset_id)
     asset = grafo.create_asset(type_val=AssetType.MODEL_3D, name=f"agente_{nome}",
                                metadata={"operation": "agente_3d", **metadati}, tags=["agente", nome])
     asset = grafo.attach_file(asset.asset_id, "model", "personaggio.glb", personaggio.read_bytes())
@@ -97,10 +101,33 @@ async def genera_agente(nome: str, ritratto: Path, varianti: int = 4, seed: int 
 
     metadati = {"ritratto": str(ritratto), "figura": scelta.name, **dettagli}
     (cartella / "agente.json").write_text(json.dumps(metadati, indent=2, ensure_ascii=False), encoding="utf-8")
-    if registra:
-        registra_asset(nome, personaggio, cartella / "anteprima_fronte.png", metadati)
     log.info("%s: personaggio pronto in %s", nome, personaggio)
-    return {"personaggio": str(personaggio), **metadati}
+    if registra:
+        return registra_asset(nome, personaggio, cartella / "anteprima_fronte.png", metadati)
+    return None
+
+
+def ritratto_da(nome: str, asset_id: str = "", ritratto: str = "") -> Path:
+    """Il ritratto da cui partire: un'immagine del Creative Studio, un file del
+    progetto o, in mancanza, la foto installata con il ruolo `nome`."""
+    if asset_id:
+        from core.modules.sigma_creative_lab.asset_graph import AssetGraph
+        asset = AssetGraph().get_asset(asset_id)
+        if not asset or not asset.files.get("image"):
+            raise ValueError(f"l'asset {asset_id} non ha un'immagine")
+        return Path(asset.files["image"])
+    if ritratto:
+        p = (paths.project_root() / ritratto).resolve()
+        # Solo file del progetto: il percorso arriva da un agente o da una richiesta HTTP
+        p.relative_to(paths.project_root().resolve())
+        if not p.is_file():
+            raise ValueError(f"ritratto non trovato: {ritratto}")
+        return p
+    for n in ("immagine.jpg", "immagine.png"):
+        p = paths.roles_dir() / nome / n
+        if p.is_file():
+            return p
+    raise ValueError(f"nessun ritratto per {nome}: passa asset_id o ritratto")
 
 
 def importa_installati() -> list[str]:
