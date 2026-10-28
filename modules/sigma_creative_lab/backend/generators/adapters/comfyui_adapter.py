@@ -31,7 +31,7 @@ DEFAULT_WORKFLOWS = {
     "instruct_edit": "flux_kontext",
     "upscale": "esrgan_upscale",
     "segment": "sam2_segment",
-    "image_to_3d": "hunyuan3d_image_to_3d",
+    "image_to_3d": "trellis_image_to_3d",  # Hunyuan3D escluso: la licenza non vale nell'UE
     "image_to_video": "ltx_image_to_video",
     "text_to_video": "hunyuan_text_to_video",
 }

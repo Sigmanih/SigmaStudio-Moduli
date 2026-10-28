@@ -194,22 +194,17 @@ MODELS: tuple[ModelSpec, ...] = (
     ),
 
     # ------------------------------------------------------------------- 3D
-    ModelSpec(
-        id="hunyuan3d-2", label="Hunyuan3D 2.x", family="hunyuan3d",
-        tasks=("image_to_3d", "texture_3d"), backends=("comfyui", "fal_ai"),
-        vram_gb=12.0, quality=5, speed=2,
-        strengths=("geometria", "texture", "asset_prodotto"),
-        workflow="hunyuan3d_image_to_3d",
-        remote_ids={"fal_ai": "fal-ai/hunyuan3d/v2"},
-        notes="Prima scelta per asset 3D texturizzati di qualità.",
-    ),
+    # Hunyuan3D 2.x non c'e': la sua licenza esclude l'Unione Europea (e Regno
+    # Unito e Corea del Sud), anche usato tramite un servizio remoto.
     ModelSpec(
         id="trellis", label="TRELLIS", family="trellis",
-        tasks=("image_to_3d", "multiview_to_3d"), backends=("comfyui", "fal_ai"),
-        vram_gb=16.0, quality=5, speed=2,
-        strengths=("geometria", "multi_vista", "concept_to_3d"),
+        tasks=("image_to_3d", "multiview_to_3d"), backends=("local", "comfyui", "fal_ai"),
+        vram_gb=12.0, quality=5, speed=3,
+        strengths=("geometria", "texture", "multi_vista", "concept_to_3d"),
         workflow="trellis_image_to_3d",
         remote_ids={"fal_ai": "fal-ai/trellis"},
+        notes="Licenza MIT. In locale (three_d/locale): ~10 s e ~12 GB sulla RTX 5070 Ti, "
+              "GLB texturizzato e alleggerito in Blender.",
     ),
     ModelSpec(
         id="instantmesh", label="InstantMesh", family="instantmesh",
