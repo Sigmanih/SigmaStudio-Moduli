@@ -1,0 +1,458 @@
+/* =============================================================================
+   pcb-lab.css — il PCB Lab, dal foglio di stile
+   =============================================================================
+   Il modulo aveva tutto in stile inline. Va bene per un pulsante, non per un
+   laboratorio: senza `:hover`, `:focus-visible` e media query non si possono
+   fare ne' l'affordance ne' il responsive, che sono esattamente le due cose che
+   distinguono uno strumento professionale da una demo. Qui sta quello che
+   l'inline non sa esprimere; il resto resta dov'e'.
+
+   I colori sono variabili, cambiate dalla classe `.pcb-lab--scuro`: il tema lo
+   decide l'applicazione, non il componente.
+   ============================================================================= */
+
+.pcb-lab,
+.pcblib {
+  --pcb-accent: #2563eb;
+  --pcb-accent-2: #0ea5e9;
+  --pcb-accent-soft: rgba(37, 99, 235, 0.10);
+  --pcb-accent-line: rgba(37, 99, 235, 0.45);
+  --pcb-surface: #ffffff;
+  --pcb-surface-2: #f1f5f9;
+  --pcb-text: #0f172a;
+  --pcb-muted: #64748b;
+  --pcb-border: rgba(15, 23, 42, 0.12);
+  --pcb-ombra: 0 1px 2px rgba(15, 23, 42, 0.06),
+               0 10px 26px -18px rgba(15, 23, 42, 0.35);
+  --pcb-ok: #059669;
+  --pcb-ko: #dc2626;
+}
+
+.pcb-lab--scuro,
+.pcblib--scuro {
+  --pcb-accent: #38bdf8;
+  --pcb-accent-2: #818cf8;
+  --pcb-accent-soft: rgba(56, 189, 248, 0.14);
+  --pcb-accent-line: rgba(56, 189, 248, 0.45);
+  --pcb-surface: rgba(15, 23, 42, 0.86);
+  --pcb-surface-2: rgba(30, 41, 59, 0.6);
+  --pcb-text: #e2e8f0;
+  --pcb-muted: #94a3b8;
+  --pcb-border: rgba(148, 163, 184, 0.22);
+  --pcb-ombra: 0 1px 2px rgba(0, 0, 0, 0.35),
+               0 12px 30px -20px rgba(0, 0, 0, 0.75);
+  --pcb-ok: #34d399;
+  --pcb-ko: #f87171;
+}
+
+/* --- struttura dell'editor ------------------------------------------------- */
+
+.pcb-lab__editor {
+  flex: 1;
+  display: flex;
+  min-height: 0;
+}
+
+.pcb-lab__aside {
+  width: 292px;
+  flex-shrink: 0;
+  padding: 10px;
+  overflow-y: auto;
+  border-right: 1px solid var(--pcb-border);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.pcb-lab__area {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+/* --- il pannello dei componenti ------------------------------------------- */
+
+.pcblib {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  padding: 10px;
+  border: 1px solid var(--pcb-border);
+  border-radius: 10px;
+  background: var(--pcb-surface);
+  box-shadow: var(--pcb-ombra);
+}
+
+.pcblib__testa {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.pcblib__titolo {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.76rem;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  color: var(--pcb-text);
+}
+
+.pcblib__conta {
+  font-size: 0.65rem;
+  color: var(--pcb-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.pcblib__pillola {
+  border: 1px solid var(--pcb-border);
+  border-radius: 999px;
+  padding: 1px 7px;
+  font-size: 0.62rem;
+  font-weight: 600;
+  color: var(--pcb-muted);
+  white-space: nowrap;
+}
+
+.pcblib__pillola--ok {
+  color: var(--pcb-ok);
+  border-color: var(--pcb-ok);
+}
+
+/* --- campo di ricerca ------------------------------------------------------ */
+
+.pcblib__cerca {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.pcblib__cerca > svg {
+  position: absolute;
+  left: 8px;
+  color: var(--pcb-muted);
+  pointer-events: none;
+}
+
+.pcblib__input {
+  width: 100%;
+  padding: 7px 28px 7px 28px;
+  border-radius: 8px;
+  border: 1px solid var(--pcb-border);
+  background: var(--pcb-surface-2);
+  color: var(--pcb-text);
+  font-size: 0.78rem;
+  outline: none;
+  transition: border-color 140ms ease, box-shadow 140ms ease,
+              background 140ms ease;
+}
+
+.pcblib__input::placeholder {
+  color: var(--pcb-muted);
+}
+
+.pcblib__input:focus {
+  border-color: var(--pcb-accent-line);
+  background: var(--pcb-surface);
+  box-shadow: 0 0 0 3px var(--pcb-accent-soft);
+}
+
+.pcblib__pulisci {
+  position: absolute;
+  right: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border: none;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--pcb-muted);
+  cursor: pointer;
+}
+
+.pcblib__pulisci:hover {
+  background: var(--pcb-surface-2);
+  color: var(--pcb-text);
+}
+/* --- librerie -------------------------------------------------------------- */
+
+.pcblib__librerie {
+  display: flex;
+  gap: 5px;
+  overflow-x: auto;
+  padding-bottom: 2px;
+  scrollbar-width: thin;
+}
+
+.pcblib__chip {
+  flex: 0 0 auto;
+  padding: 3px 9px;
+  border-radius: 999px;
+  border: 1px solid var(--pcb-border);
+  background: transparent;
+  color: var(--pcb-muted);
+  font-size: 0.66rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 120ms ease, color 120ms ease, border-color 120ms ease;
+}
+
+.pcblib__chip:hover {
+  color: var(--pcb-text);
+  border-color: var(--pcb-accent-line);
+}
+
+.pcblib__chip--attivo {
+  background: var(--pcb-accent-soft);
+  border-color: var(--pcb-accent-line);
+  color: var(--pcb-accent);
+}
+
+/* --- elenco dei risultati -------------------------------------------------- */
+
+.pcblib__elenco {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: clamp(120px, 32vh, 260px);
+  overflow-y: auto;
+  padding-right: 2px;
+  scrollbar-width: thin;
+}
+
+.pcblib__voce {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+  padding: 6px 8px;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--pcb-text);
+  text-align: left;
+  cursor: pointer;
+  transition: background 120ms ease, border-color 120ms ease;
+}
+
+.pcblib__voce:hover {
+  background: var(--pcb-surface-2);
+}
+
+.pcblib__voce--scelto {
+  background: var(--pcb-accent-soft);
+  border-color: var(--pcb-accent-line);
+}
+
+.pcblib__voce:focus-visible {
+  outline: 2px solid var(--pcb-accent);
+  outline-offset: 1px;
+}
+
+.pcblib__nome {
+  font-size: 0.72rem;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pcblib__luogo {
+  font-size: 0.62rem;
+  color: var(--pcb-muted);
+  white-space: nowrap;
+}
+
+.pcblib__vuoto {
+  padding: 10px 6px;
+  font-size: 0.68rem;
+  line-height: 1.4;
+  color: var(--pcb-muted);
+}
+
+/* Lo scheletro dice «sto arrivando», che e' diverso da «non c'e' niente»:
+   senza, una ricerca lenta sembra una ricerca senza risultati. */
+.pcblib__scheletro {
+  height: 26px;
+  border-radius: 7px;
+  background: linear-gradient(
+    90deg,
+    var(--pcb-surface-2) 0%,
+    var(--pcb-accent-soft) 50%,
+    var(--pcb-surface-2) 100%);
+  background-size: 200% 100%;
+  animation: pcblib-attesa 1.1s ease-in-out infinite;
+}
+
+@keyframes pcblib-attesa {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+/* --- campi e azioni -------------------------------------------------------- */
+
+.pcblib__campi {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+}
+
+.pcblib__campo {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  font-size: 0.66rem;
+  color: var(--pcb-muted);
+}
+
+.pcblib__campo--largo {
+  grid-column: 1 / -1;
+}
+
+.pcblib__campo input,
+.pcblib__campo select {
+  padding: 5px 6px;
+  border-radius: 6px;
+  border: 1px solid var(--pcb-border);
+  background: var(--pcb-surface-2);
+  color: var(--pcb-text);
+  font-size: 0.74rem;
+  outline: none;
+  transition: border-color 140ms ease, box-shadow 140ms ease;
+}
+
+.pcblib__campo input:focus,
+.pcblib__campo select:focus {
+  border-color: var(--pcb-accent-line);
+  box-shadow: 0 0 0 3px var(--pcb-accent-soft);
+}
+
+.pcblib__rotazioni {
+  display: flex;
+  gap: 4px;
+}
+
+.pcblib__rotazioni button {
+  flex: 1;
+  padding: 4px 0;
+  border-radius: 6px;
+  border: 1px solid var(--pcb-border);
+  background: transparent;
+  color: var(--pcb-muted);
+  font-size: 0.68rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 120ms ease, color 120ms ease;
+}
+
+.pcblib__rotazioni button:hover {
+  color: var(--pcb-text);
+  border-color: var(--pcb-accent-line);
+}
+
+.pcblib__rotazioni button[aria-pressed='true'] {
+  background: var(--pcb-accent-soft);
+  border-color: var(--pcb-accent-line);
+  color: var(--pcb-accent);
+}
+
+.pcblib__azioni {
+  display: flex;
+  gap: 6px;
+}
+
+.pcblib__bottone {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  flex: 1;
+  padding: 7px 8px;
+  border-radius: 8px;
+  border: 1px solid var(--pcb-border);
+  background: var(--pcb-surface-2);
+  color: var(--pcb-text);
+  font-size: 0.73rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: transform 100ms ease, background 120ms ease,
+              border-color 120ms ease, opacity 120ms ease;
+}
+
+.pcblib__bottone:hover:not(:disabled) {
+  border-color: var(--pcb-accent-line);
+  background: var(--pcb-accent-soft);
+}
+
+.pcblib__bottone:active:not(:disabled) {
+  transform: translateY(1px);
+}
+
+.pcblib__bottone--forte {
+  background: linear-gradient(135deg, var(--pcb-accent), var(--pcb-accent-2));
+  border-color: transparent;
+  color: #fff;
+}
+
+.pcblib__bottone--forte:hover:not(:disabled) {
+  filter: brightness(1.07);
+}
+
+.pcblib__bottone:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.pcblib__nota {
+  font-size: 0.63rem;
+  line-height: 1.35;
+  color: var(--pcb-muted);
+}
+
+.pcblib__errore {
+  font-size: 0.68rem;
+  line-height: 1.35;
+  color: var(--pcb-ko);
+}
+
+/* --- adattamento allo schermo --------------------------------------------- */
+
+@media (max-width: 900px) {
+  .pcb-lab__editor {
+    flex-direction: column;
+  }
+
+  .pcb-lab__aside {
+    width: 100%;
+    max-height: 46vh;
+    border-right: none;
+    border-bottom: 1px solid var(--pcb-border);
+  }
+
+  .pcblib__elenco {
+    max-height: 24vh;
+  }
+}
+
+@media (max-width: 620px) {
+  .pcblib__campi {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pcblib__scheletro {
+    animation: none;
+  }
+
+  .pcblib__bottone,
+  .pcblib__voce,
+  .pcblib__input {
+    transition: none;
+  }
+}
