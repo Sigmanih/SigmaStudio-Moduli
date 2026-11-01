@@ -49,7 +49,9 @@
       },
       "reason_if_unavailable": null
     },
-    "modules": ["sigma_eda_lab"],
+    "modules": [
+      "sigma_eda_lab"
+    ],
     "external_mcp": []
   },
   "surface": "full"

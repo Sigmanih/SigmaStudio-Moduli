@@ -24,5 +24,19 @@
   "size": "~1 MB",
   "icon": "Send",
   "color": "#bc8cff",
-  "requirements": "requirements.txt"
+  "requirements": "requirements.txt",
+  "backend": {
+    "handlers_module": "core.modules.sigma_messaging_hub.backend.handlers",
+    "mcp_server_module": "core.modules.sigma_messaging_hub.backend.messaging_server",
+    "routes_prefix": "/api/messaging",
+    "install_to": "core/modules/sigma_messaging_hub/"
+  },
+  "frontend": {
+    "entrypoint": "frontend/index.jsx",
+    "styles": [
+      "frontend/styles/messaging-hub.css"
+    ],
+    "install_to": "sigma_studio/src/modules/sigma_messaging_hub/"
+  },
+  "kernel_modules_required": []
 }

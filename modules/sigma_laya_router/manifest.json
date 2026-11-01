@@ -20,7 +20,7 @@
   "icon": "Zap",
   "color": "#78dc78",
   "backend": {
-    "handlers_module": "core.modules.sigma_laya_router.handlers",
+    "handlers_module": "core.modules.sigma_laya_router.backend.handlers",
     "install_to": "core/modules/sigma_laya_router/"
   }
 }

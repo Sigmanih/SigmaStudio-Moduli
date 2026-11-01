@@ -5,7 +5,12 @@
   "category": "Multimodale & Grafica",
   "tabType": "creative_studio",
   "workDomain": "creative",
-  "workspaceTabs": [{"id": "video_studio", "name": "Film e manga"}],
+  "workspaceTabs": [
+    {
+      "id": "video_studio",
+      "name": "Film e manga"
+    }
+  ],
   "sidebarLabel": "Creative Lab",
   "sidebarIcon": "Palette",
   "sidebarBadge": "3D",
@@ -41,5 +46,20 @@
       "date": "2026-08-15",
       "notes": "Initial release — extracted from Sigma Studio kernel. Full creative pipeline: T2I, 3D, video, PBR materials, node editor."
     }
-  ]
+  ],
+  "backend": {
+    "handlers_module": "core.modules.sigma_creative_lab.backend.handlers",
+    "mcp_server_module": "core.modules.sigma_creative_lab.backend.mcp_server",
+    "routes_prefix": "/api/creative",
+    "install_to": "core/modules/sigma_creative_lab/"
+  },
+  "frontend": {
+    "entrypoint": "frontend/index.jsx",
+    "styles": [
+      "frontend/styles/creative-studio.css",
+      "frontend/styles/node-editor.css"
+    ],
+    "install_to": "sigma_studio/src/modules/sigma_creative_lab/"
+  },
+  "kernel_modules_required": []
 }

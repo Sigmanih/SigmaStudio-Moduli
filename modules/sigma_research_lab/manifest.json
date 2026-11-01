@@ -31,5 +31,18 @@
       "date": "2026-08-15",
       "notes": "Initial release — extracted Pipelines Lab and Swarm DAG orchestration from Sigma Studio kernel."
     }
-  ]
+  ],
+  "backend": {
+    "handlers_module": "core.modules.sigma_research_lab.backend.handlers",
+    "routes_prefix": "/api/research",
+    "install_to": "core/modules/sigma_research_lab/"
+  },
+  "frontend": {
+    "entrypoint": "frontend/index.jsx",
+    "styles": [
+      "frontend/styles/research-lab.css"
+    ],
+    "install_to": "sigma_studio/src/modules/sigma_research_lab/"
+  },
+  "kernel_modules_required": []
 }

@@ -32,5 +32,19 @@
       "date": "2026-08-15",
       "notes": "Initial release — isolated Kokoro, XTTS-v2, Voice Studio playground, and Voice MCP server."
     }
-  ]
+  ],
+  "backend": {
+    "handlers_module": "core.modules.sigma_voice_studio.backend.handlers",
+    "mcp_server_module": "core.modules.sigma_voice_studio.backend.mcp_server",
+    "routes_prefix": "/api/tts",
+    "install_to": "core/modules/sigma_voice_studio/"
+  },
+  "frontend": {
+    "entrypoint": "frontend/index.jsx",
+    "styles": [
+      "frontend/styles/voice-studio.css"
+    ],
+    "install_to": "sigma_studio/src/modules/sigma_voice_studio/"
+  },
+  "kernel_modules_required": []
 }

@@ -24,5 +24,19 @@
   "size": "~1 MB",
   "icon": "Mail",
   "color": "#ffb454",
-  "requirements": "requirements.txt"
+  "requirements": "requirements.txt",
+  "backend": {
+    "handlers_module": "core.modules.sigma_email_client.backend.handlers",
+    "mcp_server_module": "core.modules.sigma_email_client.backend.email_server",
+    "routes_prefix": "/api/email",
+    "install_to": "core/modules/sigma_email_client/"
+  },
+  "frontend": {
+    "entrypoint": "frontend/index.jsx",
+    "styles": [
+      "frontend/styles/email-hub.css"
+    ],
+    "install_to": "sigma_studio/src/modules/sigma_email_client/"
+  },
+  "kernel_modules_required": []
 }

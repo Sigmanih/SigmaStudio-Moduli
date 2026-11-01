@@ -34,5 +34,15 @@
       "date": "2026-08-15",
       "notes": "Initial release — extracted RoadmapView, Kanban, TaskFloatingPanel and Task API from Sigma Studio kernel."
     }
-  ]
+  ],
+  "backend": {
+    "handlers_module": "core.modules.sigma_roadmap.backend.handlers",
+    "routes_prefix": "/api/tasks",
+    "install_to": "core/modules/sigma_roadmap/"
+  },
+  "frontend": {
+    "entrypoint": "frontend/index.jsx",
+    "install_to": "sigma_studio/src/modules/sigma_roadmap/"
+  },
+  "kernel_modules_required": []
 }

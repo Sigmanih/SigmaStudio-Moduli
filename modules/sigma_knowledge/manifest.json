@@ -46,5 +46,16 @@
       "reason_if_unavailable": null
     },
     "modules": []
-  }
+  },
+  "backend": {
+    "handlers_module": "core.modules.sigma_knowledge.backend.handlers",
+    "mcp_server_module": "core.modules.sigma_knowledge.backend.topic_server",
+    "routes_prefix": "/api/topics",
+    "install_to": "core/modules/sigma_knowledge/"
+  },
+  "frontend": {
+    "entrypoint": "frontend/index.jsx",
+    "install_to": "sigma_studio/src/modules/sigma_knowledge/"
+  },
+  "kernel_modules_required": []
 }

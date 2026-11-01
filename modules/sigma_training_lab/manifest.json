@@ -14,7 +14,16 @@
   "repository": "https://github.com/Sigmanih/SigmaStudio-Moduli",
   "branch": "main",
   "path": "modules/sigma_training_lab",
-  "tags": ["Unsloth", "QLoRA", "PEFT", "Gradus FWE", "MMLU", "GSM8K", "HumanEval", "GGUF Export"],
+  "tags": [
+    "Unsloth",
+    "QLoRA",
+    "PEFT",
+    "Gradus FWE",
+    "MMLU",
+    "GSM8K",
+    "HumanEval",
+    "GGUF Export"
+  ],
   "size": "~3 MB",
   "icon": "GraduationCap",
   "color": "#ff6432",

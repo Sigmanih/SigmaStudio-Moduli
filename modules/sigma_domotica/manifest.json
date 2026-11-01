@@ -21,11 +21,19 @@
   "icon": "Home",
   "color": "#a78bfa",
   "frontend": {
-    "component": "DomoticaTab"
+    "component": "DomoticaTab",
+    "entrypoint": "frontend/DomoticaTab.jsx",
+    "install_path": "sigma_studio/src/components/Workspace/DomoticaTab.jsx"
   },
   "backend": {
+    "handler": "homeassistant_server",
     "module": "core.mcp.homeassistant_server",
-    "source": "backend/homeassistant_server.py"
+    "source": "backend/homeassistant_server.py",
+    "install_path": "core/mcp/homeassistant_server.py",
+    "routes": [
+      "/api/ha/*",
+      "/api/domotica/*"
+    ]
   },
   "config_keys": [
     "HA_URL",
@@ -37,5 +45,6 @@
       "date": "2026-08-14",
       "notes": "Initial release — Home Assistant MCP bridge, entity control, scenes, camera streaming"
     }
-  ]
+  ],
+  "kernel_modules_required": []
 }
