@@ -4,63 +4,70 @@ import MappaArgomenti from './MappaArgomenti';
 import KnowledgeNodeExplorer from './KnowledgeNodeExplorer';
 import { PieChart, Layers } from 'lucide-react';
 
+import TabHeader from '../../components/common/TabHeader';
+
 export default function KnowledgeModuleTab({ onOpenFile, openTab }) {
   const [subView, setSubView] = useState('mappa'); // 'mappa' | 'nodes'
 
+  const knowledgeTabs = [
+    {
+      id: 'mappa',
+      label: 'Mappa Relazionale D3',
+      icon: PieChart,
+      active: subView === 'mappa',
+      onClick: () => setSubView('mappa'),
+    },
+    {
+      id: 'nodes',
+      label: 'Universal Knowledge Nodes',
+      icon: Layers,
+      active: subView === 'nodes',
+      onClick: () => setSubView('nodes'),
+    },
+  ];
+
   return (
     <div style={{ width: '100%', height: '100%', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-      {/* Sub-header navigation bar */}
+      <TabHeader
+        icon={PieChart}
+        title="Argomenti & Conoscenza"
+        highlight="KNOWLEDGE GRAPH"
+        tabs={knowledgeTabs}
+        description="Mappa concettuale interattiva D3, ontologia della conoscenza e nodi universali"
+      />
+
+      {/* Banner informativo transizione verso Developer Studio */}
       <div style={{
+        padding: '6px 16px',
+        background: 'linear-gradient(90deg, rgba(0, 242, 254, 0.12) 0%, rgba(168, 85, 247, 0.12) 100%)',
+        borderBottom: '1px solid rgba(0, 242, 254, 0.25)',
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'space-between',
-        padding: '8px 16px',
-        borderBottom: '1px solid rgba(255, 255, 255, 0.06)',
-        background: 'rgba(15, 17, 26, 0.6)',
-        backdropFilter: 'blur(8px)',
-        flexShrink: 0
+        fontSize: '0.72rem',
+        color: '#e6edf3'
       }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+        <span>
+          ✨ <strong>Nuova integrazione completa:</strong> Il Grafo Relazionale, le note KaTeX e la Creazione AI sono ora integrati direttamente in <strong>Developer Studio</strong> con supporto per l'intero Workspace e Git in tempo reale.
+        </span>
+        {openTab && (
           <button
-            onClick={() => setSubView('mappa')}
+            onClick={() => openTab('developer_studio')}
             style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: '6px',
-              padding: '6px 12px',
-              borderRadius: '8px',
-              border: subView === 'mappa' ? '1px solid rgba(0, 210, 255, 0.4)' : '1px solid rgba(255, 255, 255, 0.05)',
-              background: subView === 'mappa' ? 'rgba(0, 210, 255, 0.12)' : 'transparent',
-              color: subView === 'mappa' ? '#00d2ff' : '#8b8fa3',
-              fontSize: '0.78rem',
-              fontWeight: 600,
-              cursor: 'pointer'
+              padding: '3px 10px',
+              borderRadius: '5px',
+              border: 'none',
+              background: '#00f2fe',
+              color: '#07090e',
+              fontSize: '0.7rem',
+              fontWeight: 800,
+              cursor: 'pointer',
+              marginLeft: '12px'
             }}
           >
-            <PieChart size={14} />
-            Mappa Relazionale D3
+            Passa a Developer Studio →
           </button>
-
-          <button
-            onClick={() => setSubView('nodes')}
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: '6px',
-              padding: '6px 12px',
-              borderRadius: '8px',
-              border: subView === 'nodes' ? '1px solid rgba(188, 140, 255, 0.4)' : '1px solid rgba(255, 255, 255, 0.05)',
-              background: subView === 'nodes' ? 'rgba(188, 140, 255, 0.12)' : 'transparent',
-              color: subView === 'nodes' ? '#bc8cff' : '#8b8fa3',
-              fontSize: '0.78rem',
-              fontWeight: 600,
-              cursor: 'pointer'
-            }}
-          >
-            <Layers size={14} />
-            Universal Knowledge Nodes
-          </button>
-        </div>
+        )}
       </div>
 
       {/* Main Viewport */}

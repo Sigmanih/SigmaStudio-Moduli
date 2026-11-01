@@ -654,16 +654,40 @@ def handle_training_benchmark_endpoint_remove(self):
 def handle_training_benchmark_run(self):
     from core.modules.sigma_training_lab.training.benchmarks import start_benchmark_run
     body = self.read_json_body()
+    thinking_mode = body.get("thinking_mode") or body.get("thinking") or "auto"
     job = start_benchmark_run(
         model_name=body.get("model", "qwen2.5-coder:14b"),
         suite_id=body.get("suite", "all"),
         num_samples=int(body.get("samples", 0)),
         mode=body.get("mode", "full"),
-        # Non convertito a int qui: "auto" e' un valore valido, e la traduzione
-        # in un numero spetta a core.training.capacity, che conosce l'hardware.
         concurrency=body.get("concurrency", "auto"),
+        thinking_mode=thinking_mode,
     )
     self.send_json_response({"success": True, "job": job})
+
+
+def handle_training_benchmark_extend(self):
+    from core.modules.sigma_training_lab.training.benchmarks import extend_benchmark_job
+    body = self.read_json_body()
+    res = extend_benchmark_job(
+        job_id=body.get("id") or body.get("job_id", ""),
+        added_samples=int(body.get("samples", 25)),
+        additional_suite=body.get("suite", ""),
+        mode=body.get("mode", "sample"),
+        concurrency=body.get("concurrency", "auto"),
+    )
+    self.send_json_response(res)
+
+
+def handle_training_benchmark_rerun_suite(self):
+    from core.modules.sigma_training_lab.training.benchmarks import rerun_suite_job
+    body = self.read_json_body()
+    res = rerun_suite_job(
+        job_id=body.get("id") or body.get("job_id", ""),
+        suite_id=body.get("suite", "all"),
+        concurrency=body.get("concurrency", "auto"),
+    )
+    self.send_json_response(res)
 
 
 def handle_training_benchmark_delete(self):

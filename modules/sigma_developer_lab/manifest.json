@@ -9,25 +9,33 @@
   "sidebarBadge": "ADMIN",
   "sidebarBadgeColor": "rgba(0,242,254,0.25)",
   "sidebarCategory": "Infrastruttura & Sistema",
-  "description": "IDE amministrativo avanzato per lo sviluppo di Sigma Studio dall'interno: visualizzazione albero workspace, Monaco editor, terminale integrato, orchestrazione agenti multi-ruolo e MCP server per Git, Lint e Pytest.",
+  "description": "IDE amministrativo per sviluppare Sigma Studio dall'interno: albero del workspace, editor, terminale, orchestrazione a cinque fasi e server MCP per Git, Lint e Pytest. Il runtime dell'agente arriva da core.harness.",
   "author": "Sigma Core Team",
   "repository": "https://github.com/Sigmanih/SigmaStudio-Moduli",
   "branch": "main",
   "path": "modules/sigma_developer_lab",
-  "tags": ["IDE", "Terminal", "Admin Agent", "Monaco Editor", "Git MCP", "Lint MCP", "Test MCP"],
+  "tags": [
+    "IDE",
+    "Terminal",
+    "Admin Agent",
+    "Monaco Editor",
+    "Git MCP",
+    "Lint MCP",
+    "Test MCP"
+  ],
   "size": "~2 MB",
   "icon": "Terminal",
   "color": "#00f2fe",
-  "frontend": {
-    "entrypoint": "frontend/index.jsx",
-    "install_to": "sigma_studio/src/modules/sigma_developer_lab/"
-  },
+  "requirements": "requirements.txt",
   "backend": {
     "handlers_module": "core.modules.sigma_developer_lab.handlers",
     "mcp_server_module": "core.modules.sigma_developer_lab.mcp_tools.git_server",
     "routes_prefix": "/api/developer",
     "install_to": "core/modules/sigma_developer_lab/"
   },
-  "requirements": "requirements.txt",
+  "frontend": {
+    "entrypoint": "frontend/index.jsx",
+    "install_to": "sigma_studio/src/modules/sigma_developer_lab/"
+  },
   "kernel_modules_required": []
 }

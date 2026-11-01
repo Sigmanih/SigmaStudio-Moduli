@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import {
   Package, Download, Play, AlertTriangle, CheckCircle2, Loader, Upload,
-  Layers, Cpu, Zap, HardDrive, ShieldCheck, ChevronDown, Check, Info, Dna, Sparkles, Activity
+  Layers, Cpu, Zap, HardDrive, ShieldCheck, ChevronDown, Check, Info, Dna, Sparkles, Activity,
+  Square, XCircle
 } from 'lucide-react';
 import HfPublishModal from './HfPublishModal.jsx';
 
@@ -9,24 +10,37 @@ import HfPublishModal from './HfPublishModal.jsx';
  * Converts a downloaded Hugging Face checkpoint into GGUF so it can run on the
  * llama.cpp backend. Sits after the download tab because that is the order the
  * work happens in: fetch the weights, then make them runnable on this machine.
+ *
+ * The job list is owned by the hub, not by this component: a conversion runs
+ * for minutes on the server, and leaving this tab must not stop the progress
+ * from being polled and shown.
  */
-export default function GgufConverter({ isLight, addToast, initialModel }) {
+export default function GgufConverter({ isLight, addToast, initialModel, jobs = [], onJobsChanged }) {
   const [models, setModels] = useState([]);
   const [quantTypes, setQuantTypes] = useState([]);
   const [tooling, setTooling] = useState(null);
-  const [jobs, setJobs] = useState([]);
   const [selected, setSelected] = useState(initialModel || '');
   const [quant, setQuant] = useState('Q4_K_M');
   const [busy, setBusy] = useState(false);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState(null);
   const [publishingModel, setPublishingModel] = useState(null);
+  // Un rifiuto del server ("mancano 59 GB") non puo' vivere in un toast che
+  // sparisce: e' la risposta alla domanda "perche' il pulsante non fa nulla",
+  // e deve restare sotto il pulsante finche' non cambia la scelta.
+  const [startError, setStartError] = useState(null);
+  // L'intermedio a 8 bit e' gia' un modello utilizzabile, e ripartire da li'
+  // salta la conversione dai safetensors, che e' la fase lunga. Costa lo
+  // spazio di tenerselo, quindi la scelta e' dell'utente.
+  const [keepIntermediate, setKeepIntermediate] = useState(false);
 
   useEffect(() => {
     if (initialModel) {
       setSelected(initialModel);
     }
   }, [initialModel]);
+
+  useEffect(() => { setStartError(null); }, [selected, quant]);
 
   const cardBg = isLight ? '#ffffff' : 'rgba(15, 18, 28, 0.85)';
   const cardBorder = isLight ? '1px solid rgba(190, 160, 110, 0.28)' : '1px solid rgba(255, 255, 255, 0.08)';
@@ -54,7 +68,6 @@ export default function GgufConverter({ isLight, addToast, initialModel }) {
         setModels(json.models || []);
         setQuantTypes(json.quantization_types || []);
         setTooling(json.tooling || null);
-        setJobs(json.jobs || []);
         if (!selected && json.models?.length) setSelected(initialModel || json.models[0].name);
       }
     } catch (e) {
@@ -66,19 +79,7 @@ export default function GgufConverter({ isLight, addToast, initialModel }) {
 
   useEffect(() => { fetchInfo(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // A conversion runs for minutes; poll only while one is actually active.
   const activeJob = jobs.find(j => ['queued', 'converting', 'quantizing'].includes(j.status));
-  useEffect(() => {
-    if (!activeJob) return undefined;
-    const timer = setInterval(async () => {
-      try {
-        const res = await fetch('/api/models/convert/jobs');
-        const json = await res.json();
-        if (json.success) setJobs(json.jobs || []);
-      } catch { /* transient; the next tick retries */ }
-    }, 2000);
-    return () => clearInterval(timer);
-  }, [activeJob]);
 
   const installTooling = async () => {
     setBusy(true);
@@ -97,21 +98,61 @@ export default function GgufConverter({ isLight, addToast, initialModel }) {
 
   const startConversion = async () => {
     setBusy(true);
+    setStartError(null);
+    // Se il tooling non e' pronto, il click non deve restare muto: avvia
+    // l'installazione e poi riprova la conversione. Prima di tutto questo
+    // il bottone era disabilitato e l'utente vedeva un tasto che non rispondeva.
+    if (!tooling?.ready) {
+      await installTooling();
+      setBusy(false);
+      return;
+    }
     try {
       const res = await fetch('/api/models/convert/start', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ model: selected, quantization: quant }),
+        body: JSON.stringify({
+          model: selected,
+          quantization: quant,
+          keep_intermediate: keepIntermediate,
+        }),
       });
       const json = await res.json();
       if (json.success) {
-        setJobs([json.job, ...jobs]);
-        if (addToast) addToast('🔄 Conversione avviata con successo.', 'info');
-      } else if (addToast) addToast(`❌ ${json.error}`, 'error');
+        if (onJobsChanged) onJobsChanged();
+        if (addToast) addToast('🔄 Conversione avviata: prosegue anche se cambi scheda.', 'info');
+      } else {
+        setStartError(json);
+        if (addToast) addToast(`❌ ${json.error}`, 'error');
+      }
     } catch (e) {
+      setStartError({ error: e.message });
       if (addToast) addToast(`Errore: ${e.message}`, 'error');
     } finally {
       setBusy(false);
+    }
+  };
+
+  const cancelConversion = async (jobId) => {
+    setBusy(true);
+    try {
+      const res = await fetch('/api/models/convert/cancel', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ job_id: jobId }),
+      });
+      const json = await res.json();
+      if (json.success) {
+        if (onJobsChanged) onJobsChanged();
+        if (addToast) addToast('⏹️ Quantizzazione annullata.', 'info');
+      } else {
+        if (addToast) addToast(`❌ ${json.error}`, 'error');
+      }
+    } catch (e) {
+      if (addToast) addToast(`Errore annullamento: ${e.message}`, 'error');
+    } finally {
+      setBusy(false);
+      fetchInfo();
     }
   };
 
@@ -122,22 +163,164 @@ export default function GgufConverter({ isLight, addToast, initialModel }) {
   // Quick Preset Quantizations
   const POPULAR_QUANTS = [
     { id: 'Q4_K_M', label: '⚡ Q4_K_M', tag: 'Consigliato', color: '#10b981' },
+    { id: 'IQ2_S', label: '⚡ IQ2_S', tag: '2-Bit + Scarti', color: '#ec4899' },
+    { id: 'TQ2_0', label: '⚡ TQ2_0', tag: 'BitNet Ternario', color: '#8b5cf6' },
+    { id: 'IQ2_XXS', label: '⚡ IQ2_XXS', tag: '2.06 bpw', color: '#a855f7' },
     { id: 'Q5_K_M', label: '⚡ Q5_K_M', tag: 'Alta Fedeltà', color: '#00d2ff' },
     { id: 'Q8_0', label: '⚡ Q8_0', tag: 'Lossless', color: '#bc8cff' },
     { id: 'Q4_K_S', label: '⚡ Q4_K_S', tag: 'Leggero', color: '#38bdf8' },
     { id: 'Q3_K_M', label: '⚡ Q3_K_M', tag: 'Basso VRAM', color: '#f59e0b' },
-    { id: 'Q6_K', label: '⚡ Q6_K', tag: 'Bilanciato', color: '#a855f7' },
+    { id: 'Q2_K', label: '⚡ Q2_K', tag: '2-Bit Base', color: '#ef4444' },
     { id: 'IQ4_XS', label: '⚡ IQ4_XS', tag: 'iMatrix', color: '#ff79c6' },
   ];
 
+  // Le due larghezze che il convertitore sa produrre: q8_0 quando lo spazio
+  // stringe, altrimenti i 16 bit pieni. Quale delle due lo decide il server.
+  const intermedioQ8Gb = model?.params_b
+    ? (model.params_b * 1e9 * 1.0625) / 2 ** 30
+    : null;
+  const intermedio16Gb = model?.params_b
+    ? (model.params_b * 1e9 * 2) / 2 ** 30
+    : null;
+
+  const diskPlan = startError?.disk_plan;
+  const fittingQuants = diskPlan
+    ? quantTypes
+        .filter(q => {
+          const out = model?.estimated_outputs?.[q.id];
+          return out != null && diskPlan.intermediate_gb + out <= diskPlan.free_gb;
+        })
+        .map(q => q.id)
+    : [];
+
+  // Reso a parte perche' va mostrato anche durante il caricamento: la
+  // conversione prosegue sul server mentre si sta su un'altra scheda, e al
+  // rientro l'avanzamento deve essere subito li', non dietro uno spinner.
+  const jobsPanel = jobs.length > 0 ? (
+    <div style={{
+      padding: '16px 18px', borderRadius: '14px', background: cardBg,
+      border: cardBorder, display: 'flex', flexDirection: 'column', gap: '10px'
+    }}>
+      <div style={{ fontSize: '0.82rem', fontWeight: 800, color: textPrimary, display: 'flex', alignItems: 'center', gap: '6px' }}>
+        <Activity size={14} color="#00d2ff" /> Storico & Attività di Conversione
+      </div>
+
+      {jobs.map(job => (
+        <div key={job.job_id} style={{
+          padding: '10px 14px', borderRadius: '10px',
+          background: subBg, border: subBorder,
+          display: 'flex', flexDirection: 'column', gap: '6px',
+        }}>
+          <div style={{
+            display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+            fontSize: '0.76rem', color: textPrimary, fontWeight: 700,
+          }}>
+            <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+              {job.status === 'completed' && <CheckCircle2 size={14} color="#10b981" />}
+              {job.status === 'failed' && <AlertTriangle size={14} color="#ef4444" />}
+              {job.status === 'cancelled' && <XCircle size={14} color="#f59e0b" />}
+              {['queued', 'converting', 'quantizing'].includes(job.status) && <Loader size={14} className="mh-spin" color="#00d2ff" />}
+              <span>{job.source_model}</span>
+              <span style={{ color: '#00d2ff' }}>➔</span>
+              <span style={{ color: '#10b981' }}>{job.quantization}</span>
+              {job.status === 'cancelled' && (
+                <span style={{ color: '#f59e0b', fontSize: '0.68rem', fontWeight: 600 }}>
+                  (Annullata)
+                </span>
+              )}
+            </span>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              {['queued', 'converting', 'quantizing'].includes(job.status) && (
+                <button
+                  onClick={() => cancelConversion(job.job_id)}
+                  disabled={busy}
+                  style={{
+                    padding: '3px 8px', borderRadius: '6px',
+                    background: 'rgba(239, 68, 68, 0.15)', border: '1px solid rgba(239, 68, 68, 0.40)',
+                    color: '#ef4444', fontSize: '0.68rem', fontWeight: 700, cursor: 'pointer',
+                    display: 'flex', alignItems: 'center', gap: '4px'
+                  }}
+                  title="Interrompi e annulla questa quantizzazione"
+                >
+                  <Square size={10} fill="#ef4444" /> Annulla
+                </button>
+              )}
+              <span style={{ color: textMuted, fontSize: '0.68rem', fontWeight: 600 }}>
+                {job.elapsed_seconds}s
+              </span>
+            </div>
+          </div>
+
+          {['converting', 'quantizing'].includes(job.status) && (
+            <div style={{ height: '5px', borderRadius: '3px', background: 'rgba(255,255,255,0.08)', overflow: 'hidden' }}>
+              <div style={{
+                width: `${job.progress}%`, height: '100%', borderRadius: '3px',
+                background: 'linear-gradient(90deg, #00d2ff, #10b981)',
+                transition: 'width 0.4s ease',
+              }} />
+            </div>
+          )}
+
+          {(job.tensor_overrides || []).some(v => v.tipo) && (
+            <div style={{
+              padding: '7px 10px', borderRadius: '8px',
+              background: 'rgba(255, 184, 108, 0.10)',
+              border: '1px solid rgba(255, 184, 108, 0.30)',
+              fontSize: '0.68rem', color: textMuted, lineHeight: 1.5
+            }}>
+              <b style={{ color: '#ffb86c' }}>Tensori riportati sotto i 50 GB.</b>{' '}
+              Un singolo tensore oltre quel limite rende il modello impubblicabile su
+              Hugging Face, e lo split non taglia dentro un tensore.
+              {job.tensor_overrides.filter(v => v.tipo).map(v => (
+                <div key={v.tensore} style={{ fontFamily: 'monospace', marginTop: '3px' }}>
+                  {v.tensore} → <b style={{ color: '#10b981' }}>{v.tipo}</b>{' '}
+                  ({v.gb_prima} → {v.gb_dopo} GB)
+                </div>
+              ))}
+            </div>
+          )}
+
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '6px' }}>
+            <div style={{ fontSize: '0.70rem', color: job.status === 'failed' ? '#ef4444' : (job.status === 'cancelled' ? '#f59e0b' : textMuted) }}>
+              {job.error || job.message}
+            </div>
+
+            {job.status === 'completed' && (
+              <button
+                onClick={() => setPublishingModel({
+                  filename: job.output_filename || `${job.source_model}-${job.quantization}.gguf`,
+                  path: job.output_path || job.output_filename,
+                  format_tag: 'GGUF',
+                  quantization: job.quantization
+                })}
+                style={{
+                  padding: '4px 10px', borderRadius: '6px',
+                  border: '1px solid rgba(255, 184, 108, 0.4)',
+                  background: 'rgba(255, 184, 108, 0.12)',
+                  color: '#ffb86c', fontSize: '0.68rem', fontWeight: 800,
+                  cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px'
+                }}
+              >
+                <Upload size={11} /> Pubblica su Hugging Face
+              </button>
+            )}
+          </div>
+        </div>
+      ))}
+    </div>
+  ) : null;
+
   if (loading) {
     return (
-      <div style={{
-        padding: '30px', borderRadius: '14px', background: cardBg, border: cardBorder,
-        textAlign: 'center', color: textMuted, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '8px'
-      }}>
-        <Activity className="mh-spin" size={22} color="#00d2ff" />
-        <span style={{ fontSize: '0.80rem' }}>Scansione modelli Safetensors e strumenti di conversione…</span>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+        <div style={{
+          padding: '30px', borderRadius: '14px', background: cardBg, border: cardBorder,
+          textAlign: 'center', color: textMuted, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '8px'
+        }}>
+          <Activity className="mh-spin" size={22} color="#00d2ff" />
+          <span style={{ fontSize: '0.80rem' }}>Scansione modelli Safetensors e strumenti di conversione…</span>
+        </div>
+        {jobsPanel}
       </div>
     );
   }
@@ -468,6 +651,20 @@ export default function GgufConverter({ isLight, addToast, initialModel }) {
               </div>
             )}
 
+            {/* Calibrated Importance & Residual Recovery Banner */}
+            {(quant.startsWith('IQ') || ['TQ2_0', 'TQ1_0', 'I2_S', 'Q2_K'].includes(quant)) && (
+              <div style={{
+                fontSize: '0.70rem', color: '#ec4899',
+                background: 'rgba(236, 72, 153, 0.08)', padding: '8px 12px', borderRadius: '8px',
+                border: '1px solid rgba(236, 72, 153, 0.3)', display: 'flex', alignItems: 'center', gap: '8px'
+              }}>
+                <Sparkles size={14} color="#ec4899" />
+                <span>
+                  <b>Pipeline di Calibrazione Avanzata:</b> calcola automaticamente la matrice d'importanza (iMatrix) CUDA multi-dominio, protegge l'output e genera l'adattatore LoRA compagno per il recupero degli scarti di precisione.
+                </span>
+              </div>
+            )}
+
             {model.already_converted && (
               <div style={{ fontSize: '0.68rem', color: '#ffb86c' }}>
                 ℹ️ Esiste già una versione convertita nella cartella <code>{model.name}-GGUF</code>.
@@ -476,101 +673,165 @@ export default function GgufConverter({ isLight, addToast, initialModel }) {
           </div>
         )}
 
-        {/* PRIMARY CONVERT BUTTON */}
-        <button
-          onClick={startConversion}
-          disabled={busy || !selected || !tooling?.ready || !!activeJob || !!model?.compatibility?.blocked_by?.length}
-          style={{
-            alignSelf: 'flex-start', padding: '9px 20px', borderRadius: '10px',
-            border: 'none',
-            background: (busy || !tooling?.ready || !!activeJob)
-              ? 'rgba(107,114,128,0.2)'
-              : 'linear-gradient(135deg, #10b981, #059669)',
-            color: (busy || !tooling?.ready || !!activeJob) ? textMuted : '#ffffff',
-            fontSize: '0.78rem', fontWeight: 900,
-            cursor: (busy || !tooling?.ready || !!activeJob) ? 'not-allowed' : 'pointer',
-            display: 'inline-flex', alignItems: 'center', gap: '6px',
-            boxShadow: (busy || !tooling?.ready || !!activeJob) ? 'none' : '0 2px 14px rgba(16, 185, 129, 0.35)',
-            transition: 'all 0.15s ease'
-          }}
-        >
-          {activeJob ? <Activity className="mh-spin" size={13} /> : <Play size={13} />}
-          <span>{activeJob ? 'Conversione in corso…' : '⚡ Avvia Conversione in GGUF'}</span>
-        </button>
+        {/* CONSERVA L'INTERMEDIO */}
+        {models.length > 0 && quant !== 'F16' && (
+          <label style={{
+            display: 'flex', alignItems: 'flex-start', gap: '9px',
+            padding: '10px 12px', borderRadius: '10px',
+            background: keepIntermediate ? 'rgba(16, 185, 129, 0.08)' : subBg,
+            border: keepIntermediate ? '1px solid rgba(16, 185, 129, 0.35)' : subBorder,
+            cursor: 'pointer', transition: 'all 0.15s ease'
+          }}>
+            <input
+              type="checkbox"
+              checked={keepIntermediate}
+              onChange={e => setKeepIntermediate(e.target.checked)}
+              style={{ marginTop: '2px', accentColor: '#10b981', cursor: 'pointer' }}
+            />
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '3px' }}>
+              <span style={{ fontSize: '0.75rem', fontWeight: 800, color: textPrimary }}>
+                Conserva anche il GGUF intermedio come modello a sé
+              </span>
+              <span style={{ fontSize: '0.68rem', color: textMuted, lineHeight: 1.5 }}>
+                Per arrivare a {quant} il convertitore produce comunque un GGUF a piena
+                precisione e poi lo riduce. Conservandolo ottieni due modelli da una
+                sola conversione, e le prossime quantizzazioni ripartono da lì saltando
+                la fase lunga.
+                {intermedioQ8Gb != null && (
+                  <> Occupa <b style={{ color: '#ffb86c' }}>
+                    ~{intermedioQ8Gb.toFixed(1)}–{intermedio16Gb.toFixed(1)} GB
+                  </b> in più a lavoro finito, secondo l'intermedio che il server sceglie in base allo spazio libero.</>
+                )}
+              </span>
+            </div>
+          </label>
+        )}
+
+        {/* PRIMARY CONVERT & CANCEL BUTTONS */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+          <button
+            onClick={startConversion}
+            disabled={busy || !selected || !!activeJob || !!model?.compatibility?.blocked_by?.length}
+            style={{
+              alignSelf: 'flex-start', padding: '9px 20px', borderRadius: '10px',
+              border: 'none',
+              background: (busy || !!activeJob)
+                ? 'rgba(107,114,128,0.2)'
+                : 'linear-gradient(135deg, #10b981, #059669)',
+              color: (busy || !!activeJob) ? textMuted : '#ffffff',
+              fontSize: '0.78rem', fontWeight: 900,
+              cursor: (busy || !!activeJob) ? 'not-allowed' : 'pointer',
+              display: 'inline-flex', alignItems: 'center', gap: '6px',
+              boxShadow: (busy || !!activeJob) ? 'none' : '0 2px 14px rgba(16, 185, 129, 0.35)',
+              transition: 'all 0.15s ease'
+            }}
+          >
+            {activeJob ? <Activity className="mh-spin" size={13} /> : <Play size={13} />}
+            <span>{activeJob ? 'Conversione in corso…' : '⚡ Avvia Conversione in GGUF'}</span>
+          </button>
+
+          {activeJob && (
+            <button
+              onClick={() => cancelConversion(activeJob.job_id)}
+              disabled={busy}
+              style={{
+                padding: '9px 16px', borderRadius: '10px',
+                border: '1px solid rgba(239, 68, 68, 0.45)',
+                background: 'rgba(239, 68, 68, 0.15)',
+                color: '#ef4444',
+                fontSize: '0.78rem', fontWeight: 800,
+                cursor: busy ? 'not-allowed' : 'pointer',
+                display: 'inline-flex', alignItems: 'center', gap: '6px',
+                transition: 'all 0.15s ease'
+              }}
+              title="Interrompi e annulla immediatamente la quantizzazione attiva"
+            >
+              <Square size={12} fill="#ef4444" />
+              <span>Annulla Quantizzazione</span>
+            </button>
+          )}
+        </div>
+
+        {/* Un pulsante spento senza spiegazione sembra un guasto, ed e' il modo
+            in cui "il convertitore non funziona" viene percepito quando invece
+            la conversione e' impossibile: la ragione il server la sa gia'
+            (compatibility.summary) e resta scritta qui sotto finche' non cambia
+            la scelta del modello. */}
+        {!!model?.compatibility?.blocked_by?.length && (
+          <div style={{
+            padding: '12px 14px', borderRadius: '10px',
+            background: 'rgba(245, 158, 11, 0.10)',
+            border: '1px solid rgba(245, 158, 11, 0.35)',
+            display: 'flex', flexDirection: 'column', gap: '8px'
+          }}>
+            <div style={{
+              fontSize: '0.76rem', fontWeight: 800, color: '#f59e0b',
+              display: 'flex', alignItems: 'center', gap: '6px'
+            }}>
+              <AlertTriangle size={14} color="#f59e0b" />
+              Conversione non disponibile per questo modello
+            </div>
+            <div style={{ fontSize: '0.74rem', color: textPrimary, lineHeight: 1.5 }}>
+              {model?.compatibility?.summary
+                || 'Il runtime installato non sa leggere questa architettura.'}
+            </div>
+            {model?.compatibility?.upstream_missing && (
+              <div style={{ fontSize: '0.70rem', color: textMuted, lineHeight: 1.5 }}>
+                Non dipende da questa macchina né da strumenti più recenti: il
+                supporto manca a monte, e finché non arriva nessuna build saprà
+                caricare il file. Il modello resta usabile dai pesi Safetensors,
+                che non passano da llama.cpp.
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Perche' l'avvio e' stato rifiutato. Resta finche' non cambia la scelta. */}
+        {startError && (
+          <div style={{
+            padding: '12px 14px', borderRadius: '10px',
+            background: 'rgba(239, 68, 68, 0.10)',
+            border: '1px solid rgba(239, 68, 68, 0.35)',
+            display: 'flex', flexDirection: 'column', gap: '8px'
+          }}>
+            <div style={{
+              fontSize: '0.76rem', fontWeight: 800, color: '#ef4444',
+              display: 'flex', alignItems: 'center', gap: '6px'
+            }}>
+              <AlertTriangle size={14} color="#ef4444" /> Conversione non avviata
+            </div>
+            <div style={{ fontSize: '0.74rem', color: textPrimary, lineHeight: 1.5 }}>
+              {startError.error || 'Il server ha rifiutato la richiesta senza indicarne il motivo.'}
+            </div>
+
+            {diskPlan && (
+              <div style={{
+                display: 'flex', flexWrap: 'wrap', gap: '10px',
+                padding: '8px 10px', borderRadius: '8px',
+                background: subBg, border: subBorder,
+                fontSize: '0.70rem', color: textMuted, fontFamily: 'monospace'
+              }}>
+                <span>Intermedio <b style={{ color: textPrimary }}>{diskPlan.intermediate_gb} GB</b></span>
+                <span>+ Risultato <b style={{ color: textPrimary }}>{diskPlan.final_gb} GB</b></span>
+                <span>= Servono <b style={{ color: '#ef4444' }}>{diskPlan.needed_gb} GB</b></span>
+                <span>Liberi <b style={{ color: textPrimary }}>{diskPlan.free_gb} GB</b></span>
+                <span>Mancano <b style={{ color: '#ef4444' }}>{diskPlan.missing_gb} GB</b></span>
+              </div>
+            )}
+
+            {diskPlan && (
+              <div style={{ fontSize: '0.70rem', color: textMuted, lineHeight: 1.5 }}>
+                {fittingQuants.length > 0
+                  ? <>💡 Con lo spazio attuale entrerebbero: <b style={{ color: '#10b981' }}>{fittingQuants.join(', ')}</b>.</>
+                  : <>💡 Nessuna quantizzazione entra nello spazio rimasto: il solo file intermedio occupa {diskPlan.intermediate_gb} GB. Libera almeno {diskPlan.missing_gb} GB, oppure sposta la cartella dei modelli su un disco piu' capiente dalle Impostazioni.</>}
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
       {/* RECENT / ACTIVE CONVERSION JOBS */}
-      {jobs.length > 0 && (
-        <div style={{
-          padding: '16px 18px', borderRadius: '14px', background: cardBg,
-          border: cardBorder, display: 'flex', flexDirection: 'column', gap: '10px'
-        }}>
-          <div style={{ fontSize: '0.82rem', fontWeight: 800, color: textPrimary, display: 'flex', alignItems: 'center', gap: '6px' }}>
-            <Activity size={14} color="#00d2ff" /> Storico & Attività di Conversione
-          </div>
-
-          {jobs.map(job => (
-            <div key={job.job_id} style={{
-              padding: '10px 14px', borderRadius: '10px',
-              background: subBg, border: subBorder,
-              display: 'flex', flexDirection: 'column', gap: '6px',
-            }}>
-              <div style={{
-                display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-                fontSize: '0.76rem', color: textPrimary, fontWeight: 700,
-              }}>
-                <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                  {job.status === 'completed' && <CheckCircle2 size={14} color="#10b981" />}
-                  {job.status === 'failed' && <AlertTriangle size={14} color="#ef4444" />}
-                  {['queued', 'converting', 'quantizing'].includes(job.status) && <Loader size={14} className="mh-spin" color="#00d2ff" />}
-                  <span>{job.source_model}</span>
-                  <span style={{ color: '#00d2ff' }}>➔</span>
-                  <span style={{ color: '#10b981' }}>{job.quantization}</span>
-                </span>
-                <span style={{ color: textMuted, fontSize: '0.68rem', fontWeight: 600 }}>
-                  {job.elapsed_seconds}s
-                </span>
-              </div>
-
-              {['converting', 'quantizing'].includes(job.status) && (
-                <div style={{ height: '5px', borderRadius: '3px', background: 'rgba(255,255,255,0.08)', overflow: 'hidden' }}>
-                  <div style={{
-                    width: `${job.progress}%`, height: '100%', borderRadius: '3px',
-                    background: 'linear-gradient(90deg, #00d2ff, #10b981)',
-                    transition: 'width 0.4s ease',
-                  }} />
-                </div>
-              )}
-
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '6px' }}>
-                <div style={{ fontSize: '0.70rem', color: job.status === 'failed' ? '#ef4444' : textMuted }}>
-                  {job.error || job.message}
-                </div>
-
-                {job.status === 'completed' && (
-                  <button
-                    onClick={() => setPublishingModel({
-                      filename: job.output_filename || `${job.source_model}-${job.quantization}.gguf`,
-                      path: job.output_path || job.output_filename,
-                      format_tag: 'GGUF',
-                      quantization: job.quantization
-                    })}
-                    style={{
-                      padding: '4px 10px', borderRadius: '6px',
-                      border: '1px solid rgba(255, 184, 108, 0.4)',
-                      background: 'rgba(255, 184, 108, 0.12)',
-                      color: '#ffb86c', fontSize: '0.68rem', fontWeight: 800,
-                      cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px'
-                    }}
-                  >
-                    <Upload size={11} /> Pubblica su Hugging Face
-                  </button>
-                )}
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
+      {jobsPanel}
 
       {publishingModel && (
         <HfPublishModal

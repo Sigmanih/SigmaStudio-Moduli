@@ -181,6 +181,23 @@ class CreativeMCPServer(BaseMCPServer):
         )
 
         self.register_tool(
+            name="generate_agent_3d",
+            description="Crea il personaggio 3D animabile di un agente (ruolo) dal suo ritratto: figura intera, "
+                        "mesh, scheletro e animazioni della plancia. Senza asset_id usa la foto installata con "
+                        "il ruolo. Richiede TRELLIS locale; circa 2 minuti sulla GPU.",
+            input_schema={
+                "type": "object",
+                "properties": {
+                    "nome": {"type": "string", "description": "Id del ruolo, es. 'sceneggiatore'"},
+                    "asset_id": {"type": "string", "description": "Ritratto nel vault (facoltativo)"},
+                },
+                "required": ["nome"],
+            },
+            handler=self._handle_generate_agent_3d,
+            safety=SAFE, category="creative",
+        )
+
+        self.register_tool(
             name="generate_material",
             description="Genera un materiale PBR completo (albedo, normal, roughness, metallic, height, AO) "
                         "da un prompt o da un'immagine esistente.",
@@ -281,6 +298,25 @@ class CreativeMCPServer(BaseMCPServer):
             safety=SAFE, category="creative",
         )
 
+        # Tool video specializzati delegati al provider di Video Studio
+        try:
+            from core.modules.sigma_creative_lab.video.tool_schemas import SCHEMI as VIDEO_SCHEMI
+            from core.modules.sigma_creative_lab.video.tools import esegui as esegui_video
+            for schema in VIDEO_SCHEMI:
+                fn_decl = schema.get("function") or {}
+                fn_name = fn_decl.get("name")
+                if fn_name:
+                    self.register_tool(
+                        name=fn_name,
+                        description=fn_decl.get("description", ""),
+                        input_schema=fn_decl.get("parameters") or {"type": "object", "properties": {}},
+                        handler=lambda _n=fn_name, **kwargs: esegui_video(_n, kwargs),
+                        safety=SAFE,
+                        category="video",
+                    )
+        except Exception as exc:
+            log.warning(f"[CreativeMCPServer] Registrazione tool video non riuscita: {exc}")
+
     def _init_resources(self):
         self.register_resource(
             uri="creative://assets",
@@ -367,6 +403,16 @@ class CreativeMCPServer(BaseMCPServer):
                 asset = _run(cs.model_generator_3d.text_to_3d(prompt))
             else:
                 return {"success": False, "error": "Serve asset_id (immagine) oppure prompt"}
+            return self._asset_payload(asset)
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+
+    def _handle_generate_agent_3d(self, nome: str, asset_id: str = ""):
+        try:
+            from core.modules.sigma_creative_lab.three_d.locale.agenti import genera_agente, ritratto_da
+            if not nome or not nome.replace("_", "").isalnum():
+                return {"success": False, "error": "nome non valido: lettere, cifre e _"}
+            asset = _run(genera_agente(nome, ritratto_da(nome, asset_id)))
             return self._asset_payload(asset)
         except Exception as e:
             return {"success": False, "error": str(e)}

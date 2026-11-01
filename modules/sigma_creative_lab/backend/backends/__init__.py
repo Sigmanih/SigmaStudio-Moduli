@@ -2,8 +2,9 @@
 
 from core.modules.sigma_creative_lab.backends.base import BackendJob, BackendUnavailable, GenerationBackend
 from core.modules.sigma_creative_lab.backends.comfyui_backend import ComfyUIBackend
+from core.modules.sigma_creative_lab.backends.sigma_native_backend import SigmaNativeBackend
 
-BACKENDS = {ComfyUIBackend.id: ComfyUIBackend}
+BACKENDS = {ComfyUIBackend.id: ComfyUIBackend, SigmaNativeBackend.id: SigmaNativeBackend}
 
 
 def get_backend(backend_id: str, config: dict = None) -> GenerationBackend | None:
@@ -16,4 +17,4 @@ def get_backend(backend_id: str, config: dict = None) -> GenerationBackend | Non
 
 
 __all__ = ["BackendJob", "BackendUnavailable", "GenerationBackend",
-           "ComfyUIBackend", "BACKENDS", "get_backend"]
+           "ComfyUIBackend", "SigmaNativeBackend", "BACKENDS", "get_backend"]

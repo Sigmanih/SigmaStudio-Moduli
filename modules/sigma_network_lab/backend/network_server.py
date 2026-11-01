@@ -92,6 +92,39 @@ class NetworkMCPServer(BaseMCPServer):
             category="web_intel",
         )
 
+        self.register_tool(
+            name="http_request",
+            description="Execute arbitrary HTTP request (GET, POST, PUT, DELETE) and retrieve status code, headers and body.",
+            input_schema={
+                "type": "object",
+                "properties": {
+                    "url": {"type": "string", "description": "Target HTTP/HTTPS URL"},
+                    "method": {"type": "string", "default": "GET"},
+                    "headers": {"type": "object"},
+                    "body": {"type": "string"}
+                },
+                "required": ["url"]
+            },
+            handler=self._handle_http_request,
+            safety=SAFE,
+            category="web_intel",
+        )
+
+        self.register_tool(
+            name="resolve_dns",
+            description="Resolve DNS records (A, AAAA, CNAME, reverse DNS) for a domain or IP.",
+            input_schema={
+                "type": "object",
+                "properties": {
+                    "domain": {"type": "string", "description": "Domain or IP address"}
+                },
+                "required": ["domain"]
+            },
+            handler=self._handle_resolve_dns,
+            safety=SAFE,
+            category="web_intel",
+        )
+
     def _init_resources(self):
         self.register_resource(
             uri="network://ailo_peers",
@@ -182,6 +215,61 @@ class NetworkMCPServer(BaseMCPServer):
             return {"success": True, "url": target_url, "content_snippet": text[:3000]}
         except Exception as exc:
             return {"success": False, "url": target_url, "error": str(exc)}
+
+    def _handle_http_request(self, url: str = "", method: str = "GET", headers: dict = None, body: str = None, **kwargs):
+        target_url = url or kwargs.get("query") or ""
+        if not target_url:
+            return {"success": False, "error": "URL mancante"}
+        if not target_url.startswith("http://") and not target_url.startswith("https://"):
+            target_url = "https://" + target_url
+
+        try:
+            import urllib.request
+            import json
+            import ssl
+            req_headers = headers or {}
+            if "User-Agent" not in req_headers:
+                req_headers["User-Agent"] = "SigmaStudio-MCP/1.0"
+
+            data_bytes = body.encode("utf-8") if body else None
+            req = urllib.request.Request(target_url, data=data_bytes, headers=req_headers, method=method.upper())
+            ctx = ssl.create_default_context()
+            ctx.check_hostname = False
+            ctx.verify_mode = ssl.CERT_NONE
+
+            with urllib.request.urlopen(req, timeout=15, context=ctx) as response:
+                status = response.getcode()
+                raw = response.read().decode("utf-8", errors="replace")
+                return {
+                    "success": True,
+                    "status_code": status,
+                    "url": target_url,
+                    "method": method.upper(),
+                    "body_snippet": raw[:4000],
+                    "headers": dict(response.headers)
+                }
+        except Exception as e:
+            return {"success": False, "url": target_url, "error": str(e)}
+
+    def _handle_resolve_dns(self, domain: str = "", **kwargs):
+        target = (domain or kwargs.get("query") or "").strip()
+        target = target.replace("http://", "").replace("https://", "").split("/")[0]
+        if not target:
+            return {"success": False, "error": "Dominio mancante"}
+        try:
+            import socket
+            records = []
+            _, _, ipv4_list = socket.gethostbyname_ex(target)
+            for ip in ipv4_list:
+                records.append({"type": "A", "ip": ip})
+            try:
+                rev, _, _ = socket.gethostbyaddr(target)
+                records.append({"type": "PTR", "hostname": rev})
+            except Exception:
+                pass
+            return {"success": True, "domain": target, "records": records}
+        except Exception as e:
+            return {"success": False, "domain": target, "error": str(e)}
 
     def _read_ailo_peers(self, uri: str):
         return self._handle_discover_peers()

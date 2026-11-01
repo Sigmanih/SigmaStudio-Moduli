@@ -9,7 +9,7 @@ log = get_logger(__name__)
 
 
 def register_routes(app=None) -> None:
-    """Registra tutte le 36 route HTTP di Creative Lab sull'adapter FastAPI / server."""
+    """Registra tutte le route HTTP di Creative Lab sull'adapter FastAPI / server."""
     from .creative_router import (
         handle_creative_assets, handle_creative_asset_get, handle_creative_asset_lineage,
         handle_creative_asset_versions, handle_creative_backends_status, handle_creative_stats,
@@ -68,18 +68,35 @@ def register_routes(app=None) -> None:
         '/api/creative/workflows/delete': handle_creative_workflow_delete,
     }
 
+    # Produzioni video lunghe: stesse convenzioni, rotte in un file proprio.
+    from .video.production_routes import GET_ROUTES as PRODUCTION_GET, POST_ROUTES as PRODUCTION_POST
+    get_routes.update(PRODUCTION_GET)
+    post_routes.update(PRODUCTION_POST)
+    from .video.studio_routes import GET_ROUTES as STUDIO_GET, POST_ROUTES as STUDIO_POST
+    get_routes.update(STUDIO_GET)
+    post_routes.update(STUDIO_POST)
+    from .video.editor_routes import GET_ROUTES as EDITOR_GET, POST_ROUTES as EDITOR_POST
+    get_routes.update(EDITOR_GET)
+    post_routes.update(EDITOR_POST)
+    from .video.character_routes import GET_ROUTES as CHARACTER_GET, POST_ROUTES as CHARACTER_POST
+    get_routes.update(CHARACTER_GET)
+    post_routes.update(CHARACTER_POST)
+
     # Bind to FastAPIHandlerAdapter if present in runtime
     try:
         from core.fastapi_app import FastAPIHandlerAdapter
+        if not hasattr(FastAPIHandlerAdapter, '_GET_HANDLERS') or not isinstance(FastAPIHandlerAdapter._GET_HANDLERS, dict):
+            FastAPIHandlerAdapter._GET_HANDLERS = {}
+        if not hasattr(FastAPIHandlerAdapter, '_POST_HANDLERS') or not isinstance(FastAPIHandlerAdapter._POST_HANDLERS, dict):
+            FastAPIHandlerAdapter._POST_HANDLERS = {}
+
         for path, fn in get_routes.items():
             setattr(FastAPIHandlerAdapter, fn.__name__, fn)
-            if hasattr(FastAPIHandlerAdapter, '_GET_HANDLERS') and isinstance(FastAPIHandlerAdapter._GET_HANDLERS, dict):
-                FastAPIHandlerAdapter._GET_HANDLERS[path] = fn.__name__
+            FastAPIHandlerAdapter._GET_HANDLERS[path] = fn.__name__
         for path, fn in post_routes.items():
             setattr(FastAPIHandlerAdapter, fn.__name__, fn)
-            if hasattr(FastAPIHandlerAdapter, '_POST_HANDLERS') and isinstance(FastAPIHandlerAdapter._POST_HANDLERS, dict):
-                FastAPIHandlerAdapter._POST_HANDLERS[path] = fn.__name__
-        log.info('[sigma_creative_lab] 36 route collegate a FastAPIHandlerAdapter.')
+            FastAPIHandlerAdapter._POST_HANDLERS[path] = fn.__name__
+        log.info(f'[sigma_creative_lab] {len(get_routes) + len(post_routes)} route collegate a FastAPIHandlerAdapter.')
     except Exception as e:
         log.warning(f'[sigma_creative_lab] Avviso binding FastAPIHandlerAdapter: {e}')
 
@@ -87,8 +104,20 @@ def register_routes(app=None) -> None:
 def register_mcp(mcp_hub) -> None:
     """Registra il server MCP di Creative Lab nell'hub MCP del kernel."""
     try:
-        from .mcp_server import CreativeServer
-        mcp_hub.register_server('creative', CreativeServer)
+        from .mcp_server import CreativeMCPServer
+        mcp_hub.register_server(CreativeMCPServer)
         log.info('[sigma_creative_lab] MCP server registrato.')
     except Exception as e:
         log.warning(f'[sigma_creative_lab] MCP server non registrato: {e}')
+
+
+def register_harness_tools() -> list[str]:
+    """Registra i tool del Video Studio e i ruoli cinematografici nell'Agent Harness."""
+    try:
+        from .video import tools as video_tools
+        registered = video_tools.registra()
+        log.info(f'[sigma_creative_lab] {len(registered)} tool video e {len(video_tools.VIDEO_ROLES)} ruoli cinematografici registrati.')
+        return registered
+    except Exception as e:
+        log.warning(f'[sigma_creative_lab] Errore registrazione tool video harness: {e}')
+        return []

@@ -175,7 +175,7 @@ function Section({ id, title, subtitle, summary, children, open, onToggle, tone 
 }
 
 export default function TrainingStudio({ myDatasets, selectedDatasetId, onDatasetSelect,
-                                         onJobCreated, addToast }) {
+                                         onJobCreated, addToast, openTab }) {
   const [activeJob, setActiveJob] = useState(null);
   const [jobs, setJobs] = useState([]);
   const [continueFrom, setContinueFrom] = useState(null);
@@ -245,9 +245,12 @@ export default function TrainingStudio({ myDatasets, selectedDatasetId, onDatase
     setActiveJob(stage.id);
     scrollTo('esecuzione');
     if (action === 'benchmark') {
-      addToast && addToast(
-        'Il modello va valutato dalla tab Benchmark Test: esportalo in Ollama e '
-        + 'lanciarlo lì è per ora il percorso.', 'info', 7000);
+      if (openTab) {
+        openTab({ name: 'Benchmark Lab' }, 'benchmark_lab');
+      } else {
+        addToast && addToast(
+          'Il modello va valutato dal modulo Benchmark Lab: esportalo in Ollama e aprilo da lì.', 'info', 7000);
+      }
     }
   };
 

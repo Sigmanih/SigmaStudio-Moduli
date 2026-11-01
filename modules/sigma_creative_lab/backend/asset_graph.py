@@ -113,9 +113,13 @@ class Asset:
         }
 
 class AssetGraph:
-    def __init__(self, db_path='data/creative/creative_assets.db'):
-        self.db_path = Path(db_path)
-        self.assets_dir = Path('data/creative/assets')
+    def __init__(self, db_path=None):
+        from core import paths
+        # Percorsi dal kernel e non relativi alla cartella di lavoro: avviando il server da un'altra
+        # cartella nasceva un secondo archivio vuoto. I file nel database restano relativi alla radice
+        # del progetto ("works/creative/assets/..."): sono anche il loro URL per il frontend.
+        self.db_path = Path(db_path) if db_path else paths.creative_assets_db()
+        self.assets_dir = Path(os.path.relpath(paths.creative_store_dir(), paths.project_root()))
         self.assets_dir.mkdir(parents=True, exist_ok=True)
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         self._init_db()
@@ -177,7 +181,7 @@ class AssetGraph:
     def create_asset(self, type_val, name, files=None, metadata=None, source_assets=None, tags=None) -> Asset:
         asset_id = str(uuid.uuid4())
         now = datetime.now(timezone.utc).isoformat()
-        
+
         # La directory dell'asset è la sua unica home su disco.
         # La thumbnail resta None finché non viene realmente generata: un percorso
         # che punta a un file inesistente si traduce in immagini rotte nella UI.
@@ -199,7 +203,7 @@ class AssetGraph:
                     INSERT INTO assets (asset_id, type, name, current_version, metadata, files, tags, thumbnail, created_at, updated_at)
                     VALUES (?, ?, ?, 1, ?, ?, ?, ?, ?, ?)
                 ''', (asset_id, type_str, name, metadata_json, files_json, tags_json, thumbnail, now, now))
-                
+
                 cursor.execute('''
                     INSERT INTO asset_versions (asset_id, version_number, metadata, files, created_at)
                     VALUES (?, 1, ?, ?, ?)
@@ -207,13 +211,13 @@ class AssetGraph:
 
                 for parent_id in source_assets:
                     cursor.execute('INSERT INTO asset_relations (parent_id, child_id) VALUES (?, ?)', (parent_id, asset_id))
-                    
+
                 conn.commit()
                 log.info(f"Creato asset {asset_id} di tipo {type_str}")
         except Exception as e:
             log.error(f"Errore creazione asset: {e}")
             raise
-            
+
         return self.get_asset(asset_id)
 
     # ------------------------------------------------------------------
@@ -281,7 +285,7 @@ class AssetGraph:
 
         update_fields = []
         params = []
-        
+
         if 'name' in kwargs:
             update_fields.append("name = ?")
             params.append(kwargs['name'])
@@ -306,7 +310,7 @@ class AssetGraph:
             with sqlite3.connect(self.db_path) as conn:
                 conn.execute(query, params)
                 conn.commit()
-                
+
         return self.get_asset(asset_id)
 
     def delete_asset(self, asset_id) -> bool:
@@ -326,7 +330,7 @@ class AssetGraph:
         query = "SELECT * FROM assets"
         params = []
         conditions = []
-        
+
         if type_filter:
             conditions.append("type = ?")
             params.append(coerce_asset_type(type_filter).value)
@@ -334,13 +338,13 @@ class AssetGraph:
             # Ricerca approssimativa nei tag
             conditions.append("tags LIKE ?")
             params.append(f"%\"{tag_filter}\"%")
-            
+
         if conditions:
             query += " WHERE " + " AND ".join(conditions)
-            
+
         query += " ORDER BY updated_at DESC LIMIT ? OFFSET ?"
         params.extend([limit, offset])
-        
+
         assets = []
         with sqlite3.connect(self.db_path) as conn:
             cursor = conn.cursor()
@@ -353,24 +357,24 @@ class AssetGraph:
         asset = self.get_asset(asset_id)
         if not asset:
             raise ValueError(f"Asset {asset_id} non trovato")
-            
+
         new_version = asset.current_version + 1
         now = datetime.now(timezone.utc).isoformat()
         metadata_json = json.dumps(metadata or asset.metadata)
         files_json = json.dumps(files)
-        
+
         with sqlite3.connect(self.db_path) as conn:
             conn.execute('''
                 INSERT INTO asset_versions (asset_id, version_number, metadata, files, created_at)
                 VALUES (?, ?, ?, ?, ?)
             ''', (asset_id, new_version, metadata_json, files_json, now))
-            
+
             conn.execute('''
                 UPDATE assets SET current_version = ?, metadata = ?, files = ?, updated_at = ?
                 WHERE asset_id = ?
             ''', (new_version, metadata_json, files_json, now, asset_id))
             conn.commit()
-            
+
         return self.get_asset(asset_id)
 
     def get_versions(self, asset_id) -> list:

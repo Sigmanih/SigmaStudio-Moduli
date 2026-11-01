@@ -4,24 +4,77 @@ import {
   Activity, Upload, Download, Search, ChevronDown, ChevronUp, Sliders, Layers, Sparkles,
   Trophy, Award, Gauge, Cpu, ExternalLink,
   RotateCcw, Code, Brain, Eye, Tag, User, Dna, Boxes, CheckCircle2, AlertTriangle, Package,
-  X, Check, ChevronRight, BarChart2, CornerDownRight, Minimize2, Maximize2
+  X, Check, ChevronRight, BarChart2, CornerDownRight, Minimize2, Maximize2, Wrench,
+  MessageSquare, Image as ImageIcon, Volume2, Mic
 } from 'lucide-react';
 import HfPublishModal from './HfPublishModal.jsx';
 import InferenceTestModal from './InferenceTestModal.jsx';
 import DownloadLogSidebar from './DownloadLogSidebar.jsx';
 
 // ==============================================================================
+// Task Type & Modality Definitions (Text-to-Text, Text-to-Image, Vision, Audio, etc.)
+// ==============================================================================
+const TASK_TYPE_CONFIG = {
+  'text-to-text': {
+    id: 'text-to-text',
+    label: 'Text to Text',
+    shortLabel: 'Text',
+    icon: MessageSquare,
+    color: '#38bdf8',
+    gradient: 'linear-gradient(135deg, rgba(56, 189, 248, 0.16) 0%, rgba(99, 102, 241, 0.10) 100%)',
+    borderColor: 'rgba(56, 189, 248, 0.35)'
+  },
+  'text-to-image': {
+    id: 'text-to-image',
+    label: 'Text to Image',
+    shortLabel: 'Image Gen',
+    icon: ImageIcon,
+    color: '#f43f5e',
+    gradient: 'linear-gradient(135deg, rgba(244, 63, 94, 0.16) 0%, rgba(239, 68, 68, 0.10) 100%)',
+    borderColor: 'rgba(244, 63, 94, 0.35)'
+  },
+  'image-to-text': {
+    id: 'image-to-text',
+    label: 'Vision (Image to Text)',
+    shortLabel: 'Vision',
+    icon: Eye,
+    color: '#a855f7',
+    gradient: 'linear-gradient(135deg, rgba(168, 85, 247, 0.16) 0%, rgba(192, 132, 252, 0.10) 100%)',
+    borderColor: 'rgba(168, 85, 247, 0.35)'
+  },
+  'text-to-speech': {
+    id: 'text-to-speech',
+    label: 'Text to Speech (TTS)',
+    shortLabel: 'TTS',
+    icon: Volume2,
+    color: '#10b981',
+    gradient: 'linear-gradient(135deg, rgba(16, 185, 129, 0.16) 0%, rgba(5, 150, 105, 0.10) 100%)',
+    borderColor: 'rgba(16, 185, 129, 0.35)'
+  },
+  'speech-to-text': {
+    id: 'speech-to-text',
+    label: 'Speech to Text (ASR)',
+    shortLabel: 'Speech to Text',
+    icon: Mic,
+    color: '#fb923c',
+    gradient: 'linear-gradient(135deg, rgba(251, 146, 60, 0.16) 0%, rgba(245, 158, 11, 0.10) 100%)',
+    borderColor: 'rgba(251, 146, 60, 0.35)'
+  },
+  'embeddings': {
+    id: 'embeddings',
+    label: 'Embeddings & Rerank',
+    shortLabel: 'Embeddings',
+    icon: Layers,
+    color: '#06b6d4',
+    gradient: 'linear-gradient(135deg, rgba(6, 182, 212, 0.16) 0%, rgba(14, 165, 233, 0.10) 100%)',
+    borderColor: 'rgba(6, 182, 212, 0.35)'
+  }
+};
+
+// ==============================================================================
 // Family Metadata Definitions (Coloring, Badges, Brand Labels)
 // ==============================================================================
 const FAMILY_CONFIG = {
-  sigmanih: {
-    title: 'Modelli & Release Ufficiali Sigmanih',
-    brand: 'Sigmanih Ecosystem',
-    icon: Sparkles,
-    color: '#ffb86c',
-    gradient: 'linear-gradient(135deg, rgba(255, 184, 108, 0.20) 0%, rgba(0, 210, 255, 0.14) 100%)',
-    borderColor: 'rgba(255, 184, 108, 0.40)'
-  },
   gemma: {
     title: 'Famiglia Gemma',
     brand: 'Google DeepMind',
@@ -107,10 +160,13 @@ export default function LocalInventory({
 
   // Search, Filters & Sorting state
   const [searchQuery, setSearchQuery] = useState('');
-  const [familyFilter, setFamilyFilter] = useState('all');       // 'all' | 'sigmanih' | 'gemma' | 'qwen' | 'llama' | 'deepseek' | 'mistral' | 'phi' | 'glm' | 'altro'
+  const [familyFilter, setFamilyFilter] = useState('all');       // 'all' | 'gemma' | 'qwen' | 'llama' | 'deepseek' | 'mistral' | 'phi' | 'glm' | 'altro'
+  const [taskTypeFilter, setTaskTypeFilter] = useState('all');   // 'all' | 'text-to-text' | 'text-to-image' | 'image-to-text' | 'text-to-speech' | 'speech-to-text' | 'embeddings'
   const [categoryFilter, setCategoryFilter] = useState('all');   // 'all' | 'sigmanih' | 'reasoning' | 'code' | 'vision' | 'moe' | 'llm' | 'gguf' | 'safetensors' | 'benchmarked' | 'published'
   const [publisherFilter, setPublisherFilter] = useState('all'); // 'all' | 'sigmanih' | 'google' | 'qwen' | 'meta' | 'deepseek' | 'mistralai' | 'microsoft'
+  const [storageFilter, setStorageFilter] = useState('all');     // 'all' | 'primary' | 'extra'
   const [sortBy, setSortBy] = useState('recent');                // 'recent' | 'size_desc' | 'size_asc' | 'vram_desc' | 'benchmark' | 'name'
+
 
   // Sector Collapsing: map of familyKey -> bool
   const [collapsedFamilies, setCollapsedFamilies] = useState({});
@@ -121,7 +177,20 @@ export default function LocalInventory({
   const [renamingPath, setRenamingPath] = useState(null);
   const [updatingCard, setUpdatingCard] = useState(null);
   const [discovering, setDiscovering] = useState(false);
+  const [updatingAllHf, setUpdatingAllHf] = useState(false);
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
+  const [hfUser, setHfUser] = useState(null);
+
+  useEffect(() => {
+    fetch('/api/models/hf/whoami')
+      .then(res => res.ok ? res.json() : null)
+      .then(data => {
+        if (data && data.authenticated) {
+          setHfUser(data);
+        }
+      })
+      .catch(() => {});
+  }, []);
 
   const cardBg = isLight ? '#ffffff' : 'rgba(15, 18, 28, 0.85)';
   const cardBorder = isLight ? '1px solid rgba(190, 160, 110, 0.28)' : '1px solid rgba(255, 255, 255, 0.08)';
@@ -170,7 +239,7 @@ export default function LocalInventory({
   };
 
   const handleRenameModel = async (model) => {
-    const attuale = model.model_id || model.filename || '';
+    const attuale = model.clean_name || model.model_id || model.filename || '';
     const nuovo = window.prompt(
       'Nuovo nome del modello.\n\nPuoi usare la forma autore/modello: sul disco '
       + 'diventa autore--modello, come i modelli scaricati da Hugging Face.',
@@ -186,7 +255,8 @@ export default function LocalInventory({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           model_path: model.path,
-          model_id: model.model_id || model.filename,
+          model_id: model.model_id || model.clean_name || model.filename,
+          filename: model.filename,
           new_name: nuovo.trim()
         })
       });
@@ -196,6 +266,10 @@ export default function LocalInventory({
           json.renamed ? `✏️ Rinominato in "${json.new_name}"` : (json.message || 'Nessuna modifica'),
           'success');
         fetchLocalModels();
+        try {
+          window.dispatchEvent(new CustomEvent('ai-config-updated'));
+          window.dispatchEvent(new CustomEvent('models-updated'));
+        } catch (e) {}
       } else if (addToast) {
         addToast(`❌ ${json.error || 'Rinomina non riuscita.'}`, 'error');
       }
@@ -226,6 +300,10 @@ export default function LocalInventory({
       if (json.success) {
         if (addToast) addToast(`🗑️ ${json.message}`, 'info');
         fetchLocalModels();
+        try {
+          window.dispatchEvent(new CustomEvent('ai-config-updated'));
+          window.dispatchEvent(new CustomEvent('models-updated'));
+        } catch (e) {}
       } else {
         if (addToast) addToast(`❌ ${json.error}`, 'error');
       }
@@ -237,11 +315,14 @@ export default function LocalInventory({
   };
 
   const handleResumeDownload = async (model) => {
-    const rawTarget = model.model_id || model.filename || '';
+    const rawTarget = model.model_id || model.filename || (model.path ? model.path.split(/[/\\]/).pop() : '') || '';
     const cleanRepoId = rawTarget.replace(/--/g, '/');
-    const mid = model.publication?.repo_id || cleanRepoId;
+    let mid = model.publication?.repo_id || cleanRepoId;
+    if (!mid.includes('/') && model.author && model.author !== 'Community') {
+      mid = `${model.author}/${mid}`;
+    }
     const isSingleFile = !model.is_repo_folder;
-    const fname = isSingleFile ? (model.filename?.split('/').pop() || model.filename) : undefined;
+    const fname = isSingleFile ? (model.filename?.split(/[/\\]/).pop() || model.filename) : undefined;
 
     setResumingModelId(rawTarget);
     if (addToast) addToast(`📥 Ripresa download per "${mid}" in corso...`, 'info');
@@ -253,6 +334,7 @@ export default function LocalInventory({
         body: JSON.stringify({
           model_id: mid,
           filename: fname,
+          is_repo: model.is_repo_folder,
           resume: true
         })
       });
@@ -363,13 +445,15 @@ export default function LocalInventory({
     if (!repoId) return;
     setUpdatingCard(model.path || model.filename);
     try {
-      const res = await fetch('/api/models/hf/publish/card', {
+      const res = await fetch('/api/models/hf/card/update', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          model_path: model.path,
+          local_path: model.path || model.filename,
           model_id: model.model_id || model.filename,
-          repo_id: repoId
+          clean_name: model.clean_name || '',
+          repo_id: repoId,
+          benchmark_summary: model.benchmark_summary || undefined,
         })
       });
       const json = await res.json();
@@ -385,31 +469,70 @@ export default function LocalInventory({
     }
   };
 
+  const handleBatchUpdateHfCards = async () => {
+    if (updatingAllHf) return;
+    setUpdatingAllHf(true);
+    if (addToast) addToast('🚀 Aggiornamento schede e benchmark su Hugging Face in corso...', 'info', 4000);
+    try {
+      const res = await fetch('/api/models/hf/batch_update_cards', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({})
+      });
+      const json = await res.json();
+      if (res.ok && json.success) {
+        const count = json.updated_count || 0;
+        const errCount = json.error_count || 0;
+        if (count > 0) {
+          if (addToast) {
+            addToast(`✨ Aggiornati ${count} modelli su Hugging Face con benchmark e specifiche correnti!`, 'success', 6000);
+          }
+        } else if (errCount === 0) {
+          if (addToast) addToast(json.message || 'Nessun modello attualmente pubblicato da aggiornare.', 'info', 4000);
+        }
+        if (errCount > 0 && addToast) {
+          addToast(`⚠️ ${errCount} modelli non aggiornati (verifica permessi/token Hugging Face).`, 'warning', 6000);
+        }
+        fetchLocalModels();
+      } else if (addToast) {
+        addToast(`❌ Aggiornamento fallito: ${json.error || 'Errore sconosciuto'}`, 'error', 5000);
+      }
+    } catch (e) {
+      if (addToast) addToast(`Errore di rete: ${e.message}`, 'error', 5000);
+    } finally {
+      setUpdatingAllHf(false);
+    }
+  };
+
   const handleRenameHfRepoFromInventory = async (model) => {
-    const vecchioRepo = model.publication?.repo_id;
+    const vecchioRepo = model.publication?.repo_id || model.repo_id;
     if (!vecchioRepo) return;
+    const vecchioNomeSolo = vecchioRepo.includes('/') ? vecchioRepo.split('/')[1] : vecchioRepo;
     const nuovoNome = window.prompt(
       `Rinomina il repository "${vecchioRepo}" su Hugging Face.\n\n`
       + 'Puoi inserire solo il nuovo nome (il tuo username resta invariato) '
       + 'oppure "nuovo-username/nuovo-nome".',
-      vecchioRepo.split('/')[1] || vecchioRepo
+      vecchioNomeSolo
     );
     if (nuovoNome === null) return;
-    if (!nuovoNome.trim()) return;
+    if (!nuovoNome.trim() || nuovoNome.trim() === vecchioNomeSolo || nuovoNome.trim() === vecchioRepo) return;
 
     try {
       const res = await fetch('/api/models/hf/repo/rename', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
+          from_id: vecchioRepo,
           repo_id: vecchioRepo,
+          to_id: nuovoNome.trim(),
           new_name: nuovoNome.trim(),
+          new_repo_id: nuovoNome.trim(),
           model_path: model.path
         })
       });
       const json = await res.json();
       if (res.ok && json.success) {
-        if (addToast) addToast(`✏️ Repository rinominato in "${json.new_repo_id}"!`, 'success');
+        if (addToast) addToast(`✏️ Repository rinominato in "${json.repo_id || json.new_repo_id || nuovoNome.trim()}"!`, 'success');
         fetchLocalModels();
       } else if (addToast) {
         addToast(`❌ Rinomina su HF non riuscita: ${json.error || 'errore'}`, 'error');
@@ -452,22 +575,62 @@ export default function LocalInventory({
 
     // Categoria
     let category = m.category || 'llm';
-    if (isSigmanih) category = 'sigmanih';
-    else if (combinedText.includes('r1') || combinedText.includes('reason') || combinedText.includes('think') || combinedText.includes('qwq')) category = 'reasoning';
+    if (combinedText.includes('r1') || combinedText.includes('reason') || combinedText.includes('think') || combinedText.includes('qwq')) category = 'reasoning';
     else if (combinedText.includes('coder') || combinedText.includes('code') || combinedText.includes('dev')) category = 'code';
     else if (m.is_multimodal || combinedText.includes('vision') || combinedText.includes('vl') || combinedText.includes('clip')) category = 'vision';
     else if (combinedText.includes('moe') || combinedText.includes('expert') || combinedText.includes('8x')) category = 'moe';
 
-    // Chiave famiglia standardizzata
+    // Chiave famiglia architetturale standardizzata
     let familyKey = 'altro';
-    if (isSigmanih) familyKey = 'sigmanih';
-    else if (family.toLowerCase() === 'gemma') familyKey = 'gemma';
-    else if (family.toLowerCase() === 'qwen') familyKey = 'qwen';
-    else if (family.toLowerCase() === 'llama') familyKey = 'llama';
-    else if (family.toLowerCase() === 'deepseek') familyKey = 'deepseek';
-    else if (family.toLowerCase() === 'mistral') familyKey = 'mistral';
-    else if (family.toLowerCase() === 'phi') familyKey = 'phi';
-    else if (family.toLowerCase() === 'glm') familyKey = 'glm';
+    const fLower = family.toLowerCase();
+    if (fLower === 'gemma') familyKey = 'gemma';
+    else if (fLower === 'qwen') familyKey = 'qwen';
+    else if (fLower === 'llama') familyKey = 'llama';
+    else if (fLower === 'deepseek') familyKey = 'deepseek';
+    else if (fLower === 'mistral') familyKey = 'mistral';
+    else if (fLower === 'phi') familyKey = 'phi';
+    else if (fLower === 'glm') familyKey = 'glm';
+    else familyKey = fLower;
+
+
+    // Un modello è considerato "Pubblicato" SOLO se lo abbiamo pubblicato noi su Hugging Face
+    const repoNamespace = repoId.includes('/') ? repoId.split('/')[0].toLowerCase() : '';
+    const myNamespaces = new Set(['sigmanih']);
+    if (hfUser?.username) myNamespaces.add(hfUser.username.toLowerCase());
+    if (Array.isArray(hfUser?.orgs)) {
+      hfUser.orgs.forEach(o => {
+        if (typeof o === 'string') myNamespaces.add(o.toLowerCase());
+        else if (o?.name) myNamespaces.add(o.name.toLowerCase());
+      });
+    }
+
+    const isPublishedByUs = Boolean(
+      m.is_published_by_us ||
+      (repoId && myNamespaces.has(repoNamespace)) ||
+      (m.is_published && myNamespaces.has(repoNamespace)) ||
+      (m.is_published && isSigmanih)
+    );
+
+    // Riconoscimento Modality / Task Type (Text to Text, Text to Image, Vision, TTS, ASR, Embeddings)
+    let taskType = m.task_type;
+    if (!taskType || !TASK_TYPE_CONFIG[taskType]) {
+      const t = `${rawName} ${m.architecture || ''} ${publisher} ${category}`.toLowerCase();
+      if (t.includes('flux') || t.includes('stable-diffusion') || t.includes('sdxl') || t.includes('diffusion') || t.includes('pixart') || t.includes('kandinsky') || t.includes('sd-turbo') || t.includes('text2img') || t.includes('text-to-image') || t.includes('unet') || t.includes('vae')) {
+        taskType = 'text-to-image';
+      } else if (m.is_multimodal || t.includes('vision') || t.includes('vl') || t.includes('clip') || t.includes('llava') || t.includes('moondream') || t.includes('florence') || t.includes('pixtral') || t.includes('image-to-text') || t.includes('minicpm-v')) {
+        taskType = 'image-to-text';
+      } else if (t.includes('whisper') || t.includes('asr') || t.includes('speech-to-text') || t.includes('speech2text') || t.includes('sensevoice') || t.includes('moonshine') || t.includes('transcrib')) {
+        taskType = 'speech-to-text';
+      } else if (t.includes('tts') || t.includes('bark') || t.includes('xtts') || t.includes('kokoro') || t.includes('piper') || t.includes('vits') || t.includes('text-to-speech') || t.includes('text2speech')) {
+        taskType = 'text-to-speech';
+      } else if (t.includes('embedding') || t.includes('embed') || t.includes('bge-') || t.includes('nomic-embed') || t.includes('e5-') || t.includes('rerank') || t.includes('sentence-transformers')) {
+        taskType = 'embeddings';
+      } else {
+        taskType = 'text-to-text';
+      }
+    }
+    const taskConf = TASK_TYPE_CONFIG[taskType] || TASK_TYPE_CONFIG['text-to-text'];
+    const taskLabel = m.task_label || taskConf.label;
 
     return {
       isGguf,
@@ -477,8 +640,11 @@ export default function LocalInventory({
       family,
       familyKey,
       category,
+      taskType,
+      taskLabel,
+      taskConf,
       hasBenchmark: !!m.benchmark_summary?.has_benchmarks,
-      isPublished: Boolean(repoId)
+      isPublished: isPublishedByUs
     };
   };
 
@@ -529,26 +695,32 @@ export default function LocalInventory({
   const safetensorsStorageGb = safetensorsModels.reduce((sum, m) => sum + (parseFloat(m.size_gb) || 0), 0);
   const totalStorageGb = (ggufStorageGb + safetensorsStorageGb).toFixed(1);
 
+  // Conteggio modelli per Tipo di Modello / Task Type
+  const taskTypeCounts = Object.keys(TASK_TYPE_CONFIG).reduce((acc, k) => {
+    acc[k] = models.filter(m => getModelInfo(m).taskType === k).length;
+    return acc;
+  }, {});
+
   // Multi-Filter & Search models
   const filteredModels = models.filter(m => {
     const info = getModelInfo(m);
 
-    // 1. Filtro Settore / Famiglia
-    if (familyFilter !== 'all') {
-      if (familyFilter === 'sigmanih' && !info.isSigmanih) return false;
-      if (familyFilter !== 'sigmanih') {
-        if (info.isSigmanih) return false;
-        if (info.familyKey !== familyFilter) return false;
-      }
+    // 1. Filtro Tipo di Modello (Task Modality)
+    if (taskTypeFilter !== 'all' && info.taskType !== taskTypeFilter) {
+      return false;
     }
 
-    // 2. Filtro Publisher / Autore
+    // 2. Filtro Settore / Famiglia
+    if (familyFilter !== 'all') {
+      if (info.familyKey !== familyFilter) return false;
+    }
+
+    // 3. Filtro Publisher / Autore
     if (publisherFilter !== 'all' && info.publisher.toLowerCase() !== publisherFilter.toLowerCase()) {
       return false;
     }
 
-    // 3. Filtro Categoria & Formato
-    if (categoryFilter === 'sigmanih' && !info.isSigmanih) return false;
+    // 4. Filtro Categoria & Formato
     if (categoryFilter === 'reasoning' && info.category !== 'reasoning') return false;
     if (categoryFilter === 'code' && info.category !== 'code') return false;
     if (categoryFilter === 'vision' && info.category !== 'vision') return false;
@@ -558,7 +730,11 @@ export default function LocalInventory({
     if (categoryFilter === 'benchmarked' && !info.hasBenchmark) return false;
     if (categoryFilter === 'published' && !info.isPublished) return false;
 
-    // 4. Ricerca testuale
+    // 5. Filtro Storage (Principale vs Percorsi Aggiuntivi)
+    if (storageFilter === 'primary' && m.is_extra_dir) return false;
+    if (storageFilter === 'extra' && !m.is_extra_dir) return false;
+
+    // 6. Ricerca testuale
     if (searchQuery.trim()) {
       const q = searchQuery.toLowerCase();
       const matchName = (m.filename || '').toLowerCase().includes(q);
@@ -568,9 +744,10 @@ export default function LocalInventory({
       const matchArch = (m.architecture || '').toLowerCase().includes(q);
       const matchFam = (info.family || '').toLowerCase().includes(q);
       const matchPub = (info.publisher || '').toLowerCase().includes(q);
+      const matchTask = (info.taskLabel || '').toLowerCase().includes(q) || (info.taskType || '').toLowerCase().includes(q);
       const matchSuite = (m.benchmark_summary?.suite_name || '').toLowerCase().includes(q);
       const matchRepo = (m.publication?.repo_id || '').toLowerCase().includes(q);
-      return matchName || matchId || matchDisp || matchQuant || matchArch || matchFam || matchPub || matchSuite || matchRepo;
+      return matchName || matchId || matchDisp || matchQuant || matchArch || matchFam || matchPub || matchTask || matchSuite || matchRepo;
     }
     return true;
   });
@@ -601,12 +778,13 @@ export default function LocalInventory({
   });
 
   // Raggruppamento per Famiglia
-  const familyOrder = ['sigmanih', 'gemma', 'qwen', 'llama', 'deepseek', 'mistral', 'phi', 'glm', 'altro'];
+  const familyOrder = ['gemma', 'qwen', 'llama', 'deepseek', 'mistral', 'phi', 'glm', 'altro'];
   const groupedByFamily = familyOrder.reduce((acc, famKey) => {
+    if (familyFilter !== 'all' && famKey !== familyFilter) {
+      return acc;
+    }
     const items = sortedModels.filter(m => {
       const info = getModelInfo(m);
-      if (famKey === 'sigmanih') return info.isSigmanih;
-      if (info.isSigmanih) return false;
       return info.familyKey === famKey;
     });
     if (items.length > 0) {
@@ -619,7 +797,7 @@ export default function LocalInventory({
   const knownKeys = new Set(familyOrder);
   sortedModels.forEach(m => {
     const info = getModelInfo(m);
-    if (!knownKeys.has(info.familyKey) && !info.isSigmanih) {
+    if (!knownKeys.has(info.familyKey)) {
       if (!groupedByFamily['altro']) groupedByFamily['altro'] = [];
       if (!groupedByFamily['altro'].includes(m)) {
         groupedByFamily['altro'].push(m);
@@ -657,13 +835,10 @@ export default function LocalInventory({
 
   // Count models per family
   const getFamilyCount = (key) => {
-    return models.filter(m => {
-      const info = getModelInfo(m);
-      if (key === 'sigmanih') return info.isSigmanih;
-      if (info.isSigmanih) return false;
-      return info.familyKey === key;
-    }).length;
+    if (key === 'all') return models.length;
+    return models.filter(m => getModelInfo(m).familyKey === key).length;
   };
+
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
@@ -700,12 +875,20 @@ export default function LocalInventory({
             }}>
               📦 <b>{totalModelsCount}</b> Modelli
             </span>
-            <span style={{
-              fontSize: '0.70rem', fontWeight: 800, padding: '3px 8px', borderRadius: '6px',
-              background: 'rgba(255, 184, 108, 0.12)', border: '1px solid rgba(255, 184, 108, 0.3)', color: '#ffb86c'
-            }}>
-              ✨ <b>{sigmanihCount}</b> Sigmanih
-            </span>
+            <button
+              onClick={() => setPublisherFilter(prev => prev === 'sigmanih' ? 'all' : 'sigmanih')}
+              title={publisherFilter === 'sigmanih' ? 'Rimuovi filtro autore Sigmanih' : 'Filtra per autore Sigmanih'}
+              style={{
+                fontSize: '0.70rem', fontWeight: 800, padding: '3px 8px', borderRadius: '6px',
+                background: publisherFilter === 'sigmanih' ? 'rgba(255, 184, 108, 0.25)' : 'rgba(255, 184, 108, 0.12)',
+                border: publisherFilter === 'sigmanih' ? '1.5px solid #ffb86c' : '1px solid rgba(255, 184, 108, 0.3)',
+                color: '#ffb86c', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '4px',
+                boxShadow: publisherFilter === 'sigmanih' ? '0 0 10px rgba(255, 184, 108, 0.35)' : 'none',
+                transition: 'all 0.15s ease'
+              }}
+            >
+              <span>✨ <b>{sigmanihCount}</b> Autore Sigmanih</span>
+            </button>
             <span style={{
               fontSize: '0.70rem', fontWeight: 800, padding: '3px 8px', borderRadius: '6px',
               background: 'rgba(16, 185, 129, 0.10)', border: '1px solid rgba(16, 185, 129, 0.25)', color: '#10b981'
@@ -724,11 +907,54 @@ export default function LocalInventory({
             }}>
               💾 <b>{totalStorageGb} GB</b> Totali
             </span>
+
+            {/* Quick Task Type Counters in Header Strip */}
+            {Object.entries(TASK_TYPE_CONFIG).map(([tKey, tConf]) => {
+              const count = taskTypeCounts[tKey] || 0;
+              if (count === 0) return null;
+              const active = taskTypeFilter === tKey;
+              const TIcon = tConf.icon;
+              return (
+                <button
+                  key={tKey}
+                  onClick={() => setTaskTypeFilter(prev => prev === tKey ? 'all' : tKey)}
+                  title={active ? `Rimuovi filtro ${tConf.label}` : `Filtra per ${tConf.label}`}
+                  style={{
+                    fontSize: '0.68rem', fontWeight: 800, padding: '3px 8px', borderRadius: '6px',
+                    background: active ? `${tConf.color}25` : `${tConf.color}10`,
+                    border: active ? `1.5px solid ${tConf.color}` : `1px solid ${tConf.color}30`,
+                    color: tConf.color, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '4px',
+                    boxShadow: active ? `0 0 10px ${tConf.color}35` : 'none',
+                    transition: 'all 0.15s ease'
+                  }}
+                >
+                  <TIcon size={11} color={tConf.color} />
+                  <span><b>{count}</b> {tConf.shortLabel}</span>
+                </button>
+              );
+            })}
           </div>
         </div>
 
         {/* Right: Quick Global Action Buttons */}
         <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
+          <button
+            onClick={handleBatchUpdateHfCards}
+            disabled={updatingAllHf}
+            title="Riscrive e aggiorna le schede (README.md) di tutti i modelli pubblicati su Hugging Face con i benchmark e i test più recenti, facendoli riapparire tra i primi aggiornati su HF per stimolarne il download"
+            style={{
+              padding: '5px 11px', borderRadius: '7px',
+              border: '1px solid rgba(0, 210, 255, 0.45)',
+              background: 'linear-gradient(135deg, rgba(0, 210, 255, 0.16) 0%, rgba(188, 140, 255, 0.14) 100%)',
+              color: '#00d2ff', fontSize: '0.68rem', fontWeight: 800, cursor: updatingAllHf ? 'wait' : 'pointer',
+              display: 'inline-flex', alignItems: 'center', gap: '5px',
+              boxShadow: '0 2px 8px rgba(0, 210, 255, 0.12)'
+            }}
+          >
+            <Upload size={11} className={updatingAllHf ? 'spin' : ''} />
+            {updatingAllHf ? 'Aggiorno HF...' : 'Aggiorna modelli HF'}
+          </button>
+
           <button
             onClick={handleDiscoverRepos}
             disabled={discovering}
@@ -782,10 +1008,78 @@ export default function LocalInventory({
         {/* LEFT / CENTER COLUMN: SECTORIZED MODELS */}
         <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: '10px' }}>
 
+          {/* ── SELETTORE MODALITÀ & TIPI DI MODELLO (TASK TYPES) ── */}
+          <div style={{
+            display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: '7px',
+            padding: '8px 12px', borderRadius: '10px',
+            background: isLight ? 'rgba(0,0,0,0.02)' : 'rgba(255,255,255,0.02)',
+            border: subBorder
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '5px', marginRight: '6px' }}>
+              <Layers size={13} color="#00d2ff" />
+              <span style={{ fontSize: '0.70rem', fontWeight: 900, color: textPrimary, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                Tipo di Modello:
+              </span>
+            </div>
+
+            <button
+              onClick={() => setTaskTypeFilter('all')}
+              style={{
+                padding: '5px 11px', borderRadius: '7px',
+                border: taskTypeFilter === 'all' ? '1.5px solid #00d2ff' : subBorder,
+                background: taskTypeFilter === 'all' ? 'rgba(0, 210, 255, 0.16)' : cardBg,
+                color: taskTypeFilter === 'all' ? '#00d2ff' : textMuted,
+                fontSize: '0.70rem', fontWeight: 800, cursor: 'pointer', whiteSpace: 'nowrap',
+                display: 'inline-flex', alignItems: 'center', gap: '5px',
+                boxShadow: taskTypeFilter === 'all' ? '0 0 10px rgba(0, 210, 255, 0.25)' : 'none',
+                transition: 'all 0.15s ease'
+              }}
+            >
+              <Boxes size={12} />
+              <span>Tutti i Tipi</span>
+              <span style={{ fontSize: '0.60rem', opacity: 0.85 }}>({totalModelsCount})</span>
+            </button>
+
+            {Object.entries(TASK_TYPE_CONFIG).map(([tKey, tConf]) => {
+              const count = taskTypeCounts[tKey] || 0;
+              const TIcon = tConf.icon;
+              const active = taskTypeFilter === tKey;
+
+              return (
+                <button
+                  key={tKey}
+                  onClick={() => setTaskTypeFilter(tKey)}
+                  style={{
+                    padding: '5px 11px', borderRadius: '7px',
+                    border: active ? `1.5px solid ${tConf.color}` : subBorder,
+                    background: active ? `${tConf.color}18` : cardBg,
+                    color: active ? tConf.color : (count > 0 ? textPrimary : textMuted),
+                    fontSize: '0.70rem', fontWeight: active ? 900 : 700, cursor: 'pointer', whiteSpace: 'nowrap',
+                    display: 'inline-flex', alignItems: 'center', gap: '5px',
+                    boxShadow: active ? `0 0 10px ${tConf.color}35` : 'none',
+                    opacity: count === 0 ? 0.65 : 1,
+                    transition: 'all 0.15s ease'
+                  }}
+                >
+                  <TIcon size={12} color={active ? tConf.color : (count > 0 ? tConf.color : textMuted)} />
+                  <span>{tConf.label}</span>
+                  <span style={{
+                    fontSize: '0.58rem', padding: '1px 5px', borderRadius: '4px',
+                    background: active ? `${tConf.color}25` : subBg,
+                    color: active ? tConf.color : textMuted,
+                    fontWeight: 800
+                  }}>
+                    {count}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+
           {/* ── SETTORIALIZZAZIONE RAPIDA: SECTOR TABS (FAMIGLIE MODELLI) ── */}
           <div style={{
-            display: 'flex', alignItems: 'center', gap: '6px', overflowX: 'auto',
-            paddingBottom: '4px', scrollbarWidth: 'none'
+            display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: '7px',
+            paddingBottom: '4px'
           }}>
             <button
               onClick={() => setFamilyFilter('all')}
@@ -811,7 +1105,6 @@ export default function LocalInventory({
               if (count === 0) return null;
               const Icon = conf.icon;
               const active = familyFilter === fKey;
-              const isSig = fKey === 'sigmanih';
 
               return (
                 <button
@@ -820,9 +1113,7 @@ export default function LocalInventory({
                   style={{
                     padding: '6px 12px', borderRadius: '8px',
                     border: active ? `1.5px solid ${conf.color}` : subBorder,
-                    background: active
-                      ? (isSig ? 'linear-gradient(135deg, rgba(255, 184, 108, 0.25), rgba(0, 210, 255, 0.15))' : `${conf.color}18`)
-                      : cardBg,
+                    background: active ? `${conf.color}18` : cardBg,
                     color: active ? conf.color : textMuted,
                     fontSize: '0.72rem', fontWeight: active ? 900 : 700, cursor: 'pointer', whiteSpace: 'nowrap',
                     display: 'inline-flex', alignItems: 'center', gap: '5px',
@@ -831,7 +1122,7 @@ export default function LocalInventory({
                   }}
                 >
                   <Icon size={12} color={active ? conf.color : textMuted} />
-                  <span>{isSig ? 'Sigmanih' : conf.title.replace('Famiglia ', '')}</span>
+                  <span>{conf.title.replace('Famiglia ', '')}</span>
                   <span style={{
                     fontSize: '0.60rem', padding: '1px 5px', borderRadius: '4px',
                     background: active ? `${conf.color}25` : subBg, color: active ? conf.color : textMuted,
@@ -903,7 +1194,27 @@ export default function LocalInventory({
                   </button>
                 );
               })}
+
+              <div style={{ width: '1px', height: '16px', background: 'rgba(255,255,255,0.1)', margin: '0 2px' }} />
+
+              {/* Storage Filter */}
+              <button
+                onClick={() => setStorageFilter(f => f === 'extra' ? 'all' : 'extra')}
+                title="Mostra solo i modelli provenienti da percorsi aggiuntivi o altri dischi"
+                style={{
+                  padding: '4px 8px', borderRadius: '6px',
+                  border: storageFilter === 'extra' ? '1px solid #c084fc' : subBorder,
+                  background: storageFilter === 'extra' ? 'rgba(168, 85, 247, 0.15)' : subBg,
+                  color: storageFilter === 'extra' ? '#c084fc' : textMuted,
+                  fontSize: '0.66rem', fontWeight: storageFilter === 'extra' ? 800 : 600, cursor: 'pointer',
+                  display: 'inline-flex', alignItems: 'center', gap: '4px'
+                }}
+              >
+                <HardDrive size={11} color={storageFilter === 'extra' ? '#c084fc' : textMuted} />
+                <span>Solo Esterni</span>
+              </button>
             </div>
+
 
             {/* Sorting & Sector View Controls */}
             <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
@@ -1051,6 +1362,12 @@ export default function LocalInventory({
                           const hasBenchmark = info.hasBenchmark;
                           const bmScore = bm.score ?? bm.best_score ?? bm.latest_score ?? bm.overall_pass_rate ?? 0;
                           const bmScoreColor = bmScore >= 75 ? '#10b981' : (bmScore >= 50 ? '#00d2ff' : '#ffb86c');
+
+                          // Tool Benchmark (Wrench icon)
+                          const toolScore = m.tool_score ?? bm.tool_score ?? null;
+                          const hasToolBenchmark = Boolean(toolScore !== null && toolScore !== undefined);
+                          const toolScoreColor = toolScore >= 75 ? '#10b981' : (toolScore >= 50 ? '#00d2ff' : '#ffb86c');
+
                           const isPublished = info.isPublished;
                           const cardKey = m.path || m.filename || String(idx);
                           const isExpanded = expandedCards.has(cardKey);
@@ -1108,6 +1425,22 @@ export default function LocalInventory({
                                     </span>
                                   )}
 
+                                  {/* Task Type / Modality Badge */}
+                                  {info.taskConf && (
+                                    <span
+                                      title={`Tipo di Modello: ${info.taskLabel}`}
+                                      style={{
+                                        fontSize: '0.60rem', fontWeight: 800, padding: '2px 6px', borderRadius: '5px',
+                                        background: `${info.taskConf.color}15`, border: `1px solid ${info.taskConf.color}35`,
+                                        color: info.taskConf.color,
+                                        display: 'inline-flex', alignItems: 'center', gap: '3px'
+                                      }}
+                                    >
+                                      <info.taskConf.icon size={10} color={info.taskConf.color} />
+                                      <span>{info.taskConf.label}</span>
+                                    </span>
+                                  )}
+
                                   {/* Model Clean Name */}
                                   <span style={{
                                     fontSize: '0.84rem', fontWeight: 800, color: textPrimary,
@@ -1143,6 +1476,21 @@ export default function LocalInventory({
                                     </span>
                                   )}
 
+                                  {/* Extra Directory Badge */}
+                                  {m.is_extra_dir && (
+                                    <span
+                                      title={`Modello su percorso secondario:\n${m.source_dir || ''}`}
+                                      style={{
+                                        fontSize: '0.58rem', fontWeight: 800, padding: '2px 6px', borderRadius: '4px',
+                                        background: 'rgba(168, 85, 247, 0.15)', border: '1px solid rgba(168, 85, 247, 0.35)', color: '#c084fc',
+                                        display: 'inline-flex', alignItems: 'center', gap: '3px'
+                                      }}
+                                    >
+                                      <HardDrive size={9} /> Esterno
+                                    </span>
+                                  )}
+
+
                                   {/* Benchmark Score Pill (if present) */}
                                   {hasBenchmark && (
                                     <span style={{
@@ -1158,6 +1506,53 @@ export default function LocalInventory({
                                         </span>
                                       )}
                                     </span>
+                                  )}
+
+                                  {/* Tool Benchmark Score Pill (Wrench icon) */}
+                                  {hasToolBenchmark && (
+                                    <span
+                                      title={`Benchmark Tools (Aderenza Protocollo & Tool Use): ${toolScore}%${(m.tool_total || bm.tool_total) ? ` (${m.tool_passed ?? bm.tool_passed ?? 0}/${m.tool_total ?? bm.tool_total} prove superate)` : ''}`}
+                                      style={{
+                                        fontSize: '0.58rem', fontWeight: 800, padding: '2px 7px', borderRadius: '5px',
+                                        background: `${toolScoreColor}18`, border: `1px solid ${toolScoreColor}35`, color: toolScoreColor,
+                                        display: 'inline-flex', alignItems: 'center', gap: '4px'
+                                      }}
+                                    >
+                                      <Wrench size={10} color={toolScoreColor} />
+                                      <span>{toolScore}% Tools</span>
+                                      {(m.tool_total || bm.tool_total) > 0 && (
+                                        <span style={{ opacity: 0.85, fontSize: '0.54rem' }}>
+                                          ({m.tool_passed ?? bm.tool_passed ?? 0}/{m.tool_total ?? bm.tool_total})
+                                        </span>
+                                      )}
+                                    </span>
+                                  )}
+
+                                  {/* Flag "HF Pubblicato" ad altissima visibilità su Hugging Face */}
+                                  {isPublished && (
+                                    <a
+                                      href={m.publication?.url || (m.publication?.repo_id ? `https://huggingface.co/${m.publication.repo_id}` : '#')}
+                                      target="_blank"
+                                      rel="noreferrer"
+                                      title={`Pubblicato su Hugging Face: ${m.publication?.repo_id || ''}\nClicca per aprire la scheda online`}
+                                      onClick={(e) => e.stopPropagation()}
+                                      style={{
+                                        fontSize: '0.62rem', fontWeight: 900, padding: '2px 8px', borderRadius: '6px',
+                                        background: 'linear-gradient(135deg, rgba(255, 184, 108, 0.28) 0%, rgba(255, 153, 0, 0.22) 100%)',
+                                        border: '1px solid #ffb86c',
+                                        color: '#ffd21e',
+                                        display: 'inline-flex', alignItems: 'center', gap: '4px', textDecoration: 'none', cursor: 'pointer',
+                                        boxShadow: '0 0 10px rgba(255, 184, 108, 0.28)',
+                                        letterSpacing: '0.01em',
+                                        transition: 'all 0.15s ease'
+                                      }}
+                                    >
+                                      <span style={{ fontSize: '0.74rem', lineHeight: 1 }}>🤗</span>
+                                      <span>HF Pubblicato</span>
+                                      {m.publication?.repo_id && (
+                                        <ExternalLink size={10} color="#ffd21e" style={{ opacity: 0.9 }} />
+                                      )}
+                                    </a>
                                   )}
 
                                   {/* Incomplete Warning Badge */}
@@ -1341,7 +1736,7 @@ export default function LocalInventory({
                                   </div>
 
                                   {/* ROW 2: BENCHMARK BREAKDOWN & TEST SUITE OUTCOMES */}
-                                  {hasBenchmark && (() => {
+                                  {(hasBenchmark || hasToolBenchmark) && (() => {
                                     const suiteEntries = getSuiteEntries(bm);
                                     const totalPassed = bm.tests_passed ?? 0;
                                     const totalTests = bm.tests_total ?? 0;
@@ -1358,21 +1753,62 @@ export default function LocalInventory({
                                         {/* Top Benchmark Summary Line */}
                                         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '8px' }}>
                                           <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
-                                            <div style={{
-                                              width: '24px', height: '24px', borderRadius: '6px',
-                                              background: 'rgba(255, 184, 108, 0.20)', display: 'flex', alignItems: 'center', justifyContent: 'center'
-                                            }}>
+                                              <div style={{
+                                                width: '24px', height: '24px', borderRadius: '6px',
+                                                background: 'rgba(255, 184, 108, 0.20)', display: 'flex', alignItems: 'center', justifyContent: 'center'
+                                              }}>
                                               <Trophy size={13} color="#ffb86c" />
                                             </div>
                                             <span style={{ fontSize: '0.74rem', fontWeight: 900, color: textPrimary }}>
                                               Benchmark:
                                             </span>
-                                            <span style={{
-                                              fontSize: '0.76rem', fontWeight: 900, color: bmScoreColor,
-                                              padding: '2px 8px', borderRadius: '5px', background: `${bmScoreColor}20`, border: `1px solid ${bmScoreColor}40`
-                                            }}>
-                                              🏆 {bmScore}% Pass
-                                            </span>
+                                            {hasBenchmark && (
+                                              <span style={{
+                                                fontSize: '0.76rem', fontWeight: 900, color: bmScoreColor,
+                                                padding: '2px 8px', borderRadius: '5px', background: `${bmScoreColor}20`, border: `1px solid ${bmScoreColor}40`
+                                              }}>
+                                                🏆 {bmScore}% Pass
+                                              </span>
+                                            )}
+
+                                            {hasToolBenchmark && (
+                                              <span
+                                                title={`Benchmark Tools (Aderenza Protocollo & Tool Use): ${toolScore}%${(m.tool_total || bm.tool_total) ? ` (${m.tool_passed ?? bm.tool_passed ?? 0}/${m.tool_total ?? bm.tool_total} prove)` : ''}`}
+                                                style={{
+                                                  fontSize: '0.76rem', fontWeight: 900, color: toolScoreColor,
+                                                  padding: '2px 8px', borderRadius: '5px', background: `${toolScoreColor}20`, border: `1px solid ${toolScoreColor}40`,
+                                                  display: 'inline-flex', alignItems: 'center', gap: '4px'
+                                                }}
+                                              >
+                                                <Wrench size={11} color={toolScoreColor} />
+                                                <span>{toolScore}% Tools</span>
+                                              </span>
+                                            )}
+
+                                            {/* Flag "HF Pubblicato" ad altissima visibilità su Hugging Face */}
+                                            {isPublished && (
+                                              <a
+                                                href={m.publication?.url || (m.publication?.repo_id ? `https://huggingface.co/${m.publication.repo_id}` : '#')}
+                                                target="_blank"
+                                                rel="noreferrer"
+                                                title={`Modello pubblicato su Hugging Face: ${m.publication?.repo_id || ''}\nClicca per aprire la scheda online`}
+                                                onClick={(e) => e.stopPropagation()}
+                                                style={{
+                                                  fontSize: '0.72rem', fontWeight: 900, color: '#ffd21e',
+                                                  padding: '3px 10px', borderRadius: '6px',
+                                                  background: 'linear-gradient(135deg, rgba(255, 184, 108, 0.28) 0%, rgba(255, 153, 0, 0.22) 100%)',
+                                                  border: '1px solid #ffb86c',
+                                                  boxShadow: '0 0 12px rgba(255, 184, 108, 0.32)',
+                                                  display: 'inline-flex', alignItems: 'center', gap: '5px',
+                                                  textDecoration: 'none', cursor: 'pointer',
+                                                  transition: 'all 0.15s ease'
+                                                }}
+                                              >
+                                                <span style={{ fontSize: '0.82rem', lineHeight: 1 }}>🤗</span>
+                                                <span>HF Pubblicato</span>
+                                                {m.publication?.repo_id && <ExternalLink size={11} color="#ffd21e" style={{ opacity: 0.9 }} />}
+                                              </a>
+                                            )}
 
                                             {totalTests > 0 && (
                                               <span style={{ fontSize: '0.70rem', color: textPrimary, fontWeight: 700 }}>
@@ -1434,10 +1870,21 @@ export default function LocalInventory({
                                   {/* ROW 3: FILE OPERATIONS & TECHNICAL DETAILS */}
                                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '10px', flexWrap: 'wrap', fontSize: '0.68rem', color: textMuted }}>
                                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                                      {info.taskConf && (
+                                        <span style={{ color: info.taskConf.color, fontWeight: 800, display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+                                          <info.taskConf.icon size={11} color={info.taskConf.color} /> Tipo: <b>{info.taskLabel}</b>
+                                        </span>
+                                      )}
                                       {m.architecture && <span>🧬 Architettura: <b>{m.architecture}</b></span>}
                                       {m.added_at && <span>🕒 Aggiunto: <b>{m.added_at}</b></span>}
+                                      {m.is_extra_dir && m.source_dir && (
+                                        <span style={{ color: '#c084fc', fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: '3px' }}>
+                                          <HardDrive size={10} /> Percorso: {m.source_dir}
+                                        </span>
+                                      )}
                                       {m.path && <span title={m.path} style={{ maxWidth: '300px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>📁 {m.path}</span>}
                                     </div>
+
 
                                     <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
                                       {/* Convert GGUF Shortcut */}

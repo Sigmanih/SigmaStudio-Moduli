@@ -52,14 +52,14 @@ const DEFAULT_AGENT_CONFIG = {
 
 // --- All agents with colors, icons, roles ---
 const AGENTS_META = {
-  sigma_architect: { bg: '#7c5bf0', color: '#ffffff', icon: '🏗️', short: 'Arch', name: 'Sigma AI Architect', role: 'architect', image: '/images/agente0.png', manifesto: 'manifesti/sigma_architect.md' },
-  math1:           { bg: '#3fb950', color: '#ffffff', icon: '∑',   short: 'Math', name: 'Sigma Math Researcher', role: 'researcher', image: '/images/matematicoAi.png', manifesto: 'manifesti/math1.md' },
-  code_architect:  { bg: '#00d2ff', color: '#0e1016', icon: '⚙️',  short: 'Code', name: 'Sigma Code Architect', role: 'developer', image: '/images/programmatoreAi.png', manifesto: 'manifesti/code_architect.md' },
-  'test-engineer': { bg: '#58a6ff', color: '#0e1016', icon: '🧪',  short: 'Test', name: 'Ingegnere dei Test', role: 'tester', image: '/images/default.png', manifesto: 'manifesti/test-engineer.md' },
-  'formulario':    { bg: '#e67e22', color: '#ffffff', icon: '📖',  short: 'Form', name: 'Sigma Formulario', role: 'formulario', image: '/images/default.png', manifesto: 'manifesti/formulario.md' },
-  'viz-designer':  { bg: '#d29922', color: '#0e1016', icon: '📊',  short: 'Viz',  name: 'Visualizzatore D3.js', role: 'visualizer', image: '/images/default.png', manifesto: 'manifesti/viz-designer.md' },
-  'proof-reviewer':{ bg: '#ff5555', color: '#ffffff', icon: '🔍',  short: 'Rev',  name: 'Revisore e Confutatore', role: 'reviewer', image: '/images/default.png', manifesto: 'manifesti/proof-reviewer.md' },
-  'math-collatz':  { bg: '#2ea043', color: '#ffffff', icon: '🧮',  short: 'Coll', name: 'Matematico Specialista', role: 'mathematician', image: '/images/default.png', manifesto: 'manifesti/math-collatz.md' },
+  sigma_architect: { bg: '#7c5bf0', color: '#ffffff', icon: '🏗️', short: 'Arch', name: 'Sigma AI Architect', role: 'architect', image: '/images/agente0.png', manifesto: 'Ruoli/sigma_architect.md' },
+  math1:           { bg: '#3fb950', color: '#ffffff', icon: '∑',   short: 'Math', name: 'Sigma Math Researcher', role: 'researcher', image: '/images/matematicoAi.png', manifesto: 'Ruoli/math1.md' },
+  code_architect:  { bg: '#00d2ff', color: '#0e1016', icon: '⚙️',  short: 'Code', name: 'Sigma Code Architect', role: 'developer', image: '/images/programmatoreAi.png', manifesto: 'Ruoli/code_architect.md' },
+  'test-engineer': { bg: '#58a6ff', color: '#0e1016', icon: '🧪',  short: 'Test', name: 'Ingegnere dei Test', role: 'tester', image: '/images/default.png', manifesto: 'Ruoli/test-engineer.md' },
+  'formulario':    { bg: '#e67e22', color: '#ffffff', icon: '📖',  short: 'Form', name: 'Sigma Formulario', role: 'formulario', image: '/images/default.png', manifesto: 'Ruoli/formulario.md' },
+  'viz-designer':  { bg: '#d29922', color: '#0e1016', icon: '📊',  short: 'Viz',  name: 'Visualizzatore D3.js', role: 'visualizer', image: '/images/default.png', manifesto: 'Ruoli/viz-designer.md' },
+  'proof-reviewer':{ bg: '#ff5555', color: '#ffffff', icon: '🔍',  short: 'Rev',  name: 'Revisore e Confutatore', role: 'reviewer', image: '/images/default.png', manifesto: 'Ruoli/proof-reviewer.md' },
+  'math-collatz':  { bg: '#2ea043', color: '#ffffff', icon: '🧮',  short: 'Coll', name: 'Matematico Specialista', role: 'mathematician', image: '/images/default.png', manifesto: 'Ruoli/math-collatz.md' },
 };
 
 // --- Pipeline Templates ---
@@ -154,10 +154,10 @@ export default function useResearchPipeline(onTasksUpdated, addToast) {
             data.agents.forEach(agent => {
               const key = agent.id === 'agente0' ? 'sigma_architect' : agent.id;
               if (next[key]) {
-                next[key] = { 
-                  ...next[key], 
+                next[key] = {
+                  ...next[key],
                   name: agent.name || next[key].name,
-                  manifesto: agent.manifesto || next[key].manifesto 
+                  manifesto: agent.manifesto || next[key].manifesto
                 };
               }
             });
@@ -305,32 +305,32 @@ export default function useResearchPipeline(onTasksUpdated, addToast) {
   // --- Connection Test ---
   const testAgentConnection = useCallback(async (agentId) => {
     const config = agentConfigs[agentId] || DEFAULT_AGENT_CONFIG;
-    
+
     // Abort any existing test for this agent
     if (testAbortRef.current[agentId]) {
       testAbortRef.current[agentId].abort();
     }
-    
+
     const controller = new AbortController();
     testAbortRef.current[agentId] = controller;
-    
+
     setTestStates(prev => ({
       ...prev,
       [agentId]: { testing: true, success: false, error: null, latency: null }
     }));
-    
+
     const startTime = Date.now();
-    
+
     try {
       // Call /api/config to get the API key for the selected provider
       const configRes = await fetch('/api/config', { signal: controller.signal });
       if (!configRes.ok) throw new Error('Config API non raggiungibile');
-      
+
       const configData = await configRes.json();
       const providers = configData?.ai?.providers || {};
       const provConfig = providers[config.provider] || {};
       const apiKey = provConfig.api_key || '';
-      
+
       // Now test by calling the chat API directly with a simple ping
       const testRes = await fetch('/api/chat', {
         method: 'POST',
@@ -346,15 +346,15 @@ export default function useResearchPipeline(onTasksUpdated, addToast) {
         }),
         signal: controller.signal,
       });
-      
+
       if (!testRes.ok) throw new Error(`HTTP ${testRes.status}`);
-      
+
       const testResult = await testRes.json();
       const responseText = (testResult.response || testResult.content || '').trim();
       const latency = Date.now() - startTime;
-      
+
       if (!responseText) throw new Error('Risposta vuota dal modello');
-      
+
       setTestStates(prev => ({
         ...prev,
         [agentId]: {
@@ -607,8 +607,8 @@ export default function useResearchPipeline(onTasksUpdated, addToast) {
     } else if (type === 'orchestrate_subtask_complete') {
       setAgentStates(prev => ({
         ...prev,
-        [event.agent_id]: { 
-          ...prev[event.agent_id], 
+        [event.agent_id]: {
+          ...prev[event.agent_id],
           status: event.success ? 'done' : 'failed',
           error: event.error || null,
           error_detail: event.error || null,

@@ -1,9 +1,10 @@
-import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { 
-  X, Save, Copy, Check, Play, FileCode, SplitSquareVertical, 
-  RotateCcw, Sparkles, Eye, Code, Download, BookOpen 
+import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
+import {
+  X, Save, Copy, Check, Play, FileCode, SplitSquareVertical,
+  RotateCcw, RotateCw, Sparkles, Eye, Code, Download, BookOpen, PieChart
 } from 'lucide-react';
 import { getFileIcon } from './WorkspaceExplorer';
+import DevGraphView from './DevGraphView';
 import { renderMarkdownLatex } from '../../utils/markdownLatex';
 import 'katex/dist/katex.min.css';
 
@@ -58,6 +59,9 @@ export default function CodeEditor({
   onContentChange,
   onSaveFile,
   onRunFileInTerminal,
+  onOpenGraph,
+  onAiCreate,
+  workspaceRoot,
   activeDiff,
   onAcceptDiff,
   onRejectDiff,
@@ -67,10 +71,30 @@ export default function CodeEditor({
   const [copied, setCopied] = useState(false);
   const [showDiffView, setShowDiffView] = useState(false);
   const [showPreview, setShowPreview] = useState(false);
+  const [previewRefreshKey, setPreviewRefreshKey] = useState(0);
+  const [isStudyMode, setIsStudyMode] = useState(false);
   const [imageZoom, setImageZoom] = useState(1);
   const textareaRef = useRef(null);
+  const iframeRef = useRef(null);
 
-  const activeFile = openFiles.find(f => f.path === activeFilePath) || openFiles[0];
+  const norm = (p) => String(p || '').replace(/\\/g, '/').toLowerCase();
+  const activeFile = openFiles.find(f =>
+    norm(f.path) === norm(activeFilePath) ||
+    norm(f.path).endsWith(norm(activeFilePath)) ||
+    norm(activeFilePath).endsWith(norm(f.path))
+  ) || openFiles[0];
+
+  // Il testo appena salvato dall'anteprima HTML coincide gia' con il suo DOM:
+  // ripassarlo a srcDoc ricaricherebbe l'iframe, facendo perdere modalita' modifica
+  // e scorrimento a ogni salvataggio.
+  const frameEchoRef = useRef(null);
+  const [frameDoc, setFrameDoc] = useState(activeFile?.content || '');
+  useEffect(() => {
+    const content = activeFile?.content || '';
+    const isEcho = frameEchoRef.current !== null && content === frameEchoRef.current;
+    frameEchoRef.current = null;
+    if (!isEcho) setFrameDoc(content);
+  }, [activeFile?.path, activeFile?.content]);
 
   // Auto-switch to diff view if activeDiff is provided
   useEffect(() => {
@@ -102,19 +126,91 @@ export default function CodeEditor({
     return '';
   }, [activeFile?.path, activeFile?.content]);
 
+  // Salva file: sincronizza con iframe HTML se siamo in anteprima, o salva direttamente
+  const handleSave = useCallback(() => {
+    if (!activeFile) return;
+    const ext = (activeFile.filename || '').split('.').pop().toLowerCase();
+    if (showPreview && ext === 'html' && iframeRef.current?.contentWindow) {
+      try {
+        iframeRef.current.contentWindow.postMessage({ type: 'SIGMA_DEV_TRIGGER_SAVE' }, '*');
+        return;
+      } catch (e) {
+        console.warn('Trigger save iframe error:', e);
+      }
+    }
+    onSaveFile?.(activeFile.path, activeFile.content);
+  }, [activeFile, showPreview, onSaveFile]);
+
+  // Ricarica esplicitamente l'anteprima leggendo l'ultimo contenuto da disco/memoria
+  const handleRefreshPreview = useCallback(async () => {
+    if (activeFile?.path) {
+      try {
+        const res = await fetch(`/api/developer/fs/raw?path=${encodeURIComponent(activeFile.path)}&_t=${Date.now()}`);
+        if (res.ok) {
+          const freshText = await res.text();
+          onContentChange?.(activeFile.path, freshText);
+          setTimeout(() => {
+            setPreviewRefreshKey(prev => prev + 1);
+          }, 80);
+          return;
+        }
+      } catch (err) {
+        console.warn('Ricarica preview fallback:', err);
+      }
+    }
+    setPreviewRefreshKey(prev => prev + 1);
+  }, [activeFile?.path, onContentChange]);
+
+  // Ascolta messaggi da iframe HTML (es. salvataggio interattivo da data/cv.html)
+  useEffect(() => {
+    const handleFrameMessage = (e) => {
+      // Il download e' accettato solo dalla nostra anteprima: qualsiasi altra finestra
+      // potrebbe altrimenti far scaricare file arbitrari all'utente.
+      if (e.data && e.data.type === 'SIGMA_DEV_DOWNLOAD_FILE'
+          && e.source === iframeRef.current?.contentWindow
+          && e.data.blob instanceof Blob) {
+        const url = URL.createObjectURL(e.data.blob);
+        const link = document.createElement('a');
+        link.style.display = 'none';
+        link.href = url;
+        link.download = String(e.data.filename || 'download');
+        document.body.appendChild(link);
+        link.click();
+        setTimeout(() => {
+          link.remove();
+          URL.revokeObjectURL(url);
+        }, 60000);
+        return;
+      }
+      if (e.data && e.data.type === 'SIGMA_DEV_RELOAD_PREVIEW') {
+        handleRefreshPreview();
+        return;
+      }
+      if (e.data && e.data.type === 'SIGMA_DEV_SAVE_CONTENT') {
+        const { filePath, content } = e.data;
+        const targetPath = activeFile?.path || filePath;
+        if (targetPath && content) {
+          frameEchoRef.current = content;
+          onContentChange?.(targetPath, content);
+          onSaveFile?.(targetPath, content);
+        }
+      }
+    };
+    window.addEventListener('message', handleFrameMessage);
+    return () => window.removeEventListener('message', handleFrameMessage);
+  }, [activeFile?.path, onContentChange, onSaveFile, handleRefreshPreview]);
+
   // Keyboard shortcut Ctrl+S
   useEffect(() => {
     const handleKeyDown = (e) => {
       if ((e.ctrlKey || e.metaKey) && e.key === 's') {
         e.preventDefault();
-        if (activeFile) {
-          onSaveFile(activeFile.path, activeFile.content);
-        }
+        handleSave();
       }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [activeFile, onSaveFile]);
+  }, [handleSave]);
 
   const handleCopy = () => {
     if (activeFile?.content) {
@@ -207,7 +303,7 @@ export default function CodeEditor({
         gap: '4px'
       }}>
         {openFiles.map(file => {
-          const isActive = file.path === activeFilePath;
+          const isActive = activeFile && norm(file.path) === norm(activeFile.path);
           const isDirty = file.dirty;
           return (
             <div
@@ -219,8 +315,8 @@ export default function CodeEditor({
                 gap: '6px',
                 padding: '6px 12px',
                 borderRadius: '6px 6px 0 0',
-                background: isActive 
-                  ? (isLight ? '#ffffff' : '#0d1117') 
+                background: isActive
+                  ? (isLight ? '#ffffff' : '#0d1117')
                   : (isLight ? '#eaeef2' : '#161b22'),
                 borderTop: isActive ? '2px solid #00f2fe' : '2px solid transparent',
                 borderLeft: isLight ? '1px solid #d0d7de' : '1px solid rgba(255,255,255,0.06)',
@@ -228,13 +324,13 @@ export default function CodeEditor({
                 cursor: 'pointer',
                 fontSize: '0.72rem',
                 fontWeight: isActive ? 700 : 500,
-                color: isActive 
-                  ? (isLight ? '#24292f' : '#f0f6fc') 
+                color: isActive
+                  ? (isLight ? '#24292f' : '#f0f6fc')
                   : (isLight ? '#57606a' : '#8b949e'),
                 userSelect: 'none'
               }}
             >
-              {getFileIcon(file.filename)}
+              {file.is_graph ? <PieChart size={13} color="#00f2fe" /> : getFileIcon(file.filename)}
               <span>{file.filename}</span>
               {isDirty && (
                 <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: '#d29922' }} title="Modificato non salvato" />
@@ -281,11 +377,66 @@ export default function CodeEditor({
         </div>
 
         <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-          {/* Mostra Preview Toggle (Markdown, HTML, SVG, JSON) */}
-          {isPreviewable && !isImage && (
+          {/* Pulsante Grafo Relazionale della Cartella */}
+          {!activeFile.is_graph && onOpenGraph && (
             <button
               type="button"
-              onClick={() => setShowPreview(!showPreview)}
+              onClick={() => onOpenGraph(activeFile.path.replace(/\/[^/]+$/, '') || '')}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '5px',
+                padding: '4px 10px',
+                borderRadius: '6px',
+                background: isLight ? '#ffffff' : '#161b22',
+                border: isLight ? '1px solid #d0d7de' : '1px solid rgba(255,255,255,0.1)',
+                color: '#00f2fe',
+                fontSize: '0.68rem',
+                fontWeight: 700,
+                cursor: 'pointer'
+              }}
+              title="Visualizza Grafo Relazionale D3 della Cartella"
+            >
+              <PieChart size={12} color="#00f2fe" />
+              <span>Grafo Cartella</span>
+            </button>
+          )}
+
+          {/* Modalità Studio KaTeX per Markdown */}
+          {(fileExt === 'md' || fileExt === 'markdown') && !activeFile.is_graph && (
+            <button
+              type="button"
+              onClick={() => setIsStudyMode(!isStudyMode)}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '5px',
+                padding: '4px 10px',
+                borderRadius: '6px',
+                background: isStudyMode ? 'rgba(168, 85, 247, 0.2)' : (isLight ? '#ffffff' : '#161b22'),
+                border: isStudyMode ? '1px solid #a855f7' : (isLight ? '1px solid #d0d7de' : '1px solid rgba(255,255,255,0.1)'),
+                color: isStudyMode ? '#c084fc' : (isLight ? '#24292f' : '#c9d1d9'),
+                fontSize: '0.68rem',
+                fontWeight: 700,
+                cursor: 'pointer'
+              }}
+              title="Attiva Modalità Studio e Lettura Matematica KaTeX"
+            >
+              <BookOpen size={12} color="#a855f7" />
+              <span>{isStudyMode ? 'Esci da Studio' : 'Modalità Studio'}</span>
+            </button>
+          )}
+
+          {/* Mostra Preview Toggle (Markdown, HTML, SVG, JSON) */}
+          {isPreviewable && !isImage && !activeFile.is_graph && !isStudyMode && (
+            <button
+              type="button"
+              onClick={() => {
+                if (!showPreview) {
+                  setPreviewRefreshKey(k => k + 1);
+                }
+                setShowPreview(!showPreview);
+              }}
               style={{
                 display: 'flex',
                 alignItems: 'center',
@@ -306,8 +457,33 @@ export default function CodeEditor({
             </button>
           )}
 
+          {/* Aggiorna / Ricarica Preview */}
+          {showPreview && isPreviewable && !activeFile.is_graph && (
+            <button
+              type="button"
+              onClick={handleRefreshPreview}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '5px',
+                padding: '4px 10px',
+                borderRadius: '6px',
+                background: isLight ? '#ffffff' : '#161b22',
+                border: isLight ? '1px solid #d0d7de' : '1px solid rgba(255,255,255,0.1)',
+                color: isLight ? '#24292f' : '#c9d1d9',
+                fontSize: '0.68rem',
+                fontWeight: 600,
+                cursor: 'pointer'
+              }}
+              title="Ricarica l'anteprima e sincronizza con il file su disco"
+            >
+              <RotateCw size={12} />
+              <span>Aggiorna Preview</span>
+            </button>
+          )}
+
           {/* Esegui Script Python / Bash */}
-          {(fileExt === 'py' || fileExt === 'sh' || fileExt === 'js' || fileExt === 'bat' || fileExt === 'ps1') && (
+          {(fileExt === 'py' || fileExt === 'sh' || fileExt === 'js' || fileExt === 'bat' || fileExt === 'ps1') && !activeFile.is_graph && (
             <button
               type="button"
               onClick={() => onRunFileInTerminal(activeFile.path)}
@@ -332,10 +508,10 @@ export default function CodeEditor({
           )}
 
           {/* Save Button */}
-          {!isImage && (
+          {!isImage && !activeFile.is_graph && (
             <button
               type="button"
-              onClick={() => onSaveFile(activeFile.path, activeFile.content)}
+              onClick={handleSave}
               style={{
                 display: 'flex',
                 alignItems: 'center',
@@ -356,7 +532,7 @@ export default function CodeEditor({
           )}
 
           {/* Copy Button */}
-          {!isImage && (
+          {!isImage && !activeFile.is_graph && (
             <button
               type="button"
               onClick={handleCopy}
@@ -379,8 +555,55 @@ export default function CodeEditor({
         </div>
       </div>
 
-      {/* 3. Main Workspace Area: Image / PDF / Media / Model / Diff / Preview / Code Editor */}
-      {isImage ? (
+      {/* 3. Main Workspace Area: DevGraphView / StudyMode / Image / PDF / Media / Model / Diff / Preview / Code Editor */}
+      {activeFile.is_graph ? (
+        <DevGraphView
+          targetPath={activeFile.targetPath || ''}
+          workspaceRoot={workspaceRoot}
+          onOpenFile={(p) => onSelectTab?.(p)}
+          onAiCreate={onAiCreate}
+          isLight={isLight}
+          theme={theme}
+        />
+      ) : isStudyMode && (fileExt === 'md' || fileExt === 'markdown') ? (
+        <div className="dev-study-mode-container">
+          <div style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            padding: '8px 24px',
+            background: isLight ? '#f6f8fa' : '#07090e',
+            borderBottom: isLight ? '1px solid #d0d7de' : '1px solid rgba(255,255,255,0.08)'
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.78rem', fontWeight: 700, color: '#a855f7' }}>
+              <BookOpen size={15} />
+              <span>MODALITÀ STUDIO & LETTURA (KaTeX & Formule Matematiche)</span>
+            </div>
+            <button
+              onClick={() => setIsStudyMode(false)}
+              style={{
+                background: 'none',
+                border: isLight ? '1px solid #d0d7de' : '1px solid rgba(255,255,255,0.15)',
+                borderRadius: '5px',
+                padding: '3px 10px',
+                fontSize: '0.7rem',
+                color: isLight ? '#24292f' : '#c9d1d9',
+                cursor: 'pointer'
+              }}
+            >
+              Torna all'Editor
+            </button>
+          </div>
+          <div
+            className="dev-study-reader markdown-body"
+            style={{
+              background: isLight ? '#ffffff' : '#0d1117',
+              color: isLight ? '#24292f' : '#e6edf3'
+            }}
+            dangerouslySetInnerHTML={{ __html: previewHtml }}
+          />
+        </div>
+      ) : isImage ? (
         <div style={{
           flex: 1,
           display: 'flex',
@@ -692,28 +915,37 @@ export default function CodeEditor({
           flex: 1,
           display: 'flex',
           flexDirection: 'column',
-          overflowY: 'auto',
-          padding: '20px 24px',
+          minHeight: 0,
+          overflow: fileExt === 'html' ? 'hidden' : 'auto',
+          padding: fileExt === 'html' ? 0 : '20px 24px',
           background: isLight ? '#ffffff' : '#0d1117',
           color: isLight ? '#24292f' : '#e6edf3',
           lineHeight: 1.6
         }}>
           {fileExt === 'html' ? (
             <iframe
-              key={`html-${activeFile.path}`}
+              ref={iframeRef}
+              key={`html-${activeFile.path}-${previewRefreshKey}`}
               title="HTML Preview"
-              srcDoc={activeFile.content || ''}
-              style={{ width: '100%', height: '100%', border: 'none', background: '#fff', borderRadius: '8px' }}
-              sandbox="allow-scripts allow-same-origin"
+              srcDoc={frameDoc}
+              style={{
+                flex: 1,
+                width: '100%',
+                height: '100%',
+                minHeight: 0,
+                border: 'none',
+                background: '#fff'
+              }}
+              sandbox="allow-scripts allow-same-origin allow-modals allow-downloads allow-popups allow-popups-to-escape-sandbox allow-forms"
             />
           ) : fileExt === 'svg' ? (
-            <div 
+            <div
               key={`svg-${activeFile.path}`}
               style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100%' }}
-              dangerouslySetInnerHTML={{ __html: activeFile.content || '' }} 
+              dangerouslySetInnerHTML={{ __html: activeFile.content || '' }}
             />
           ) : (
-            <div 
+            <div
               key={`md-${activeFile.path}`}
               className="markdown-body"
               style={{

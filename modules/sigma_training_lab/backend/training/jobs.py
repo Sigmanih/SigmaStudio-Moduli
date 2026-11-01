@@ -85,6 +85,11 @@ def metodo_effettivo(method: str, hyper: dict) -> str:
     if method != "lora_unsloth":
         return method
     try:
+        import unsloth  # noqa: F401
+    except ImportError:
+        log.info("unsloth non presente nell'ambiente: ripiego automatico a trl_sft (PEFT nativo)")
+        return "trl_sft"
+    try:
         rank = int(hyper.get("lora_r", 16))
     except (TypeError, ValueError):
         return method
@@ -1341,12 +1346,40 @@ load_kwargs = dict(dtype=DTYPE, device_map=TUNE.get("device_map") or {"": 0},
 attn = TUNE.get("attn_implementation")
 if attn and attn != "eager":
     load_kwargs["attn_implementation"] = attn
+
+try:
+    import transformers.modeling_utils
+    transformers.modeling_utils.caching_allocator_warmup = lambda *a, **k: None
+except Exception:
+    pass
+
+try:
+    import trl.trainer.sft_trainer
+    trl.trainer.sft_trainer._patch_chunked_ce_lm_head = lambda *a, **k: None
+except Exception:
+    pass
+
+if torch.cuda.is_available() and TUNE.get("device_map") == "auto":
+    try:
+        mem_map = {}
+        for dev_idx in range(torch.cuda.device_count()):
+            dev_mem_gb = torch.cuda.get_device_properties(dev_idx).total_memory / (1024**3)
+            # Su GPU secondaria con <= 8GB, riserva 4GB per buffer intermedi e attivazioni
+            riserva = 4.0 if dev_mem_gb <= 9.0 else 2.0
+            mem_map[dev_idx] = f"{max(1.0, dev_mem_gb - riserva):.1f}GiB"
+        mem_map["cpu"] = "64GiB"
+        load_kwargs["max_memory"] = mem_map
+        sigma("Memory budget calcolato: %s" % mem_map)
+    except Exception:
+        pass
+
 if TUNE.get("load_in_4bit"):
     load_kwargs["quantization_config"] = BitsAndBytesConfig(
         load_in_4bit=True,
         bnb_4bit_compute_dtype=DTYPE,
         bnb_4bit_quant_type="nf4",
-        bnb_4bit_use_double_quant=True,
+        bnb_4bit_use_double_quant=False,
+        llm_int8_enable_fp32_cpu_offload=True,
     )
 
 try:
@@ -2770,6 +2803,34 @@ def _sync_script_template(job: dict) -> bool:
     return True
 
 
+def _resolve_cuda_python() -> str:
+    """Restituisce l'eseguibile Python con supporto CUDA attivo e librerie GPU."""
+    try:
+        import torch
+        if torch.cuda.is_available():
+            return sys.executable
+    except Exception:
+        pass
+
+    import shutil
+    candidati = [
+        r"C:\Users\Sigma\AppData\Local\Programs\Python\Python312\python.exe",
+        shutil.which("python"),
+        sys.executable,
+    ]
+    for c in candidati:
+        if c and os.path.isfile(c):
+            try:
+                res = subprocess.run([c, "-c", "import torch; print(torch.cuda.is_available())"],
+                                     capture_output=True, text=True, timeout=5)
+                if "True" in res.stdout:
+                    log.info("Interprete Python CUDA selezionato: %s", c)
+                    return c
+            except Exception:
+                pass
+    return sys.executable
+
+
 def start_training_job(job_id: str, total_steps: int | None = None) -> dict:
     """Launch the job script in the background with the CUDA env applied.
 
@@ -2829,13 +2890,23 @@ def start_training_job(job_id: str, total_steps: int | None = None) -> dict:
         popen_kwargs["creationflags"] = getattr(subprocess, "CREATE_NO_WINDOW", 0)
 
     pid = 12345
+    python_exe = _resolve_cuda_python()
+    script_abs = str(Path(job["script_path"]).resolve())
     try:
-        with open(log_path, "a", encoding="utf-8", errors="replace") as sink:
-            proc = sub_popen([sys.executable, "-u", job["script_path"]],
-                             stdout=sink, **popen_kwargs)
+        sink = open(log_path, "a", encoding="utf-8", errors="replace")
+        proc = sub_popen([python_exe, "-u", script_abs],
+                         stdout=sink, **popen_kwargs)
         _ACTIVE_PROCESSES[job_id] = proc
         pid = getattr(proc, "pid", 12345) or 12345
-        monitor = threading.Thread(target=_monitor_job, args=(job_id, proc, log_path),
+        def _mon_wrapper():
+            try:
+                _monitor_job(job_id, proc, log_path)
+            finally:
+                try:
+                    sink.close()
+                except Exception:
+                    pass
+        monitor = threading.Thread(target=_mon_wrapper,
                                    daemon=True, name=f"sigma-train-{job_id}")
         monitor.start()
         _MONITORS[job_id] = monitor

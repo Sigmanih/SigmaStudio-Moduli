@@ -1,27 +1,22 @@
 # ==============================================================================
-# core/developer_studio/__init__.py — Developer Studio Package Initialization
-# Sigma Studio v8 — Developer Studio & Admin AI Workspace
+# core/modules/sigma_developer_lab/__init__.py — Developer Studio & Admin IDE
+# Sigma Studio v8 — Modulo installabile
 # ==============================================================================
-"""Developer Studio Package Initialization."""
+"""L'IDE amministrativo: rotte, flusso di lavoro a fasi, server MCP di sviluppo.
 
-from core.modules.sigma_developer_lab.fs_manager import (
-    get_workspace_tree,
-    read_file_content,
-    write_file_content,
-    delete_fs_entry,
-    create_fs_entry,
-    rename_fs_entry,
-    search_workspace_files,
-    get_default_workspace_root
-)
-from core.modules.sigma_developer_lab.terminal_runner import (
-    execute_shell_command_sync,
-    stream_shell_command
-)
-from core.modules.sigma_developer_lab.admin_agent import (
-    stream_admin_agent_turn,
-    execute_admin_tool
-)
+Il motore che fa lavorare l'agente non sta qui: sta nel kernel, in
+`core.harness`, perche' serve anche a chi non installa un IDE. Questo modulo
+aggiunge cio' che riguarda soltanto lo sviluppo di software:
+
+* le rotte `/api/developer/*` e lo streaming SSE verso la UI (`handlers`);
+* l'orchestrazione a cinque fasi analisi → setup → implementazione →
+  verifica → consegna, con i ruoli dello sviluppo (`orchestrator`);
+* i server MCP di git, lint e test (`mcp_tools`).
+
+Chi vuole modificare Sigma Studio dall'interno installa questo modulo. Chi
+vuole solo far eseguire un compito a un modello usa `core.harness` e basta.
+"""
+
 from core.modules.sigma_developer_lab.handlers import (
     handle_fs_tree,
     handle_fs_read,
@@ -33,26 +28,19 @@ from core.modules.sigma_developer_lab.handlers import (
     handle_terminal_exec,
     handle_agent_chat,
     handle_workspace_roots,
+    handle_add_workspace_root,
+    handle_remove_workspace_root,
     handle_orchestrator_run,
     handle_orchestrator_status,
     handle_roles_list,
     handle_fs_backups,
     handle_fs_restore,
+    register_routes,
+    register_mcp,
+    ROUTES,
 )
 
 __all__ = [
-    "get_workspace_tree",
-    "read_file_content",
-    "write_file_content",
-    "delete_fs_entry",
-    "create_fs_entry",
-    "rename_fs_entry",
-    "search_workspace_files",
-    "get_default_workspace_root",
-    "execute_shell_command_sync",
-    "stream_shell_command",
-    "stream_admin_agent_turn",
-    "execute_admin_tool",
     "handle_fs_tree",
     "handle_fs_read",
     "handle_fs_write",
@@ -63,9 +51,14 @@ __all__ = [
     "handle_terminal_exec",
     "handle_agent_chat",
     "handle_workspace_roots",
+    "handle_add_workspace_root",
+    "handle_remove_workspace_root",
     "handle_orchestrator_run",
     "handle_orchestrator_status",
     "handle_roles_list",
     "handle_fs_backups",
     "handle_fs_restore",
+    "register_routes",
+    "register_mcp",
+    "ROUTES",
 ]

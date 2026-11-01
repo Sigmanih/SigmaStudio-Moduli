@@ -55,7 +55,7 @@ export default function ModelPicker({
         <p className="cs-hint" style={{ color: '#ffb86c' }}>
           <AlertTriangle size={12} />
           {selected.workflow_missing
-            ? `Serve il workflow ComfyUI ${selected.workflow}.json in data/creative/workflows/`
+            ? `Serve il workflow ComfyUI ${selected.workflow}.json in works/creative/workflows/`
             : `Richiede uno di questi backend: ${selected.backends.join(', ')}`}
         </p>
       )}

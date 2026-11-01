@@ -217,7 +217,7 @@ export default function MappaArgomenti({ onOpenFile }) {
       setFileTab('ai_edit');
       setAiError('');
       setAiPromptText('');
-      
+
       // Fetch file content
       const fetchContent = async () => {
         try {
@@ -409,8 +409,8 @@ export default function MappaArgomenti({ onOpenFile }) {
     }
   }, []);
 
-  useEffect(() => { 
-    fetchData(); 
+  useEffect(() => {
+    fetchData();
     const handleTopicsUpdated = () => {
       fetchData();
     };
@@ -496,7 +496,7 @@ export default function MappaArgomenti({ onOpenFile }) {
       const isTopLevel = !topic.parent_id;
       const topicId = 'topic-' + topic.id;
       const topicDepth = depths[topic.id] || 0;
-      
+
       let childTopicIndex = 0;
       let totalChildTopics = 0;
       if (topic.parent_id && parentChildrenMap[topic.parent_id]) {
@@ -586,13 +586,13 @@ export default function MappaArgomenti({ onOpenFile }) {
         const parentAngle = parentNode?.angle ?? -Math.PI / 2;
         const totalSiblings = node.totalChildTopics || 1;
         const sibIndex = node.childTopicIndex || 0;
-        
+
         // Spread subtopics in a symmetrical fan around parentAngle
         const spreadArc = Math.min(Math.PI * 1.1, Math.max(Math.PI * 0.45, totalSiblings * 0.5));
-        const angle = totalSiblings > 1 
-          ? parentAngle - (spreadArc / 2) + (sibIndex / (totalSiblings - 1)) * spreadArc 
+        const angle = totalSiblings > 1
+          ? parentAngle - (spreadArc / 2) + (sibIndex / (totalSiblings - 1)) * spreadArc
           : parentAngle;
-        
+
         node.angle = angle;
         const dist = Math.round(branchLength * (1 + 0.12 * (node.depth || 1)));
         const px = parentNode ? (parentNode.targetX ?? parentNode.x) : centerX;
@@ -606,10 +606,10 @@ export default function MappaArgomenti({ onOpenFile }) {
         const parentAngle = parentNode?.angle ?? 0;
         const totalDocs = node.totalDocs || 1;
         const docIdx = node.docIndex || 0;
-        
+
         const docArc = Math.min(Math.PI * 0.9, Math.max(Math.PI * 0.35, totalDocs * 0.35));
-        const angle = totalDocs > 1 
-          ? parentAngle - (docArc / 2) + (docIdx / (totalDocs - 1)) * docArc 
+        const angle = totalDocs > 1
+          ? parentAngle - (docArc / 2) + (docIdx / (totalDocs - 1)) * docArc
           : parentAngle + 0.25;
 
         node.angle = angle;
@@ -724,7 +724,7 @@ export default function MappaArgomenti({ onOpenFile }) {
         const opacity = 0.2 + (i % 7) * 0.1;
         const duration = 2 + (i % 5) * 1.2;
         const delay = (i % 9) * 0.4;
-        
+
         starfieldLayer.append('circle')
           .attr('cx', sx)
           .attr('cy', sy)
@@ -760,7 +760,7 @@ export default function MappaArgomenti({ onOpenFile }) {
         .attr('fill', 'none')
         .attr('stroke', 'rgba(0, 210, 255, 0.06)')
         .attr('stroke-width', 1);
-      
+
       svg.append('rect')
         .attr('width', '100%')
         .attr('height', '100%')
@@ -1303,7 +1303,7 @@ export default function MappaArgomenti({ onOpenFile }) {
   const handleCreateSubTopic = async (parentTarget) => {
     let parentId = null;
     let parentName = 'Argomento';
-    
+
     if (typeof parentTarget === 'string') {
       parentId = parentTarget;
     } else if (parentTarget) {
@@ -1618,10 +1618,10 @@ export default function MappaArgomenti({ onOpenFile }) {
         viz: 'viz',
         whitepapers: 'whitepapers'
       };
-      
+
       const subdir = subdirs[moveTargetCategory] || moveTargetCategory;
       const filename = overlayNode.label; // e.g. "WHITEPAPER_Collatz.md"
-      
+
       const newPath = `${targetFolder}/${subdir}/${filename}`;
 
       const res = await fetch('/api/rename_file', {
@@ -1678,15 +1678,15 @@ export default function MappaArgomenti({ onOpenFile }) {
 
   const handleOverlayCreateFile = async (e) => {
     if (e) e.preventDefault();
-    
+
     // Resolve folder path
     let baseFolder = overlayNode.data?.folder || (overlayNode.data?.id ? `data/${overlayNode.data.id}` : '');
-    
+
     if (!baseFolder) {
       setAiError('Cartella di destinazione non trovata');
       return;
     }
-    
+
     const subdirs = {
       whitepaper: 'whitepapers',
       teoria: 'teoria',
@@ -1701,12 +1701,12 @@ export default function MappaArgomenti({ onOpenFile }) {
       viz: '.html',
       docs: '.md'
     };
-    
+
     const subdir = subdirs[newFileCategory] || newFileCategory;
     const ext = extensions[newFileCategory] || '.md';
-    
+
     let sanitizedName = newFileName.trim();
-    
+
     // UPLOAD MODE HANDLER
     if (creationTab === 'upload') {
       if (!selectedUploadFile) {
@@ -1717,37 +1717,37 @@ export default function MappaArgomenti({ onOpenFile }) {
         setAiError('Inserisci un nome file');
         return;
       }
-      
+
       setAiOverlayLoading(true);
       setAiError('');
-      
+
       try {
         // Keep original extension if not manually typed by user
         const origName = selectedUploadFile.name;
         const lastDot = origName.lastIndexOf('.');
         const origExt = lastDot !== -1 ? origName.substring(lastDot) : '';
-        
+
         let finalName = sanitizedName;
         if (!finalName.toLowerCase().endsWith(origExt.toLowerCase())) {
           finalName = finalName + origExt;
         }
-        
+
         if (newFileCategory === 'whitepaper' && !finalName.toUpperCase().startsWith('WHITEPAPER_')) {
           finalName = 'WHITEPAPER_' + finalName;
         }
-        
+
         const fullPath = `${baseFolder}/${subdir}/${finalName}`;
-        
+
         const formData = new FormData();
         formData.append('file', selectedUploadFile, finalName);
         formData.append('folder', baseFolder);
         formData.append('type', newFileCategory);
-        
+
         const res = await fetch('/api/upload_file', {
           method: 'POST',
           body: formData
         });
-        
+
         const data = await res.json();
         if (data.success) {
           setNewFileName('');
@@ -1765,25 +1765,25 @@ export default function MappaArgomenti({ onOpenFile }) {
       }
       return;
     }
-    
+
     // STANDARD / AI CREATE MODES
     if (!sanitizedName) {
       setAiError('Inserisci un nome file');
       return;
     }
-    
+
     if (newFileCategory === 'whitepaper' && !sanitizedName.toUpperCase().startsWith('WHITEPAPER_')) {
       sanitizedName = 'WHITEPAPER_' + sanitizedName;
     }
-    
+
     const fullPath = `${baseFolder}/${subdir}/${sanitizedName}${ext}`;
-    
+
     if (isAiMode) {
       // AI creation — Close overlay immediately and send persistent start toast
       const targetFileName = `${sanitizedName}${ext}`;
       const roleToUse = selectedAiRole || CATEGORY_AGENT_MAP[newFileCategory] || 'code_architect';
       const toastKeyId = `ai-gen-${Date.now()}`;
-      
+
       setNewFileName('');
       setAiPromptText('');
       setShowAiOverlay(false);
@@ -1862,13 +1862,13 @@ export default function MappaArgomenti({ onOpenFile }) {
       const template = (newFileCategory === 'scripts' || newFileCategory === 'test')
         ? `# ${sanitizedName}\n# Script per Sigma\n\ndef run():\n    print('Running ${sanitizedName}...')\n\nif __name__ == '__main__':\n    run()\n`
         : `# ${sanitizedName}\n\nContenuto del file ${newFileCategory}.\n`;
-        
+
       const res = await fetch('/api/create_file', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ path: fullPath, content: template })
       });
-      
+
       const data = await res.json();
       if (data.success) {
         setNewFileName('');
@@ -1986,9 +1986,9 @@ export default function MappaArgomenti({ onOpenFile }) {
 
         {/* Pulsante Nuovo Argomento Collegato e Selettore Argomento Padre DENTRO l'Argomento */}
         <div className="topic-inside-controls" style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', margin: '8px 0 12px', alignItems: 'center' }}>
-          <button 
-            className="btn-new-subtopic" 
-            onClick={() => handleCreateSubTopic(topic)} 
+          <button
+            className="btn-new-subtopic"
+            onClick={() => handleCreateSubTopic(topic)}
             title="Crea nuovo argomento collegato dentro questo nodo"
             style={{ padding: '6px 12px', fontSize: '0.65rem', background: 'rgba(0,210,255,0.12)', color: '#00d2ff', border: '1px solid rgba(0,210,255,0.3)', borderRadius: '6px', cursor: 'pointer', fontWeight: 600 }}
           >
@@ -2029,7 +2029,7 @@ export default function MappaArgomenti({ onOpenFile }) {
           </div>
         )}
         {filesHtml && <div className="detail-files"><h4>FILE DEI MODULI</h4><div dangerouslySetInnerHTML={{ __html: filesHtml }} /></div>}
-        
+
 
 
       </div>
@@ -2086,7 +2086,7 @@ export default function MappaArgomenti({ onOpenFile }) {
           <div className="detail-files"><h4>📊 VISUALIZZAZIONI</h4>{renderFileList(mod.viz, '📊')}</div>
         )}
         {totalFiles === 0 && <div className="detail-empty-files">Nessun file in questo modulo.</div>}
-        
+
         {/* Rename & Action buttons */}
         <div style={{ marginTop: '4px', display: 'flex', flexDirection: 'column', gap: '4px' }}>
           <button className="detail-action-btn" onClick={() => handleCreateSubTopic(mod)} style={{ color: '#00d2ff', borderColor: 'rgba(0,210,255,0.4)', background: 'rgba(0,210,255,0.08)', fontWeight: 600 }}>
@@ -2217,7 +2217,7 @@ export default function MappaArgomenti({ onOpenFile }) {
           }}>
             🧬
           </div>
-          
+
           {/* Title */}
           <div style={{ textAlign: 'center' }}>
             <h2 style={{
@@ -2293,13 +2293,13 @@ export default function MappaArgomenti({ onOpenFile }) {
   // Filter ONLY top-level main topics (where parent_id is null/empty)
   const topLevelTopics = topicsData.filter(t => !t.parent_id);
 
-  const filteredTopLevelTopics = topLevelTopics.filter(t => 
-    (t.name || '').toLowerCase().includes(searchQuery.toLowerCase()) || 
+  const filteredTopLevelTopics = topLevelTopics.filter(t =>
+    (t.name || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
     (t.domain || '').toLowerCase().includes(searchQuery.toLowerCase())
   );
 
   // Filter ONLY subtopics belonging directly to the active topic
-  const activeTopicSubtopics = activeTopic 
+  const activeTopicSubtopics = activeTopic
     ? topicsData.filter(t => t.parent_id === activeTopic.id && (
         !searchQuery || (t.name || '').toLowerCase().includes(searchQuery.toLowerCase())
       ))
@@ -2462,7 +2462,7 @@ export default function MappaArgomenti({ onOpenFile }) {
         @keyframes spin { to { transform: rotate(360deg); } }
         .retry-btn { padding: 6px 16px; background: #1e2030; border: 1px solid #2a2d3e; border-radius: 6px; color: #e2e4eb; cursor: pointer; font-size: 0.7rem; }
         .retry-btn:hover { background: #2a2d3e; }
-        
+
         /* === TOP: graph + detail panel (35%) === */
         .mappa-top-section {
           height: 100%; display: flex; flex-shrink: 0;
@@ -2558,7 +2558,7 @@ export default function MappaArgomenti({ onOpenFile }) {
           flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 12px;
           margin-top: 4px;
         }
-        
+
         /* Search Box in Sidebar */
         .sidebar-search-box {
           position: relative; display: flex; align-items: center; margin-bottom: 12px;
@@ -2587,7 +2587,7 @@ export default function MappaArgomenti({ onOpenFile }) {
         }
         .explorer-section-header:hover { color: #8b8fa3; }
         .explorer-section-content { display: flex; flex-direction: column; gap: 2px; margin-top: 4px; }
-        
+
         /* Topic Item in Explorer */
         .explorer-topic-item {
           display: flex; align-items: center; gap: 8px; padding: 6px 8px;
@@ -2926,90 +2926,25 @@ export default function MappaArgomenti({ onOpenFile }) {
           box-shadow: 0 0 12px rgba(0, 210, 255, 0.15);
         }
       `}</style>
-      
-      {/* Hero Visual Banner with Standardized Theme System & Dimensions */}
-      <div style={{
-        position: 'relative',
-        borderRadius: 0,
-        overflow: 'hidden',
-        padding: '24px 32px',
-        minHeight: '110px',
-        borderBottom: theme === 'light' ? '1px solid rgba(234, 88, 12, 0.35)' : '1px solid rgba(0, 210, 255, 0.25)',
-        boxShadow: theme === 'light' ? '0 8px 24px rgba(234, 88, 12, 0.08)' : '0 8px 32px rgba(0,0,0,0.4)',
-        backgroundImage: theme === 'light'
-          ? 'linear-gradient(135deg, rgba(254, 252, 247, 0.76) 0%, rgba(248, 242, 232, 0.70) 100%), url("/images/knowledge_graph_banner.jpg")'
-          : 'linear-gradient(135deg, rgba(10, 14, 26, 0.85) 0%, rgba(14, 22, 42, 0.80) 100%), url("/images/knowledge_graph_banner.jpg")',
-        backgroundSize: 'cover',
-        backgroundRepeat: 'no-repeat',
-        backgroundPosition: 'center center',
-        marginBottom: '20px',
-        flexShrink: 0
-      }}>
-        <div style={{ position: 'relative', zIndex: 2, display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '16px' }}>
-          <div style={{ maxWidth: '680px' }}>
-            <div style={{
-              display: 'inline-flex', alignItems: 'center', gap: '6px',
-              padding: '3px 12px', borderRadius: '14px',
-              background: theme === 'light' ? 'rgba(234, 88, 12, 0.12)' : 'rgba(0, 210, 255, 0.15)', 
-              border: theme === 'light' ? '1px solid rgba(234, 88, 12, 0.35)' : '1px solid rgba(0, 210, 255, 0.35)',
-              color: theme === 'light' ? '#ea580c' : '#00d2ff', 
-              fontSize: '0.68rem', fontWeight: 800, letterSpacing: '1px', textTransform: 'uppercase', marginBottom: '6px'
-            }}>
-              <PieChart size={14} /> KNOWLEDGE GRAPH & TOPIC EXPLORER
-            </div>
-            <h1 style={{ margin: '0 0 6px 0', fontSize: '1.4rem', fontWeight: 800, color: theme === 'light' ? '#111111' : '#fff', letterSpacing: '-0.3px', textShadow: 'none' }}>
-              🗺️ Mappa Argomenti & <span style={{
-                color: theme === 'light' ? '#c2410c' : '#00d2ff',
-                fontWeight: 800
-              }}>Grafo di Conoscenza</span>
-            </h1>
-            <p style={{ margin: 0, fontSize: '0.82rem', color: theme === 'light' ? '#4b5563' : '#cbd5e0', lineHeight: 1.45 }}>
-              Mappe concettuali, grafi della conoscenza interattivi D3 e risorse di studio strutturate.
-            </p>
-          </div>
 
-          {/* Action Buttons on the Right */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
-            <button
-              onClick={handleResetLayout}
-              style={{
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: '6px',
-                padding: '10px 18px',
-                borderRadius: '12px',
-                background: theme === 'light' ? '#fffdf9' : '#181b28',
-                color: theme === 'light' ? '#111' : '#fff',
-                border: theme === 'light' ? '1px solid rgba(190, 160, 110, 0.4)' : '1px solid rgba(255, 255, 255, 0.15)',
-                fontSize: '0.82rem',
-                fontWeight: 800,
-                cursor: 'pointer'
-              }}
-            >
-              🎯 Centra Grafo
-            </button>
-          </div>
-        </div>
-      </div>
-      
       {/* TOP SECTION — left column (controls + graph) & right column (detail panel) */}
-      <div className="mappa-top-section" style={{ flex: 1, minHeight: 0, display: 'flex', gap: '14px', margin: '0 16px 14px 16px' }}>
+      <div className="mappa-top-section" style={{ flex: 1, minHeight: 0, display: 'flex', gap: '14px', margin: '12px 16px 14px 16px' }}>
         {/* COLONNA SINISTRA — BARRA DEI CONTROLLI + CANVAS GRAFO */}
-        <div 
-          className="mappa-left-column" 
-          style={{ 
-            flex: 1, 
-            minWidth: 0, 
-            display: 'flex', 
-            flexDirection: 'column', 
+        <div
+          className="mappa-left-column"
+          style={{
+            flex: 1,
+            minWidth: 0,
+            display: 'flex',
+            flexDirection: 'column',
             position: 'relative',
             overflow: 'hidden',
             borderRadius: '10px'
           }}
         >
           {/* HEADER CONTROLS BAR (Posizionata sopra il grafo nella colonna di sinistra) */}
-          <div 
-            className="mappa-header-bar" 
+          <div
+            className="mappa-header-bar"
             style={{
               display: 'flex',
               alignItems: 'center',
@@ -3086,15 +3021,15 @@ export default function MappaArgomenti({ onOpenFile }) {
               </div>
 
               {/* Esplora Button */}
-              <button 
-                className={`btn-explore ${showDocs ? 'active' : ''}`} 
+              <button
+                className={`btn-explore ${showDocs ? 'active' : ''}`}
                 onClick={() => {
                   setShowDocs(prev => {
                     const next = !prev;
                     localStorage.setItem('sigma_mappa_explore', String(next));
                     return next;
                   });
-                }} 
+                }}
                 title={showDocs ? 'Collidi' : 'Esplora'}
                 style={{ padding: '6px 12px', fontSize: '0.72rem', borderRadius: '8px' }}
               >
@@ -3102,9 +3037,9 @@ export default function MappaArgomenti({ onOpenFile }) {
               </button>
 
               {/* Refresh Button */}
-              <button 
-                className="btn-update" 
-                onClick={fetchData} 
+              <button
+                className="btn-update"
+                onClick={fetchData}
                 title="Aggiorna dati e grafico"
                 style={{ padding: '6px 12px', fontSize: '0.72rem', borderRadius: '8px' }}
               >
@@ -3112,9 +3047,9 @@ export default function MappaArgomenti({ onOpenFile }) {
               </button>
 
               {/* Salva Layout Button */}
-              <button 
-                className="btn-update" 
-                onClick={handleSaveLayout} 
+              <button
+                className="btn-update"
+                onClick={handleSaveLayout}
                 title="Salva le posizioni trascinate dei nodi del grafo"
                 style={{ padding: '6px 12px', fontSize: '0.72rem', borderRadius: '8px', background: 'rgba(63, 185, 80, 0.12)', borderColor: 'rgba(63, 185, 80, 0.3)', color: '#3fb950' }}
               >
@@ -3122,9 +3057,9 @@ export default function MappaArgomenti({ onOpenFile }) {
               </button>
 
               {/* Reset Layout Default Button */}
-              <button 
-                className="btn-update" 
-                onClick={handleResetLayout} 
+              <button
+                className="btn-update"
+                onClick={handleResetLayout}
                 title="Ripristina il layout predefinito con calcolo automatico della forza"
                 style={{ padding: '6px 12px', fontSize: '0.72rem', borderRadius: '8px', background: 'rgba(210, 153, 34, 0.12)', borderColor: 'rgba(210, 153, 34, 0.3)', color: '#d29922' }}
               >
@@ -3132,9 +3067,9 @@ export default function MappaArgomenti({ onOpenFile }) {
               </button>
 
               {/* Nuovo Argomento Button */}
-              <button 
-                className="btn-new-topic" 
-                onClick={handleCreateTopic} 
+              <button
+                className="btn-new-topic"
+                onClick={handleCreateTopic}
                 title="Crea nuovo argomento"
                 style={{ padding: '6px 12px', fontSize: '0.72rem', borderRadius: '8px' }}
               >
@@ -3144,20 +3079,20 @@ export default function MappaArgomenti({ onOpenFile }) {
           </div>
 
           {/* CANVAS DEL GRAFO */}
-          <div 
-            ref={containerRef} 
-            className="mappa-graph-container" 
-            style={{ 
+          <div
+            ref={containerRef}
+            className="mappa-graph-container"
+            style={{
               flex: 1,
               minHeight: 0,
               display: 'flex',
               position: 'relative',
               overflow: 'hidden',
               borderRadius: '10px',
-              background: argomentiTheme === 'costellazione' 
-                ? 'radial-gradient(ellipse at 40% 40%, rgba(137, 87, 229, 0.14) 0%, rgba(0, 210, 255, 0.06) 45%, #050612 90%)' 
-                : argomentiTheme === 'classico' 
-                ? 'radial-gradient(circle at 50% 50%, rgba(0, 210, 255, 0.08) 0%, #090b14 85%)' 
+              background: argomentiTheme === 'costellazione'
+                ? 'radial-gradient(ellipse at 40% 40%, rgba(137, 87, 229, 0.14) 0%, rgba(0, 210, 255, 0.06) 45%, #050612 90%)'
+                : argomentiTheme === 'classico'
+                ? 'radial-gradient(circle at 50% 50%, rgba(0, 210, 255, 0.08) 0%, #090b14 85%)'
                 : argomentiTheme === 'crema'
                 ? 'radial-gradient(ellipse at 40% 40%, rgba(200, 150, 62, 0.14) 0%, rgba(139, 107, 61, 0.06) 45%, #f2e8d4 100%)'
                 : '#0e1018'
@@ -3167,8 +3102,8 @@ export default function MappaArgomenti({ onOpenFile }) {
 
           {/* AI Overlay Menu */}
           {showAiOverlay && overlayNode && (
-            <div 
-              className="ai-overlay-card" 
+            <div
+              className="ai-overlay-card"
               style={{ left: `${overlayPos.x}px`, top: `${overlayPos.y}px` }}
               onClick={e => e.stopPropagation()} // prevent clicking card from closing it
             >
@@ -3179,11 +3114,11 @@ export default function MappaArgomenti({ onOpenFile }) {
                 </span>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
                   {overlayNode.type === 'doc' && (
-                    <button 
-                      className="ai-overlay-close" 
-                      type="button" 
-                      style={{ color: '#ff5555', background: 'rgba(255,85,85,0.1)', border: '1px solid rgba(255,85,85,0.2)', padding: '2px 6px', borderRadius: '4px', fontSize: '0.65rem' }} 
-                      onClick={() => { setFileTab('delete'); setAiError(''); }} 
+                    <button
+                      className="ai-overlay-close"
+                      type="button"
+                      style={{ color: '#ff5555', background: 'rgba(255,85,85,0.1)', border: '1px solid rgba(255,85,85,0.2)', padding: '2px 6px', borderRadius: '4px', fontSize: '0.65rem' }}
+                      onClick={() => { setFileTab('delete'); setAiError(''); }}
                       onMouseDown={e => e.stopPropagation()}
                       title="Elimina questo file"
                     >
@@ -3246,21 +3181,21 @@ export default function MappaArgomenti({ onOpenFile }) {
                   </div>
 
                   <div className="ai-overlay-tabs">
-                    <button 
+                    <button
                       type="button"
                       className={`ai-overlay-tab ${fileTab === 'ai_edit' ? 'active' : ''}`}
                       onClick={() => { setFileTab('ai_edit'); setAiError(''); }}
                     >
                       🤖 Modifica AI
                     </button>
-                    <button 
+                    <button
                       type="button"
                       className={`ai-overlay-tab ${fileTab === 'move' ? 'active' : ''}`}
                       onClick={() => { setFileTab('move'); setAiError(''); }}
                     >
                       📦 Sposta
                     </button>
-                    <button 
+                    <button
                       type="button"
                       className={`ai-overlay-tab ${fileTab === 'delete' ? 'active' : ''}`}
                       onClick={() => { setFileTab('delete'); setAiError(''); }}
@@ -3273,7 +3208,7 @@ export default function MappaArgomenti({ onOpenFile }) {
                     <form className="ai-overlay-form" onSubmit={handleOverlayEditFile}>
                       <div className="ai-overlay-group">
                         <span className="ai-overlay-label">Modello AI</span>
-                        <select 
+                        <select
                           className="ai-overlay-select"
                           value={selectedAiModel}
                           onChange={e => setSelectedAiModel(e.target.value)}
@@ -3290,7 +3225,7 @@ export default function MappaArgomenti({ onOpenFile }) {
 
                       <div className="ai-overlay-group">
                         <span className="ai-overlay-label">Ruolo Agente</span>
-                        <select 
+                        <select
                           className="ai-overlay-select"
                           value={selectedAiRole}
                           onChange={e => setSelectedAiRole(e.target.value)}
@@ -3305,7 +3240,7 @@ export default function MappaArgomenti({ onOpenFile }) {
 
                       <div className="ai-overlay-group">
                         <span className="ai-overlay-label">Istruzioni di modifica</span>
-                        <textarea 
+                        <textarea
                           className="ai-overlay-textarea"
                           placeholder="Come vuoi modificare il file..."
                           value={aiPromptText}
@@ -3317,15 +3252,15 @@ export default function MappaArgomenti({ onOpenFile }) {
                       {aiError && <div className="ai-overlay-error">{aiError}</div>}
 
                       <div className="ai-overlay-footer">
-                        <button 
-                          type="button" 
+                        <button
+                          type="button"
                           className="ai-overlay-btn secondary"
                           onClick={() => { if (onOpenFile) onOpenFile(overlayNode.filePath); setShowAiOverlay(false); }}
                         >
                           👁️ Visualizza
                         </button>
-                        <button 
-                          type="submit" 
+                        <button
+                          type="submit"
                           className="ai-overlay-btn primary"
                           disabled={aiOverlayLoading}
                         >
@@ -3346,7 +3281,7 @@ export default function MappaArgomenti({ onOpenFile }) {
                     <form className="ai-overlay-form" onSubmit={handleOverlayMoveFile}>
                       <div className="ai-overlay-group">
                         <span className="ai-overlay-label">Argomento di destinazione</span>
-                        <select 
+                        <select
                           className="ai-overlay-select"
                           value={moveTargetTopicId}
                           onChange={e => setMoveTargetTopicId(e.target.value)}
@@ -3359,7 +3294,7 @@ export default function MappaArgomenti({ onOpenFile }) {
 
                       <div className="ai-overlay-group">
                         <span className="ai-overlay-label">Sottoargomento (Modulo)</span>
-                        <select 
+                        <select
                           className="ai-overlay-select"
                           value={moveTargetModuleNum}
                           onChange={e => setMoveTargetModuleNum(e.target.value)}
@@ -3376,7 +3311,7 @@ export default function MappaArgomenti({ onOpenFile }) {
 
                       <div className="ai-overlay-group">
                         <span className="ai-overlay-label">Categoria File</span>
-                        <select 
+                        <select
                           className="ai-overlay-select"
                           value={moveTargetCategory}
                           onChange={e => setMoveTargetCategory(e.target.value)}
@@ -3392,15 +3327,15 @@ export default function MappaArgomenti({ onOpenFile }) {
                       {aiError && <div className="ai-overlay-error">{aiError}</div>}
 
                       <div className="ai-overlay-footer">
-                        <button 
-                          type="button" 
+                        <button
+                          type="button"
                           className="ai-overlay-btn secondary"
                           onClick={() => setShowAiOverlay(false)}
                         >
                           Annulla
                         </button>
-                        <button 
-                          type="submit" 
+                        <button
+                          type="submit"
                           className="ai-overlay-btn primary"
                           disabled={aiOverlayLoading}
                         >
@@ -3422,19 +3357,19 @@ export default function MappaArgomenti({ onOpenFile }) {
                       <div style={{ fontSize: '0.65rem', color: '#8b8fa3', margin: '4px 0 8px 0', lineHeight: '1.4' }}>
                         Sei sicuro di voler eliminare definitivamente questo file? Questa azione non può essere annullata.
                       </div>
-                      
+
                       {aiError && <div className="ai-overlay-error">{aiError}</div>}
 
                       <div className="ai-overlay-footer">
-                        <button 
-                          type="button" 
+                        <button
+                          type="button"
                           className="ai-overlay-btn secondary"
                           onClick={() => setShowAiOverlay(false)}
                         >
                           Annulla
                         </button>
-                        <button 
-                          type="button" 
+                        <button
+                          type="button"
                           className="ai-overlay-btn"
                           style={{ background: 'rgba(255, 85, 85, 0.1)', borderColor: 'rgba(255, 85, 85, 0.25)', color: '#ff5555' }}
                           onClick={handleOverlayDeleteFile}
@@ -3451,20 +3386,20 @@ export default function MappaArgomenti({ onOpenFile }) {
                 <>
                   {/* Tabs per Argomento / Sottoargomento nel div Overlay */}
                   <div className="ai-overlay-tabs" style={{ marginBottom: '10px' }}>
-                    <button 
+                    <button
                       type="button"
                       className={`ai-overlay-tab ${topicOverlayTab === 'create' ? 'active' : ''}`}
                       onClick={() => { setTopicOverlayTab('create'); setAiError(''); }}
                     >
                       ➕ Contenuti & Azioni
                     </button>
-                    <button 
+                    <button
                       type="button"
                       className={`ai-overlay-tab ${topicOverlayTab === 'move' ? 'active' : ''}`}
-                      onClick={() => { 
-                        setTopicOverlayTab('move'); 
+                      onClick={() => {
+                        setTopicOverlayTab('move');
                         setOverlayMoveParentId(overlayNode.data?.parent_id || '');
-                        setAiError(''); 
+                        setAiError('');
                       }}
                     >
                       📦 Sposta
@@ -3487,7 +3422,7 @@ export default function MappaArgomenti({ onOpenFile }) {
 
                             <div className="ai-overlay-group">
                               <span className="ai-overlay-label">Seleziona Destinazione</span>
-                              <select 
+                              <select
                                 className="ai-overlay-select"
                                 value={overlayMoveParentId}
                                 onChange={e => setOverlayMoveParentId(e.target.value)}
@@ -3507,14 +3442,14 @@ export default function MappaArgomenti({ onOpenFile }) {
                             {aiError && <div className="ai-overlay-error">{aiError}</div>}
 
                             <div className="ai-overlay-footer" style={{ marginTop: '8px', display: 'flex', gap: '6px', justifyContent: 'flex-end' }}>
-                              <button 
+                              <button
                                 type="button"
                                 className="ai-overlay-btn secondary"
                                 onClick={() => setTopicOverlayTab('create')}
                               >
                                 Annulla
                               </button>
-                              <button 
+                              <button
                                 type="button"
                                 className="ai-overlay-btn primary"
                                 disabled={aiOverlayLoading}
@@ -3694,21 +3629,21 @@ export default function MappaArgomenti({ onOpenFile }) {
                       </div>
 
                       <div className="ai-overlay-tabs">
-                        <button 
+                        <button
                           type="button"
                           className={`ai-overlay-tab ${creationTab === 'standard' ? 'active' : ''}`}
                           onClick={() => { setCreationTab('standard'); setIsAiMode(false); setAiError(''); }}
                         >
                           Standard
                         </button>
-                        <button 
+                        <button
                           type="button"
                           className={`ai-overlay-tab ${creationTab === 'ai' ? 'active' : ''}`}
                           onClick={() => { setCreationTab('ai'); setIsAiMode(true); setAiError(''); }}
                         >
                           🤖 Genera con AI
                         </button>
-                        <button 
+                        <button
                           type="button"
                           className={`ai-overlay-tab ${creationTab === 'upload' ? 'active' : ''}`}
                           onClick={() => { setCreationTab('upload'); setIsAiMode(false); setAiError(''); }}
@@ -3720,7 +3655,7 @@ export default function MappaArgomenti({ onOpenFile }) {
                       <form className="ai-overlay-form" onSubmit={handleOverlayCreateFile}>
                         <div className="ai-overlay-group">
                           <span className="ai-overlay-label">Categoria File</span>
-                          <select 
+                          <select
                             className="ai-overlay-select"
                             value={newFileCategory}
                             onChange={e => setNewFileCategory(e.target.value)}
@@ -3736,9 +3671,9 @@ export default function MappaArgomenti({ onOpenFile }) {
                         {creationTab === 'upload' && (
                           <div className="ai-overlay-group" style={{ gap: '8px' }}>
                             <span className="ai-overlay-label">Carica File da PC</span>
-                            
+
                             {/* Drag and Drop Zone */}
-                            <div 
+                            <div
                               className={`ai-overlay-dropzone ${isDragActive ? 'dragging' : ''} ${selectedUploadFile ? 'has-file' : ''}`}
                               onDragEnter={handleDrag}
                               onDragOver={handleDrag}
@@ -3760,13 +3695,13 @@ export default function MappaArgomenti({ onOpenFile }) {
                                 gap: '6px'
                               }}
                             >
-                              <input 
+                              <input
                                 ref={fileInputRef}
                                 type="file"
                                 style={{ display: 'none' }}
                                 onChange={handleFileChange}
                               />
-                              
+
                               {selectedUploadFile ? (
                                 <>
                                   <span style={{ fontSize: '1.2rem' }}>📎</span>
@@ -3776,7 +3711,7 @@ export default function MappaArgomenti({ onOpenFile }) {
                                   <div style={{ fontSize: '0.5rem', color: '#5a5e72' }}>
                                     {(selectedUploadFile.size / 1024).toFixed(1)} KB
                                   </div>
-                                  <button 
+                                  <button
                                     type="button"
                                     onClick={(e) => {
                                       e.stopPropagation();
@@ -3813,8 +3748,8 @@ export default function MappaArgomenti({ onOpenFile }) {
                             {selectedUploadFile && (
                               <div className="ai-overlay-group">
                                 <span className="ai-overlay-label">Nome file sul server (senza estensione)</span>
-                                <input 
-                                  type="text" 
+                                <input
+                                  type="text"
                                   className="ai-overlay-input"
                                   placeholder="nome_file_salvato"
                                   value={newFileName}
@@ -3829,8 +3764,8 @@ export default function MappaArgomenti({ onOpenFile }) {
                         {creationTab !== 'upload' && (
                           <div className="ai-overlay-group">
                             <span className="ai-overlay-label">Nome File (senza estensione)</span>
-                            <input 
-                              type="text" 
+                            <input
+                              type="text"
                               className="ai-overlay-input"
                               placeholder="nome_file"
                               value={newFileName}
@@ -3844,7 +3779,7 @@ export default function MappaArgomenti({ onOpenFile }) {
                           <>
                             <div className="ai-overlay-group">
                               <span className="ai-overlay-label">Modello AI</span>
-                              <select 
+                              <select
                                 className="ai-overlay-select"
                                 value={selectedAiModel}
                                 onChange={e => setSelectedAiModel(e.target.value)}
@@ -3868,7 +3803,7 @@ export default function MappaArgomenti({ onOpenFile }) {
 
                             <div className="ai-overlay-group">
                               <span className="ai-overlay-label">Descrizione per l'AI</span>
-                              <textarea 
+                              <textarea
                                 className="ai-overlay-textarea"
                                 placeholder="Cosa deve contenere il file..."
                                 value={aiPromptText}
@@ -3882,16 +3817,16 @@ export default function MappaArgomenti({ onOpenFile }) {
                         {aiError && <div className="ai-overlay-error">{aiError}</div>}
 
                         <div className="ai-overlay-footer">
-                          <button 
-                            type="button" 
+                          <button
+                            type="button"
                             className="ai-overlay-btn secondary"
                             onClick={() => setShowAiOverlay(false)}
                             disabled={aiOverlayLoading}
                           >
                             Annulla
                           </button>
-                          <button 
-                            type="submit" 
+                          <button
+                            type="submit"
                             className="ai-overlay-btn primary"
                             disabled={aiOverlayLoading || (creationTab === 'upload' && !selectedUploadFile)}
                           >
@@ -3919,9 +3854,9 @@ export default function MappaArgomenti({ onOpenFile }) {
           {/* Search Box */}
           <div className="sidebar-search-box">
             <span className="search-icon">🔍</span>
-            <input 
-              type="text" 
-              placeholder="Cerca argomenti, moduli o file..." 
+            <input
+              type="text"
+              placeholder="Cerca argomenti, moduli o file..."
               value={searchQuery}
               onChange={e => setSearchQuery(e.target.value)}
               className="sidebar-search-input"
@@ -3945,8 +3880,8 @@ export default function MappaArgomenti({ onOpenFile }) {
                   {filteredTopLevelTopics.map(topic => {
                     const subCount = topicsData.filter(s => s.parent_id === topic.id).length;
                     return (
-                      <div 
-                        key={topic.id} 
+                      <div
+                        key={topic.id}
                         className={`explorer-topic-item ${activeTopicId === topic.id ? 'active' : ''}`}
                         onClick={() => selectTopic(topic)}
                       >
@@ -3974,17 +3909,17 @@ export default function MappaArgomenti({ onOpenFile }) {
 
                   {/* Active topic controls */}
                   <div className="active-topic-controls" style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', marginTop: '8px', alignItems: 'center' }}>
-                    <button 
-                      className="btn-new-subtopic" 
-                      onClick={() => handleCreateSubTopic(activeTopic)} 
+                    <button
+                      className="btn-new-subtopic"
+                      onClick={() => handleCreateSubTopic(activeTopic)}
                       title="Crea nuovo sottoargomento dentro questo argomento"
                       style={{ padding: '4px 8px', fontSize: '0.6rem', background: 'rgba(0,210,255,0.12)', color: '#00d2ff', border: '1px solid rgba(0,210,255,0.3)', borderRadius: '6px', cursor: 'pointer', fontWeight: 600 }}
                     >
                       ➕ Nuovo Sottoargomento
                     </button>
                     {topicsData.length > 1 && (
-                      <select 
-                        value={activeTopic.parent_id || ''} 
+                      <select
+                        value={activeTopic.parent_id || ''}
                         onChange={e => handleUpdateTopicParent(activeTopic, e.target.value)}
                         title="Seleziona argomento padre"
                         style={{ background: '#0e1016', color: '#bc8cff', border: '1px solid rgba(188,140,255,0.3)', borderRadius: '6px', padding: '3px 6px', fontSize: '0.6rem', outline: 'none' }}
@@ -4029,7 +3964,7 @@ export default function MappaArgomenti({ onOpenFile }) {
 
                     return (
                       <div key={subtopic.id} className="folder-item">
-                        <div 
+                        <div
                           className={`folder-header ${isSubSelected ? 'selected-folder' : ''}`}
                           onClick={toggleSubtopic}
                           style={{
@@ -4042,9 +3977,9 @@ export default function MappaArgomenti({ onOpenFile }) {
                             <span>{escapeStr(subtopic.name)}</span>
                             <span className="folder-header-count">({totalFiles})</span>
                           </span>
-                          
+
                           <div className="folder-actions">
-                            <button 
+                            <button
                               className="folder-action-btn"
                               onClick={(e) => { e.stopPropagation(); handleCreateSubTopic(subtopic); }}
                               title="Crea sotto-sottoargomento dentro questo sottoargomento"
@@ -4052,21 +3987,21 @@ export default function MappaArgomenti({ onOpenFile }) {
                             >
                               ➕
                             </button>
-                            <button 
+                            <button
                               className="folder-action-btn"
                               onClick={(e) => { e.stopPropagation(); handleMoveModule(subtopic, activeTopic.id); }}
                               title="Sposta sottoargomento in un altro Argomento"
                             >
                               ⇄
                             </button>
-                            <button 
+                            <button
                               className="folder-action-btn"
                               onClick={(e) => { e.stopPropagation(); handleRenameModule(subtopic, activeTopic.id); }}
                               title="Rinomina Sottoargomento"
                             >
                               ✏️
                             </button>
-                            <button 
+                            <button
                               className="folder-action-btn del"
                               onClick={(e) => { e.stopPropagation(); handleDeleteModule(subtopic, activeTopic.id); }}
                               title="Elimina Sottoargomento"
@@ -4105,7 +4040,7 @@ export default function MappaArgomenti({ onOpenFile }) {
                                     </span>
 
                                     <div className="category-folder-actions">
-                                      <button 
+                                      <button
                                         className="category-folder-add-btn"
                                         onClick={(e) => { e.stopPropagation(); handleCreateFile(folderPath, fileType); }}
                                         title={`Crea nuovo ${col.label}`}
@@ -4131,9 +4066,9 @@ export default function MappaArgomenti({ onOpenFile }) {
                                             <span className="file-tree-name" onClick={() => onOpenFile && onOpenFile(filePath)}>
                                               {escapeStr(fileName)}
                                             </span>
-                                            
+
                                             <div className="file-tree-actions">
-                                              <button 
+                                              <button
                                                 className="file-tree-del-btn"
                                                 onClick={(e) => { e.stopPropagation(); handleDeleteFile(filePath); }}
                                                 title="Elimina file"

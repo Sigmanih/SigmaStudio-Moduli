@@ -9,6 +9,8 @@ which matters for a dual-licensed project.
 """
 
 import importlib.util
+import tempfile
+from pathlib import Path
 
 from core.modules.sigma_voice_studio.tts.base import TTSEngine
 
@@ -32,7 +34,37 @@ class KokoroEngine(TTSEngine):
     default_voice = "if_sara"
 
     def is_installed(self) -> bool:
+        return self._local() or self._worker() is not None
+
+    @staticmethod
+    def _local() -> bool:
         return importlib.util.find_spec("kokoro") is not None
+
+    @staticmethod
+    def _worker():
+        """Kokoro gira anche nel venv delle voci del Creative Lab: senza questo Voice Studio rispondeva 503
+        su una macchina dove la voce c'era, solo in un altro ambiente Python."""
+        from core.modules.sigma_voice_studio import library
+        try:
+            voice, _qwen = library._runtimes()
+        except RuntimeError:
+            return None
+        return voice if voice.installed() else None
+
+    def synthesize(self, text: str, voice: str = "", speed: float = 1.0) -> bytes:
+        worker = None if self._local() else self._worker()
+        if worker is None:
+            return super().synthesize(text, voice, speed)
+        if not text or not text.strip():
+            return b""
+        if voice not in {v["id"] for v in VOICES}:
+            voice = self.default_voice
+        with tempfile.TemporaryDirectory(prefix="sigma_tts_") as tmp:
+            out = Path(tmp) / "line.wav"
+            worker.synthesize(text, out, engine="kokoro", voice=voice, speed=speed)
+            data = out.read_bytes()
+        self._model = True                              # per lo stato "caricato" mostrato in Voice Studio
+        return data
 
     def list_voices(self) -> list[dict]:
         return list(VOICES)

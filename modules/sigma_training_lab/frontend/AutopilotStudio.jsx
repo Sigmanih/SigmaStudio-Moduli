@@ -268,7 +268,7 @@ function DettaglioRound({ round: r, onChiudi }) {
   );
 }
 
-export default function AutopilotStudio({ addToast }) {
+export default function AutopilotStudio({ addToast, openTab }) {
   const [current, setCurrent] = useState(null);
   const [metrics, setMetrics] = useState(null);
   const [logs, setLogs] = useState([]);
@@ -333,7 +333,7 @@ export default function AutopilotStudio({ addToast }) {
     <div className="training-scroll-area training-studio-grid autopilot-studio-grid" style={{ paddingTop: '14px' }}>
       <aside className="training-studio-aside">
         <AutopilotPanel addToast={addToast} onModelloScelto={setModello}
-                        onRoundScelto={setRoundScelto} />
+                        onRoundScelto={setRoundScelto} openTab={openTab} />
       </aside>
 
       <div style={{ minWidth: 0 }}>

@@ -1,8 +1,9 @@
 """Adapter per la ricostruzione 3D (immagine → mesh).
 
-Sigma non esegue i modelli 3D in proprio: instrada verso i servizi configurati e
-riporta i bytes della mesh. Ogni adapter espone `image_to_3d(image_bytes, params)`
-e, quando il servizio lo supporta, `multiview_to_3d(images, params)`.
+Il backend "local" esegue TRELLIS sulla GPU della macchina (three_d/locale);
+gli altri instradano verso i servizi configurati e riportano i bytes della mesh.
+Ogni adapter espone `image_to_3d(image_bytes, params)` e, quando il servizio lo
+supporta, `multiview_to_3d(images, params)`.
 """
 
 import asyncio
@@ -129,6 +130,10 @@ class Fal3DAdapter:
 
 def build_3d_adapter(backend_name: str, cfg: dict):
     """Istanzia l'adapter 3D per il backend richiesto (None se non supportato)."""
+    if backend_name == "local":
+        # TRELLIS sulla GPU locale, in un venv suo: None se non e' installato
+        from core.modules.sigma_creative_lab.three_d.locale.trellis_locale import build_local_adapter
+        return build_local_adapter()
     if backend_name == "stability":
         return StabilityFast3DAdapter(api_key=cfg.get("api_key", ""))
     if backend_name == "fal_ai":

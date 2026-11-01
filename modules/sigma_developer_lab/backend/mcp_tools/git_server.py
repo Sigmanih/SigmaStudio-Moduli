@@ -21,7 +21,7 @@ from typing import Any, Dict, List, Optional
 from core.logger import get_logger
 from core.mcp.base_server import BaseMCPServer
 from core.mcp.governance import SAFE, SENSITIVE
-from core.modules.sigma_developer_lab.fs_manager import get_default_workspace_root
+from core.harness.fs_manager import get_default_workspace_root
 
 log = get_logger(__name__)
 
@@ -31,8 +31,16 @@ GIT_TIMEOUT = 30
 
 def _run_git(args: List[str], cwd: Optional[str] = None,
              timeout: int = GIT_TIMEOUT) -> Dict[str, Any]:
-    """Execute a git command and return structured output."""
-    cwd = cwd or get_default_workspace_root()
+    """Execute a git command and return structured output.
+
+    La radice arriva dal run quando il chiamante non ne passa una. Senza questo,
+    ogni comando finiva sul workspace predefinito del server a prescindere dal
+    progetto su cui l'agente stava lavorando: un run puntato su una cartella di
+    prova ha creato un branch nel repository di Sigma Studio e ci ha fatto
+    checkout.
+    """
+    from core.harness.workspace import resolve_root
+    cwd = resolve_root(cwd)
     cmd = ["git"] + args
     try:
         result = subprocess.run(

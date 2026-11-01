@@ -1,4 +1,5 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+
 import {
   Search, Download, Star, ArrowDown, Sparkles, Filter, CheckCircle2,
   Layers, Cpu, Activity, ExternalLink, HardDrive, ArrowUpDown, ChevronDown, ChevronUp,
@@ -29,6 +30,14 @@ const SIZE_BRACKETS = [
 ];
 
 const FIT_HEADROOM = 1.15;
+
+const formatBytes = (bytes) => {
+  if (!bytes || bytes <= 0) return '0 B';
+  const k = 1024;
+  const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
+  const i = Math.floor(Math.log(bytes) / Math.log(k));
+  return `${(bytes / Math.pow(k, i)).toFixed(i >= 3 ? 2 : 1)} ${sizes[i]}`;
+};
 
 function annotateBrackets(brackets, totalVramGb) {
   if (!totalVramGb) return brackets;
@@ -78,24 +87,40 @@ const SORT_OPTIONS = [
   { id: 'size_desc', label: '💾 Peso Maggiore prima (GB ↓)' },
 ];
 
-const HF_SECTORS = [
-  { id: 'all', label: 'Tutti i Settori', icon: Globe, color: '#38bdf8', provider: 'all' },
-  { id: 'sigmanih', label: '✨ Sigmanih', icon: Sparkles, color: '#ffb86c', provider: 'sigmanih' },
-  { id: 'gemma', label: '💎 Google / Gemma', icon: Sparkles, color: '#ec4899', provider: 'gemma' },
-  { id: 'qwen', label: '⚡ Qwen', icon: Cpu, color: '#10b981', provider: 'qwen' },
-  { id: 'llama', label: '🦙 Meta Llama', icon: Shield, color: '#818cf8', provider: 'llama' },
-  { id: 'deepseek', label: '🧠 DeepSeek', icon: Brain, color: '#00d2ff', provider: 'deepseek' },
-  { id: 'mistral', label: '⚡ Mistral', icon: Zap, color: '#f59e0b', provider: 'mistral' },
-  { id: 'microsoft', label: '🔷 Phi / Microsoft', icon: Layers, color: '#60a5fa', provider: 'microsoft' },
-  { id: 'glm', label: '🏮 GLM / ZAI', icon: Flame, color: '#f43f5e', provider: 'glm' },
-  { id: 'bartowski', label: '🚀 Bartowski GGUF', icon: Boxes, color: '#34d399', provider: 'bartowski' },
-  { id: 'unsloth', label: '⚡ Unsloth GGUF', icon: Zap, color: '#c084fc', provider: 'unsloth' },
-];
+const KNOWN_SECTOR_META = {
+  sigmanih: { label: '✨ Sigmanih', icon: Sparkles, color: '#ffb86c' },
+  google: { label: '💎 Google / Gemma', icon: Sparkles, color: '#ec4899' },
+  gemma: { label: '💎 Google / Gemma', icon: Sparkles, color: '#ec4899' },
+  qwen: { label: '⚡ Qwen', icon: Cpu, color: '#10b981' },
+  'meta-llama': { label: '🦙 Meta Llama', icon: Shield, color: '#818cf8' },
+  llama: { label: '🦙 Meta Llama', icon: Shield, color: '#818cf8' },
+  'deepseek-ai': { label: '🧠 DeepSeek', icon: Brain, color: '#00d2ff' },
+  deepseek: { label: '🧠 DeepSeek', icon: Brain, color: '#00d2ff' },
+  mistralai: { label: '⚡ Mistral', icon: Zap, color: '#f59e0b' },
+  mistral: { label: '⚡ Mistral', icon: Zap, color: '#f59e0b' },
+  microsoft: { label: '🔷 Phi / Microsoft', icon: Layers, color: '#60a5fa' },
+  phi: { label: '🔷 Phi / Microsoft', icon: Layers, color: '#60a5fa' },
+  'zai-org': { label: '🏮 GLM / ZAI', icon: Flame, color: '#f43f5e' },
+  zai: { label: '🏮 GLM / ZAI', icon: Flame, color: '#f43f5e' },
+  thudm: { label: '🏮 THUDM / GLM', icon: Flame, color: '#f43f5e' },
+  glm: { label: '🏮 GLM / ZAI', icon: Flame, color: '#f43f5e' },
+  nvidia: { label: '🟢 NVIDIA', icon: Cpu, color: '#76b900' },
+  apple: { label: '🍎 Apple', icon: Sparkles, color: '#a3a3a3' },
+  openai: { label: '🤖 OpenAI', icon: Brain, color: '#10a37f' },
+  stabilityai: { label: '🎨 Stability AI', icon: Sparkles, color: '#8b5cf6' },
+  '01-ai': { label: '🌟 01.AI (Yi)', icon: Sparkles, color: '#38bdf8' },
+  internlm: { label: '🌐 InternLM', icon: Globe, color: '#06b6d4' },
+  tiiuae: { label: '🦅 Falcon / TII', icon: Shield, color: '#eab308' },
+  allenai: { label: '🔬 AllenAI (OLMo)', icon: Brain, color: '#f97316' },
+  'black-forest-labs': { label: '🌌 FLUX / BFL', icon: Sparkles, color: '#f43f5e' },
+};
 
-const getProviderBadge = (m) => {
+const getProviderBadge = (m, officialPublishers = []) => {
   if (!m) return null;
-  const auth = (m.author || (m.id && m.id.includes('/') ? m.id.split('/')[0] : '')).toLowerCase();
-  const id = (m.id || '').toLowerCase();
+  const auth = (m.author || (m.id && m.id.includes('/') ? m.id.split('/')[0] : '')).toLowerCase().trim();
+  const id = (m.id || '').toLowerCase().trim();
+  const org = id.includes('/') ? id.split('/')[0] : auth;
+
   if (auth === 'sigmanih' || id.startsWith('sigmanih/')) {
     return {
       label: '⚡ Sigmanih Ufficiale',
@@ -104,78 +129,31 @@ const getProviderBadge = (m) => {
       border: '1px solid rgba(255, 184, 108, 0.45)'
     };
   }
-  if (auth === 'zai-org' || auth === 'zai' || auth === 'thudm' || auth === 'zhipuai' || id.startsWith('zai-org/') || id.startsWith('thudm/') || id.includes('glm')) {
+
+  const isCustomFavorite = (officialPublishers || []).some(
+    p => p.toLowerCase() === org || p.toLowerCase() === auth
+  );
+
+  if (isCustomFavorite || m.is_favorite || m.is_official) {
+    const displayName = m.author || org;
     return {
-      label: '🏮 ZAI / GLM (Ufficiale)',
-      color: '#f43f5e',
-      bg: 'rgba(244, 63, 94, 0.18)',
-      border: '1px solid rgba(244, 63, 94, 0.45)'
-    };
-  }
-  if (auth === 'qwen' || id.startsWith('qwen/')) {
-    return {
-      label: '⚡ Qwen Ufficiale',
-      color: '#10b981',
-      bg: 'rgba(16, 185, 129, 0.18)',
-      border: '1px solid rgba(16, 185, 129, 0.45)'
-    };
-  }
-  if (auth === 'deepseek-ai' || id.startsWith('deepseek-ai/')) {
-    return {
-      label: '🧠 DeepSeek Ufficiale',
-      color: '#00d2ff',
-      bg: 'rgba(0, 210, 255, 0.18)',
-      border: '1px solid rgba(0, 210, 255, 0.45)'
-    };
-  }
-  if (auth === 'meta-llama' || id.startsWith('meta-llama/')) {
-    return {
-      label: '🦙 Meta Ufficiale',
-      color: '#818cf8',
-      bg: 'rgba(129, 140, 248, 0.18)',
-      border: '1px solid rgba(129, 140, 248, 0.45)'
-    };
-  }
-  if (auth === 'mistralai' || id.startsWith('mistralai/')) {
-    return {
-      label: '⚡ Mistral Ufficiale',
+      label: `⭐ ${displayName}`,
       color: '#f59e0b',
-      bg: 'rgba(245, 158, 11, 0.18)',
-      border: '1px solid rgba(245, 158, 11, 0.45)'
+      bg: 'rgba(245, 158, 11, 0.15)',
+      border: '1px solid rgba(245, 158, 11, 0.40)'
     };
   }
-  if (auth === 'google' || id.startsWith('google/')) {
+
+  const known = KNOWN_SECTOR_META[org] || KNOWN_SECTOR_META[auth];
+  if (known) {
     return {
-      label: '💎 Google Ufficiale',
-      color: '#ec4899',
-      bg: 'rgba(236, 72, 153, 0.18)',
-      border: '1px solid rgba(236, 72, 153, 0.45)'
+      label: known.label,
+      color: known.color,
+      bg: `${known.color}22`,
+      border: `1px solid ${known.color}55`
     };
   }
-  if (auth === 'microsoft' || id.startsWith('microsoft/')) {
-    return {
-      label: '🔷 Microsoft Ufficiale',
-      color: '#60a5fa',
-      bg: 'rgba(96, 165, 250, 0.18)',
-      border: '1px solid rgba(96, 165, 250, 0.45)'
-    };
-  }
-  if (['bartowski', 'unsloth', 'thebloke', 'mradermacher', 'turboderp', 'casperhansen', 'city96'].includes(auth)) {
-    return {
-      label: '🚀 Premier GGUF',
-      color: '#34d399',
-      bg: 'rgba(52, 211, 153, 0.18)',
-      border: '1px solid rgba(52, 211, 153, 0.45)'
-    };
-  }
-  if (m.is_official) {
-    return {
-      label: '🛡️ Ufficiale',
-      color: '#3b82f6',
-      bg: 'rgba(59, 130, 246, 0.18)',
-      border: '1px solid rgba(59, 130, 246, 0.4)'
-    };
-  }
+
   return null;
 };
 
@@ -217,7 +195,76 @@ const getModelTargetQuantLabel = (m, preferredQuant = 'Q4_K_M', activeFilterQuan
   return 'Modello';
 };
 
-export default function HfBrowser({ isLight, addToast, onDownloadStarted, activeDownloads = [] }) {
+// Helper to normalize model strings for robust comparison between Hugging Face repo IDs and local inventory names
+const normalizeModelKey = (s) => {
+  if (!s) return '';
+  let str = String(s).toLowerCase().trim();
+  str = str.replace(/\.gguf$/i, '').replace(/\.bin$/i, '').replace(/\.safetensors$/i, '');
+  str = str.replace(/[\/\\_]/g, '-').replace(/--+/g, '-');
+  while (str.includes('--')) {
+    str = str.replace(/--/g, '-');
+  }
+  return str.replace(/^-+|-+$/g, '');
+};
+
+const checkIsModelLocal = (m, localList = []) => {
+  if (!m || !localList || localList.length === 0) return null;
+
+  const mId = (m.id || '').toLowerCase().trim();
+  const mSlug = (mId.includes('/') ? mId.split('/').slice(1).join('/') : mId).toLowerCase().trim();
+  const mNormFull = normalizeModelKey(mId);
+  const mNormSlug = normalizeModelKey(mSlug);
+
+  return localList.find(loc => {
+    const locId = (loc.model_id || '').toLowerCase().trim();
+    const locFile = (loc.filename || '').toLowerCase().trim();
+    const locClean = (loc.clean_name || '').toLowerCase().trim();
+    const locPub = (loc.publication?.repo_id || '').toLowerCase().trim();
+
+    // 1. Direct publication repo_id match
+    if (locPub && (locPub === mId || locPub.endsWith(`/${mSlug}`))) return true;
+
+    // 2. Direct model_id match
+    if (locId && (locId === mId || locId === mSlug || locId.endsWith(`/${mSlug}`))) return true;
+
+    // 3. Exact normalized matches
+    const locNormId = normalizeModelKey(locId);
+    const locNormFile = normalizeModelKey(locFile);
+    const locNormClean = normalizeModelKey(locClean);
+    const locNormPub = normalizeModelKey(locPub);
+
+    if (locNormPub && (locNormPub === mNormFull || locNormPub === mNormSlug)) return true;
+    if (locNormId && (locNormId === mNormFull || locNormId === mNormSlug)) return true;
+    if (locNormFile && (locNormFile === mNormFull || locNormFile === mNormSlug)) return true;
+    if (locNormClean && (locNormClean === mNormFull || locNormClean === mNormSlug)) return true;
+
+    // 4. EndsWith / startsWith match
+    if (locNormFile && (locNormFile.endsWith(mNormSlug) || mNormFull.endsWith(locNormFile))) return true;
+    if (locNormClean && (locNormClean.endsWith(mNormSlug) || mNormSlug.endsWith(locNormClean))) return true;
+    if (locNormId && (locNormId.endsWith(mNormSlug) || mNormFull.endsWith(locNormId))) return true;
+
+    // 5. Check if multi-file repo has any file matching local model
+    if (Array.isArray(loc.files) && loc.files.some(f => {
+      const fNorm = normalizeModelKey(f);
+      return fNorm === mNormSlug || fNorm.includes(mNormSlug) || mNormSlug.includes(fNorm);
+    })) return true;
+
+    return false;
+  }) || null;
+};
+
+const checkIsFileLocal = (fileName, localList = []) => {
+  if (!fileName || !localList || localList.length === 0) return false;
+  const fNorm = normalizeModelKey(fileName.split('/').pop());
+  return localList.some(loc => {
+    const locFileNorm = normalizeModelKey(loc.filename?.split('/').pop());
+    const locCleanNorm = normalizeModelKey(loc.clean_name);
+    const locIdNorm = normalizeModelKey(loc.model_id?.split('/').pop());
+    return locFileNorm === fNorm || locCleanNorm === fNorm || locIdNorm === fNorm || (fNorm && locFileNorm.endsWith(fNorm));
+  });
+};
+
+export default function HfBrowser({ isLight, addToast, onDownloadStarted, activeDownloads = [], officialPublishers = [], localModels = [] }) {
   const [search, setSearch] = useState('');
   const [category, setCategory] = useState('all');
   const [sizeBracket, setSizeBracket] = useState('all');
@@ -225,14 +272,40 @@ export default function HfBrowser({ isLight, addToast, onDownloadStarted, active
   const [formatFilter, setFormatFilter] = useState('all');
   const [quantFilter, setQuantFilter] = useState('all');
   const [sortBy, setSortBy] = useState('newest');
-  // Default: check ufficiali abilitato
-  const [officialOnly, setOfficialOnly] = useState(true);
-  const [providerFilter, setProviderFilter] = useState('all');
+  // Filtro Da Preferiti (false di default per permettere ricerca aperta su tutto HF)
+  const [officialOnly, setOfficialOnly] = useState(false);
+  // Stato visibilità filtri secondari su Mobile
+  const [showMobileFilters, setShowMobileFilters] = useState(false);
+
+  // Local Inventory Cache & Poll
+  const [internalLocalModels, setInternalLocalModels] = useState([]);
+  const fetchLocalInventory = useCallback(async () => {
+    try {
+      const res = await fetch('/api/models/local/list');
+      if (res.ok) {
+        const json = await res.json();
+        if (json.success && Array.isArray(json.models)) {
+          setInternalLocalModels(json.models);
+        }
+      }
+    } catch (e) {
+      console.debug("Local models fetch in HfBrowser:", e);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchLocalInventory();
+  }, [fetchLocalInventory, activeDownloads]);
+
+  const effectiveLocalModels = (localModels && localModels.length > 0) ? localModels : internalLocalModels;
+
+
 
   const [results, setResults] = useState([]);
   const [nextCursor, setNextCursor] = useState(null);
   const [hasMore, setHasMore] = useState(false);
   const [loading, setLoading] = useState(false);
+
   const [loadingMore, setLoadingMore] = useState(false);
   const [loadedPagesCount, setLoadedPagesCount] = useState(1);
 
@@ -271,7 +344,7 @@ export default function HfBrowser({ isLight, addToast, onDownloadStarted, active
   const subBg = isLight ? '#f8f5ee' : 'rgba(255, 255, 255, 0.03)';
   const subBorder = isLight ? '1px solid rgba(190, 160, 110, 0.22)' : '1px solid rgba(255, 255, 255, 0.06)';
 
-  const hasActiveFilters = category !== 'all' || sizeBracket !== 'all' || paramBracket !== 'all' || formatFilter !== 'all' || quantFilter !== 'all' || !officialOnly || providerFilter !== 'all' || search.trim() !== '';
+  const hasActiveFilters = category !== 'all' || sizeBracket !== 'all' || paramBracket !== 'all' || formatFilter !== 'all' || quantFilter !== 'all' || officialOnly || search.trim() !== '';
 
   const handleResetFilters = () => {
     setSearch('');
@@ -280,8 +353,7 @@ export default function HfBrowser({ isLight, addToast, onDownloadStarted, active
     setParamBracket('all');
     setFormatFilter('all');
     setQuantFilter('all');
-    setOfficialOnly(true);
-    setProviderFilter('all');
+    setOfficialOnly(false);
   };
 
   // Dynamic Live Query with debounce
@@ -295,7 +367,7 @@ export default function HfBrowser({ isLight, addToast, onDownloadStarted, active
 
     try {
       const q = encodeURIComponent(search);
-      let url = `/api/models/hf/search?q=${q}&category=${category}&size_bracket=${sizeBracket}&param_bracket=${paramBracket}&format_filter=${formatFilter}&quant_filter=${quantFilter}&sort=${sortBy}&official_only=${officialOnly}&provider=${encodeURIComponent(providerFilter)}&limit=30`;
+      let url = `/api/models/hf/search?q=${q}&category=${category}&size_bracket=${sizeBracket}&param_bracket=${paramBracket}&format_filter=${formatFilter}&quant_filter=${quantFilter}&sort=${sortBy}&official_only=${officialOnly}&limit=30`;
       if (targetCursor) {
         url += `&cursor=${encodeURIComponent(targetCursor)}`;
       }
@@ -325,7 +397,7 @@ export default function HfBrowser({ isLight, addToast, onDownloadStarted, active
       setLoading(false);
       setLoadingMore(false);
     }
-  }, [search, category, sizeBracket, paramBracket, formatFilter, quantFilter, sortBy, officialOnly, providerFilter]);
+  }, [search, category, sizeBracket, paramBracket, formatFilter, quantFilter, sortBy, officialOnly]);
 
   // Trigger dynamic query on filter change with smooth debounce
   useEffect(() => {
@@ -479,41 +551,8 @@ export default function HfBrowser({ isLight, addToast, onDownloadStarted, active
     <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', position: 'relative' }}>
       <div ref={topRef} />
 
-      {/* 1. HORIZONTAL SECTOR TABS (Identico allo stile di LocalInventory) */}
-      <div style={{
-        display: 'flex', alignItems: 'center', gap: '6px',
-        overflowX: 'auto', padding: '2px 0 6px 0', scrollbarWidth: 'none'
-      }}>
-        {HF_SECTORS.map(sec => {
-          const isSelected = (sec.id === 'all' && providerFilter === 'all') || (providerFilter === sec.provider);
-          const SecIcon = sec.icon;
-          return (
-            <button
-              key={sec.id}
-              onClick={() => {
-                if (sec.id === 'all') setProviderFilter('all');
-                else setProviderFilter(sec.provider);
-              }}
-              style={{
-                display: 'inline-flex', alignItems: 'center', gap: '6px',
-                padding: '6px 12px', borderRadius: '8px',
-                background: isSelected
-                  ? (isLight ? '#ffffff' : `${sec.color}22`)
-                  : (isLight ? 'rgba(0,0,0,0.04)' : 'rgba(255,255,255,0.04)'),
-                border: isSelected
-                  ? `1.5px solid ${sec.color}`
-                  : (isLight ? '1px solid rgba(190, 160, 110, 0.25)' : '1px solid rgba(255, 255, 255, 0.08)'),
-                color: isSelected ? (isLight ? '#111827' : sec.color) : textMuted,
-                fontSize: '0.74rem', fontWeight: isSelected ? 900 : 600,
-                cursor: 'pointer', whiteSpace: 'nowrap', transition: 'all 0.15s ease'
-              }}
-            >
-              <SecIcon size={12} color={sec.color} />
-              <span>{sec.label}</span>
-            </button>
-          );
-        })}
-      </div>
+
+
 
       {/* 2. MODERN COMPACT SEARCH & FILTER TOOLBAR */}
       <div
@@ -556,25 +595,41 @@ export default function HfBrowser({ isLight, addToast, onDownloadStarted, active
             )}
           </div>
 
-          {/* "Solo Ufficiali" Checkbox Toggle (Abilitato di Default) */}
+          {/* "Da Preferiti" Button Toggle */}
           <label style={{
             display: 'flex', alignItems: 'center', gap: '7px',
             padding: '8px 14px', borderRadius: '10px',
-            background: officialOnly ? (isLight ? 'rgba(59, 130, 246, 0.10)' : 'rgba(59, 130, 246, 0.15)') : subBg,
-            border: officialOnly ? '1.5px solid #3b82f6' : subBorder,
+            background: officialOnly ? (isLight ? 'rgba(245, 158, 11, 0.12)' : 'rgba(245, 158, 11, 0.18)') : subBg,
+            border: officialOnly ? '1.5px solid #f59e0b' : subBorder,
+            boxShadow: officialOnly ? '0 0 10px rgba(245, 158, 11, 0.25)' : 'none',
             cursor: 'pointer', userSelect: 'none', transition: 'all 0.15s ease'
           }}>
             <input
               type="checkbox"
               checked={officialOnly}
               onChange={e => setOfficialOnly(e.target.checked)}
-              style={{ accentColor: '#3b82f6', cursor: 'pointer' }}
+              style={{ accentColor: '#f59e0b', cursor: 'pointer' }}
             />
-            <ShieldCheck size={15} color={officialOnly ? '#3b82f6' : textMuted} />
-            <span style={{ fontSize: '0.78rem', fontWeight: 800, color: officialOnly ? '#3b82f6' : textPrimary }}>
-              Solo Ufficiali
+            <Star size={15} color={officialOnly ? '#f59e0b' : textMuted} fill={officialOnly ? '#f59e0b' : 'none'} />
+            <span style={{ fontSize: '0.78rem', fontWeight: 800, color: officialOnly ? '#f59e0b' : textPrimary }}>
+              Da Preferiti
             </span>
           </label>
+
+          {/* Mobile Filters Toggle Button */}
+          <button
+            type="button"
+            className="mh-mobile-filters-toggle-btn"
+            onClick={() => setShowMobileFilters(prev => !prev)}
+            title="Mostra / Nascondi filtri avanzati"
+          >
+            <Sliders size={13} />
+            <span>Filtri</span>
+            {hasActiveFilters && (
+              <span className="mh-mobile-filters-dot" />
+            )}
+            <ChevronDown size={12} style={{ transform: showMobileFilters ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s ease' }} />
+          </button>
 
           {/* Reset Filters Button */}
           {hasActiveFilters && (
@@ -594,7 +649,7 @@ export default function HfBrowser({ isLight, addToast, onDownloadStarted, active
         </div>
 
         {/* Bottom Row: 5 Clean Select Dropdowns (Category, Size, Params, Format, Quant, Sort) */}
-        <div className="mh-filter-selects-grid">
+        <div className={`mh-filter-selects-grid ${showMobileFilters ? 'mobile-open' : ''}`}>
           {/* 1. CATEGORIA */}
           <div className="mh-select-container">
             <span className="mh-select-label" style={{ color: textMuted }}>
@@ -735,11 +790,8 @@ export default function HfBrowser({ isLight, addToast, onDownloadStarted, active
           <span>•</span>
           <span>{loadedPagesCount} {loadedPagesCount === 1 ? 'blocco' : 'blocchi'} caricati</span>
           {officialOnly && (
-            <span style={{
-              fontSize: '0.60rem', padding: '1px 6px', borderRadius: '4px',
-              background: 'rgba(59, 130, 246, 0.15)', color: '#3b82f6', fontWeight: 800
-            }}>
-              Solo Creator & Lab Ufficiali
+            <span style={{ fontSize: '0.66rem', color: '#f59e0b', fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: '3px' }}>
+              <Star size={11} fill="#f59e0b" /> Da Creator Preferiti
             </span>
           )}
         </div>
@@ -774,7 +826,7 @@ export default function HfBrowser({ isLight, addToast, onDownloadStarted, active
             Nessun modello trovato per i filtri selezionati.
           </div>
           <div style={{ fontSize: '0.72rem' }}>
-            Prova a disattivare "Solo Ufficiali" o a selezionare "Tutti i Pesi".
+            Prova a disattivare "Da Preferiti" o a selezionare "Tutti i Pesi".
           </div>
         </div>
       ) : (
@@ -784,9 +836,18 @@ export default function HfBrowser({ isLight, addToast, onDownloadStarted, active
             const details = modelDetailsMap[m.id];
             const isLoadingDetails = loadingDetailsId === m.id;
             const targetQuant = getModelTargetQuantLabel(m, 'Q4_K_M', quantFilter);
-            const isGguf = (m.format?.toLowerCase().includes('gguf') || m.precision?.toLowerCase().includes('gguf') || m.id.toLowerCase().includes('gguf') || targetQuant.startsWith('Q') || targetQuant.startsWith('IQ'));
-            const pBadge = getProviderBadge(m);
+            const isGguf = Boolean(
+              (m.format && m.format.toLowerCase().includes('gguf')) ||
+              (m.precision && m.precision.toLowerCase().includes('gguf')) ||
+              (m.id && m.id.toLowerCase().includes('gguf')) ||
+              (targetQuant && targetQuant !== 'Modello' && (targetQuant.startsWith('Q') || targetQuant.startsWith('IQ')))
+            );
+            const pBadge = getProviderBadge(m, officialPublishers);
             const isSigmanih = (m.author || '').toLowerCase() === 'sigmanih' || m.id.toLowerCase().startsWith('sigmanih/');
+
+            // Local Inventory Matching Check
+            const localMatch = checkIsModelLocal(m, effectiveLocalModels);
+            const isLocallyInstalled = !!localMatch;
 
             // Active / Completed / Failed Task Check
             const activeTask = activeDownloads.find(t => t.model_id === m.id && (t.status === 'downloading' || t.status === 'queued'));
@@ -805,8 +866,10 @@ export default function HfBrowser({ isLight, addToast, onDownloadStarted, active
                       : cardBg),
                   border: activeTask
                     ? '1.5px solid #00d2ff'
-                    : (failedTask ? '1.5px solid rgba(239, 68, 68, 0.4)' : (isSigmanih ? '1px solid rgba(255, 184, 108, 0.35)' : cardBorder)),
-                  boxShadow: activeTask ? '0 0 14px rgba(0, 210, 255, 0.18)' : 'none',
+                    : (isLocallyInstalled
+                      ? (isLight ? '1.5px solid rgba(16, 185, 129, 0.45)' : '1.5px solid rgba(16, 185, 129, 0.35)')
+                      : (failedTask ? '1.5px solid rgba(239, 68, 68, 0.4)' : (isSigmanih ? '1px solid rgba(255, 184, 108, 0.35)' : cardBorder))),
+                  boxShadow: activeTask ? '0 0 14px rgba(0, 210, 255, 0.18)' : (isLocallyInstalled ? '0 0 10px rgba(16, 185, 129, 0.08)' : 'none'),
                   overflow: 'hidden',
                   transition: 'all 0.15s ease'
                 }}
@@ -839,7 +902,7 @@ export default function HfBrowser({ isLight, addToast, onDownloadStarted, active
                         background: pBadge.bg, color: pBadge.color, border: pBadge.border,
                         display: 'inline-flex', alignItems: 'center', gap: '3px'
                       }}>
-                        <ShieldCheck size={9} /> {m.author || (m.id.includes('/') ? m.id.split('/')[0] : 'Ufficiale')}
+                        <Star size={9} fill={pBadge.color} /> {pBadge.label}
                       </span>
                     ) : (
                       <span style={{
@@ -847,6 +910,19 @@ export default function HfBrowser({ isLight, addToast, onDownloadStarted, active
                         background: subBg, border: subBorder, color: textMuted
                       }}>
                         {m.author || (m.id.includes('/') ? m.id.split('/')[0] : 'Community')}
+                      </span>
+                    )}
+
+                    {/* Local Inventory Installed Badge */}
+                    {isLocallyInstalled && (
+                      <span style={{
+                        fontSize: '0.60rem', fontWeight: 900, padding: '2px 7px', borderRadius: '5px',
+                        background: 'rgba(16, 185, 129, 0.18)', color: '#10b981',
+                        border: '1px solid rgba(16, 185, 129, 0.45)',
+                        display: 'inline-flex', alignItems: 'center', gap: '3px',
+                        boxShadow: '0 0 8px rgba(16, 185, 129, 0.2)'
+                      }}>
+                        <CheckCircle2 size={10} color="#10b981" /> IN LOCALE
                       </span>
                     )}
 
@@ -868,14 +944,19 @@ export default function HfBrowser({ isLight, addToast, onDownloadStarted, active
                       color: isGguf ? '#10b981' : '#00d2ff',
                       border: isGguf ? '1px solid rgba(16, 185, 129, 0.3)' : '1px solid rgba(0, 210, 255, 0.3)'
                     }}>
-                      {targetQuant !== 'Modello' ? `GGUF ${targetQuant}` : (m.precision || (isGguf ? 'GGUF' : 'SAFETENSORS'))}
+                      {isGguf
+                        ? (targetQuant && targetQuant !== 'Modello' && (targetQuant.startsWith('Q') || targetQuant.startsWith('IQ')) ? `GGUF ${targetQuant}` : (m.precision?.includes('GGUF') ? m.precision : 'GGUF'))
+                        : (m.format || (m.precision?.includes('FP8') ? 'SAFETENSORS FP8' : (m.precision?.includes('BF16') ? 'SAFETENSORS BF16' : 'SAFETENSORS')))}
                     </span>
 
                     {/* Storage & VRAM metrics */}
                     <span style={{ fontSize: '0.68rem', color: textMuted, display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
-                      <span>💾 <b>{m.size_label || (m.size_gb >= 1000 ? `~${(m.size_gb / 1000).toFixed(1)} TB` : `~${m.size_gb} GB`)}</b></span>
+                      <span>💾 <b>{(details?.size_label || m.size_label) || (m.size_gb >= 1000 ? `~${(m.size_gb / 1000).toFixed(1)} TB` : `~${m.size_gb || 0} GB`)}</b></span>
                       <span>•</span>
-                      <span style={{ color: isLight ? '#0284c7' : '#00d2ff' }}>⚡ VRAM: <b>{m.active_vram_label || `~${m.active_vram_gb || 8} GB`}</b></span>
+                      <span style={{ color: isLight ? '#0284c7' : '#00d2ff' }}>⚡ VRAM: <b>{details?.active_vram_label || m.active_vram_label || `~${m.active_vram_gb || 8} GB`}</b></span>
+                      {details?.files && details.files.length > 1 && (
+                        <span style={{ fontSize: '0.60rem', color: textMuted }}>({details.files.length} file)</span>
+                      )}
                     </span>
 
                     {/* Release Date */}
@@ -931,6 +1012,16 @@ export default function HfBrowser({ isLight, addToast, onDownloadStarted, active
                       >
                         <RotateCcw size={11} /> Riprendi
                       </button>
+                    ) : isLocallyInstalled ? (
+                      <div style={{
+                        padding: '4px 10px', borderRadius: '7px',
+                        background: 'rgba(16, 185, 129, 0.15)', border: '1px solid #10b981',
+                        color: '#10b981', fontSize: '0.68rem', fontWeight: 800,
+                        display: 'inline-flex', alignItems: 'center', gap: '4px'
+                      }}>
+                        <CheckCircle2 size={12} color="#10b981" />
+                        <span>Già in Locale</span>
+                      </div>
                     ) : completedTask ? (
                       <span style={{
                         fontSize: '0.68rem', fontWeight: 800, padding: '4px 9px', borderRadius: '6px',
@@ -942,11 +1033,7 @@ export default function HfBrowser({ isLight, addToast, onDownloadStarted, active
                     ) : (
                       <button
                         onClick={() => {
-                          if (isGguf) {
-                            toggleCardDetails(m);
-                          } else {
-                            handleStartWholeRepoDownload(m.id);
-                          }
+                          toggleCardDetails(m);
                         }}
                         style={{
                           padding: '5px 12px', borderRadius: '7px',
@@ -960,7 +1047,7 @@ export default function HfBrowser({ isLight, addToast, onDownloadStarted, active
                         }}
                       >
                         <Download size={11} />
-                        <span>{targetQuant !== 'Modello' ? `Scarica (${targetQuant})` : 'Scarica'}</span>
+                        <span>{isGguf ? (targetQuant && targetQuant !== 'Modello' && (targetQuant.startsWith('Q') || targetQuant.startsWith('IQ')) ? `Scarica (${targetQuant})` : 'Scarica GGUF') : 'Scarica Modello'}</span>
                       </button>
                     )}
 
@@ -1020,7 +1107,7 @@ export default function HfBrowser({ isLight, addToast, onDownloadStarted, active
                           }}
                         >
                           <FolderDown size={11} />
-                          {downloadingRepo ? 'Avvio...' : `Scarica Intero Repository (${details?.files?.length || 1} file)`}
+                          {downloadingRepo ? 'Avvio...' : `Scarica Intero Modello (${details?.files?.length || 1} file${details?.files ? ` • ${formatBytes(details.files.reduce((s, f) => s + (Number(f.size) || 0), 0))}` : (m.size_label ? ` • ${m.size_label}` : '')})`}
                         </button>
                       </div>
                     </div>
@@ -1036,6 +1123,7 @@ export default function HfBrowser({ isLight, addToast, onDownloadStarted, active
                         const ggufFiles = details.files.filter(f => f.is_gguf || f.filename?.toLowerCase().endsWith('.gguf'));
                         const currentSel = selectedQuantMap[m.id] || ggufFiles[0]?.filename;
                         const activeFile = ggufFiles.find(f => f.filename === currentSel) || ggufFiles[0];
+                        const isActiveFileDownloaded = activeFile ? (checkIsFileLocal(activeFile.filename, effectiveLocalModels) || isLocallyInstalled) : false;
 
                         return (
                           <div style={{
@@ -1050,23 +1138,35 @@ export default function HfBrowser({ isLight, addToast, onDownloadStarted, active
                                 <span>Versioni Quantizzate Disponibili ({ggufFiles.length}):</span>
                               </div>
 
-                              <button
-                                onClick={() => {
-                                  if (activeFile) {
-                                    handleStartSingleDownload(m.id, activeFile.filename, activeFile.download_url);
-                                  }
-                                }}
-                                disabled={downloadingFile === activeFile?.filename}
-                                style={{
-                                  padding: '5px 12px', borderRadius: '6px',
-                                  border: 'none', background: 'linear-gradient(135deg, #10b981, #00d2ff)',
-                                  color: '#ffffff', fontSize: '0.70rem', fontWeight: 800, cursor: 'pointer',
-                                  display: 'flex', alignItems: 'center', gap: '4px'
-                                }}
-                              >
-                                {downloadingFile === activeFile?.filename ? <Activity className="mh-spin" size={11} /> : <Download size={11} />}
-                                <span>Scarica Selezionata ({activeFile?.filename ? activeFile.filename.split('/').pop() : 'GGUF'})</span>
-                              </button>
+                              {isActiveFileDownloaded ? (
+                                <div style={{
+                                  padding: '4px 10px', borderRadius: '6px',
+                                  background: 'rgba(16, 185, 129, 0.15)', border: '1px solid #10b981',
+                                  color: '#10b981', fontSize: '0.68rem', fontWeight: 800,
+                                  display: 'inline-flex', alignItems: 'center', gap: '4px'
+                                }}>
+                                  <CheckCircle2 size={11} color="#10b981" />
+                                  <span>Già in Locale ({activeFile?.filename ? activeFile.filename.split('/').pop() : 'GGUF'})</span>
+                                </div>
+                              ) : (
+                                <button
+                                  onClick={() => {
+                                    if (activeFile) {
+                                      handleStartSingleDownload(m.id, activeFile.filename, activeFile.download_url);
+                                    }
+                                  }}
+                                  disabled={downloadingFile === activeFile?.filename}
+                                  style={{
+                                    padding: '5px 12px', borderRadius: '6px',
+                                    border: 'none', background: 'linear-gradient(135deg, #10b981, #00d2ff)',
+                                    color: '#ffffff', fontSize: '0.70rem', fontWeight: 800, cursor: 'pointer',
+                                    display: 'flex', alignItems: 'center', gap: '4px'
+                                  }}
+                                >
+                                  {downloadingFile === activeFile?.filename ? <Activity className="mh-spin" size={11} /> : <Download size={11} />}
+                                  <span>Scarica Selezionata ({activeFile?.filename ? activeFile.filename.split('/').pop() : 'GGUF'}{activeFile?.size > 0 ? ` • ${formatBytes(activeFile.size)}` : ''})</span>
+                                </button>
+                              )}
                             </div>
 
                             {/* Preset chips */}
@@ -1074,21 +1174,27 @@ export default function HfBrowser({ isLight, addToast, onDownloadStarted, active
                               {ggufFiles.map((gf) => {
                                 const isSelected = currentSel === gf.filename;
                                 const isRecommended = gf.filename?.toLowerCase().includes('q4_k_m') || gf.filename?.toLowerCase().includes('q4-k-m');
+                                const isGfDownloaded = checkIsFileLocal(gf.filename, effectiveLocalModels) || isLocallyInstalled;
                                 return (
                                   <button
                                     key={gf.filename}
                                     onClick={() => setSelectedQuantMap(prev => ({ ...prev, [m.id]: gf.filename }))}
                                     style={{
                                       padding: '3px 8px', borderRadius: '5px',
-                                      border: isSelected ? '1.5px solid #10b981' : subBorder,
-                                      background: isSelected ? 'rgba(16, 185, 129, 0.25)' : subBg,
-                                      color: isSelected ? '#10b981' : textPrimary,
-                                      fontSize: '0.66rem', fontWeight: isSelected ? 800 : 600,
+                                      border: isSelected
+                                        ? '1.5px solid #10b981'
+                                        : (isGfDownloaded ? '1px solid rgba(16, 185, 129, 0.45)' : subBorder),
+                                      background: isSelected
+                                        ? 'rgba(16, 185, 129, 0.25)'
+                                        : (isGfDownloaded ? 'rgba(16, 185, 129, 0.08)' : subBg),
+                                      color: isSelected ? '#10b981' : (isGfDownloaded ? '#10b981' : textPrimary),
+                                      fontSize: '0.66rem', fontWeight: (isSelected || isGfDownloaded) ? 800 : 600,
                                       cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '3px'
                                     }}
                                   >
-                                    {isRecommended && '⭐ '}
+                                    {isGfDownloaded ? '✅ ' : (isRecommended ? '⭐ ' : '')}
                                     {gf.filename.split('/').pop()}
+                                    {gf.size > 0 ? ` (${formatBytes(gf.size)})` : ''}
                                   </button>
                                 );
                               })}
@@ -1152,40 +1258,74 @@ export default function HfBrowser({ isLight, addToast, onDownloadStarted, active
 
                     {/* Row 4: File Tree Shards */}
                     {details?.files && details.files.length > 0 && (
-                      <div>
-                        <div style={{ fontSize: '0.68rem', fontWeight: 800, color: textMuted, textTransform: 'uppercase', marginBottom: '4px' }}>
-                          File e Shards del Modello ({details.files.length}):
-                        </div>
-                        <div style={{ maxHeight: '140px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                          {details.files.map((file, fIdx) => (
-                            <div
-                              key={fIdx}
-                              style={{
-                                padding: '5px 10px', borderRadius: '6px',
-                                background: subBg, border: subBorder,
-                                display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px'
-                              }}
-                            >
-                              <span style={{ fontSize: '0.70rem', color: textPrimary, wordBreak: 'break-all' }}>
-                                {file.filename}
-                              </span>
-                              <button
-                                onClick={() => handleStartSingleDownload(m.id, file.filename, file.download_url)}
-                                disabled={downloadingFile === file.filename}
-                                style={{
-                                  padding: '3px 8px', borderRadius: '5px',
-                                  border: subBorder, background: 'transparent',
-                                  color: textPrimary, fontSize: '0.64rem', fontWeight: 700, cursor: 'pointer',
-                                  display: 'inline-flex', alignItems: 'center', gap: '3px', flexShrink: 0
-                                }}
-                              >
-                                {downloadingFile === file.filename ? <Activity className="mh-spin" size={10} /> : <Download size={10} />}
-                                Scarica
-                              </button>
+                      (() => {
+                        const safetensorsShards = details.files.filter(f => f.is_safetensors || f.filename?.toLowerCase().endsWith('.safetensors'));
+                        const totalRepoBytes = details.files.reduce((sum, f) => sum + (Number(f.size) || 0), 0);
+                        const isMultiShard = safetensorsShards.length > 1;
+
+                        return (
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                            <div style={{
+                              display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '6px',
+                              fontSize: '0.68rem', fontWeight: 800, color: textMuted, textTransform: 'uppercase'
+                            }}>
+                              <span>File e Shards del Modello ({details.files.length} file{totalRepoBytes > 0 ? ` • ${formatBytes(totalRepoBytes)} totali` : ''}):</span>
+                              {isMultiShard && (
+                                <span style={{ color: '#ffb86c', textTransform: 'none', fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+                                  📦 {safetensorsShards.length} Shard Safetensors da unire
+                                </span>
+                              )}
                             </div>
-                          ))}
-                        </div>
-                      </div>
+
+                            {isMultiShard && (
+                              <div style={{
+                                padding: '8px 10px', borderRadius: '6px',
+                                background: 'rgba(255, 184, 108, 0.08)', border: '1px solid rgba(255, 184, 108, 0.25)',
+                                color: '#ffb86c', fontSize: '0.66rem', display: 'flex', alignItems: 'center', gap: '6px'
+                              }}>
+                                <span>💡 <b>Modello Multi-Shard:</b> Questo repository è suddiviso in {safetensorsShards.length} file safetensors ({formatBytes(totalRepoBytes)}). Scaricando l'intero repository, tutti i pezzi vengono archiviati insieme per essere caricati o convertiti in un unico modello GGUF.</span>
+                              </div>
+                            )}
+
+                            <div style={{ maxHeight: '180px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                              {details.files.map((file, fIdx) => (
+                                <div
+                                  key={fIdx}
+                                  style={{
+                                    padding: '5px 10px', borderRadius: '6px',
+                                    background: subBg, border: subBorder,
+                                    display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px'
+                                  }}
+                                >
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px', minWidth: 0 }}>
+                                    <span style={{ fontSize: '0.70rem', color: textPrimary, wordBreak: 'break-all' }}>
+                                      {file.filename}
+                                    </span>
+                                    {file.size > 0 && (
+                                      <span style={{ fontSize: '0.62rem', color: textMuted, flexShrink: 0, fontWeight: 700 }}>
+                                        ({formatBytes(file.size)})
+                                      </span>
+                                    )}
+                                  </div>
+                                  <button
+                                    onClick={() => handleStartSingleDownload(m.id, file.filename, file.download_url)}
+                                    disabled={downloadingFile === file.filename}
+                                    style={{
+                                      padding: '3px 8px', borderRadius: '5px',
+                                      border: subBorder, background: 'transparent',
+                                      color: textPrimary, fontSize: '0.64rem', fontWeight: 700, cursor: 'pointer',
+                                      display: 'inline-flex', alignItems: 'center', gap: '3px', flexShrink: 0
+                                    }}
+                                  >
+                                    {downloadingFile === file.filename ? <Activity className="mh-spin" size={10} /> : <Download size={10} />}
+                                    Scarica
+                                  </button>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        );
+                      })()
                     )}
                   </div>
                 )}

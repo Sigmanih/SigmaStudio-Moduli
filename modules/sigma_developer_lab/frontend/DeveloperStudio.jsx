@@ -3,7 +3,21 @@ import { useApp } from '../../contexts/AppContext';
 import WorkspaceExplorer from './WorkspaceExplorer';
 import CodeEditor from './CodeEditor';
 import TerminalPanel from './TerminalPanel';
+import ModulePublisher from './ModulePublisher';
+import FanoutPanel from './FanoutPanel';
+import ActivityTerminalStrip from './ActivityTerminalStrip';
+import SigmaEngineNativeBar from './SigmaEngineNativeBar';
 import AdminAgentChat from './AdminAgentChat';
+import McpQuickActionsBar from './McpQuickActionsBar';
+import AiCreateFileModal from './AiCreateFileModal';
+
+const normPath = (p) => String(p || '').replace(/\\/g, '/').toLowerCase().trim();
+const isSamePath = (p1, p2) => {
+  if (!p1 || !p2) return false;
+  const n1 = normPath(p1);
+  const n2 = normPath(p2);
+  return n1 === n2 || n1.endsWith(n2) || n2.endsWith(n1);
+};
 
 export default function DeveloperStudio() {
   const { theme, addToast } = useApp();
@@ -17,6 +31,29 @@ export default function DeveloperStudio() {
   const [openFiles, setOpenFiles] = useState([]);
   const [activeFilePath, setActiveFilePath] = useState(null);
   const [activeDiff, setActiveDiff] = useState(null);
+  const [aiModalState, setAiModalState] = useState({ isOpen: false, node: null });
+
+  // Apertura della scheda speciale Grafo D3
+  const handleOpenGraph = useCallback((target) => {
+    const rawPath = typeof target === 'string' ? target : (target?.path || '');
+    const cleanPath = String(rawPath).trim().replace(/^["']|["']$/g, '');
+    const folderName = cleanPath ? cleanPath.split(/[/\\]/).pop() : 'Workspace';
+    const graphTabId = `__graph__:${cleanPath || 'root'}`;
+
+    setOpenFiles(prev => {
+      const existing = prev.find(f => f.path === graphTabId);
+      if (existing) return prev;
+      return [...prev, {
+        path: graphTabId,
+        filename: `🌐 Grafo: ${folderName}`,
+        is_graph: true,
+        targetPath: cleanPath,
+        content: '',
+        dirty: false
+      }];
+    });
+    setActiveFilePath(graphTabId);
+  }, []);
 
   // Terminal state
   const [terminalExpanded, setTerminalExpanded] = useState(true);
@@ -24,7 +61,7 @@ export default function DeveloperStudio() {
   const [isRunningCommand, setIsRunningCommand] = useState(false);
 
   // 1. Fetch workspace roots
-  useEffect(() => {
+  const fetchRoots = useCallback(() => {
     fetch('/api/developer/workspace/roots')
       .then(r => r.json())
       .then(d => {
@@ -36,7 +73,48 @@ export default function DeveloperStudio() {
         }
       })
       .catch(err => console.error('Error fetching workspace roots:', err));
-  }, []);
+  }, [workspaceRoot]);
+
+  useEffect(() => {
+    fetchRoots();
+  }, [fetchRoots]);
+
+  const handleAddCustomRoot = useCallback(async (path, label) => {
+    try {
+      const res = await fetch('/api/developer/workspace/roots/add', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ path, label })
+      });
+      const d = await res.json();
+      if (d.success) {
+        if (addToast) addToast({ type: 'success', message: 'Cartella salvata nella Developer Map!' });
+        fetchRoots();
+        if (d.path) setWorkspaceRoot(d.path);
+      } else {
+        if (addToast) addToast({ type: 'error', message: d.error || 'Errore aggiunta cartella' });
+      }
+    } catch (e) {
+      if (addToast) addToast({ type: 'error', message: String(e) });
+    }
+  }, [addToast, fetchRoots]);
+
+  const handleRemoveCustomRoot = useCallback(async (path) => {
+    try {
+      const res = await fetch('/api/developer/workspace/roots/remove', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ path })
+      });
+      const d = await res.json();
+      if (d.success) {
+        if (addToast) addToast({ type: 'info', message: 'Cartella rimossa dalla Developer Map' });
+        fetchRoots();
+      }
+    } catch (e) {
+      if (addToast) addToast({ type: 'error', message: String(e) });
+    }
+  }, [addToast, fetchRoots]);
 
   // 2. Fetch file tree when workspaceRoot changes
   const fetchTree = useCallback(() => {
@@ -57,22 +135,30 @@ export default function DeveloperStudio() {
   }, [fetchTree]);
 
   // 3. Open file in editor
-  const handleOpenFile = async (filePath) => {
-    const existing = openFiles.find(f => f.path === filePath);
-    if (existing) {
-      setActiveFilePath(filePath);
-      return;
-    }
+  const handleOpenFile = useCallback(async (filePath) => {
+    if (!filePath) return;
+    const cleanPath = String(filePath).trim().replace(/^["']|["']$/g, '');
+
+    // Controlla se il file è già aperto nella lista
+    setOpenFiles(prev => {
+      const existing = prev.find(f => isSamePath(f.path, cleanPath));
+      if (existing) {
+        setActiveFilePath(existing.path);
+        return prev;
+      }
+      return prev;
+    });
 
     try {
-      const res = await fetch(`/api/developer/fs/read?path=${encodeURIComponent(filePath)}`);
+      const res = await fetch(`/api/developer/fs/read?path=${encodeURIComponent(cleanPath)}`);
       const data = await res.json();
       if (data.success) {
+        const resolvedPath = data.path || cleanPath;
         const newFile = {
-          path: data.path,
-          filename: data.filename,
-          content: data.content,
-          originalContent: data.content,
+          path: resolvedPath,
+          filename: data.filename || cleanPath.split(/[/\\]/).pop(),
+          content: data.content ?? '',
+          originalContent: data.content ?? '',
           is_binary: !!data.is_binary,
           is_image: !!data.is_image,
           is_pdf: !!data.is_pdf,
@@ -81,15 +167,48 @@ export default function DeveloperStudio() {
           size_label: data.size_label,
           dirty: false
         };
-        setOpenFiles(prev => [...prev, newFile]);
-        setActiveFilePath(data.path);
+        setOpenFiles(prev => {
+          const already = prev.find(f => isSamePath(f.path, resolvedPath));
+          if (already) return prev;
+          return [...prev, newFile];
+        });
+        setActiveFilePath(resolvedPath);
       } else {
         addToast?.(data.error || 'Errore lettura file', 'error');
       }
     } catch (e) {
       addToast?.('Errore di connessione', 'error');
     }
-  };
+  }, [addToast]);
+
+  // Ascolto per aperture file richieste dall'esterno (es. Chat principale)
+  useEffect(() => {
+    const handleExternalOpen = (e) => {
+      const targetPath = e.detail?.path;
+      if (targetPath) {
+        handleOpenFile(targetPath);
+      }
+    };
+    window.addEventListener('sigma_dev_open_file', handleExternalOpen);
+
+    const checkPending = () => {
+      try {
+        const pending = localStorage.getItem('sigma_dev_pending_open_file');
+        if (pending) {
+          localStorage.removeItem('sigma_dev_pending_open_file');
+          handleOpenFile(pending);
+        }
+      } catch (e) {}
+    };
+
+    checkPending();
+    const timer = setTimeout(checkPending, 250);
+
+    return () => {
+      window.removeEventListener('sigma_dev_open_file', handleExternalOpen);
+      clearTimeout(timer);
+    };
+  }, [handleOpenFile]);
 
   // 4. Save file
   const handleSaveFile = async (filePath, content) => {
@@ -101,7 +220,7 @@ export default function DeveloperStudio() {
       });
       const data = await res.json();
       if (data.success) {
-        setOpenFiles(prev => prev.map(f => f.path === filePath ? { ...f, content, originalContent: content, dirty: false } : f));
+        setOpenFiles(prev => prev.map(f => isSamePath(f.path, filePath) ? { ...f, content, originalContent: content, dirty: false } : f));
         addToast?.('File salvato con successo', 'success');
         fetchTree();
       } else {
@@ -224,7 +343,7 @@ export default function DeveloperStudio() {
   // Content edit handler
   const handleContentChange = (path, newContent) => {
     setOpenFiles(prev => prev.map(f => {
-      if (f.path === path) {
+      if (isSamePath(f.path, path)) {
         return {
           ...f,
           content: newContent,
@@ -237,9 +356,9 @@ export default function DeveloperStudio() {
 
   // Tab close handler
   const handleCloseTab = (path) => {
-    const nextFiles = openFiles.filter(f => f.path !== path);
+    const nextFiles = openFiles.filter(f => !isSamePath(f.path, path));
     setOpenFiles(nextFiles);
-    if (activeFilePath === path) {
+    if (isSamePath(activeFilePath, path)) {
       setActiveFilePath(nextFiles[nextFiles.length - 1]?.path || null);
     }
   };
@@ -255,6 +374,7 @@ export default function DeveloperStudio() {
   });
   const [leftCollapsed, setLeftCollapsed] = useState(false);
   const [rightCollapsed, setRightCollapsed] = useState(false);
+  const [headerPortalNode, setHeaderPortalNode] = useState(null);
 
   const [isResizingLeft, setIsResizingLeft] = useState(false);
   const [isResizingRight, setIsResizingRight] = useState(false);
@@ -322,12 +442,25 @@ export default function DeveloperStudio() {
             onRefreshTree={fetchTree}
             onCreateFile={handleCreateFile}
             onDeletePath={handleDeletePath}
+            onOpenGraph={handleOpenGraph}
+            onAiCreate={(node) => setAiModalState({ isOpen: true, node })}
+            onOpenStudy={(node) => handleOpenFile(node?.path)}
+            onShowDiff={(node) => handleOpenFile(node?.path)}
+            onAddCustomRoot={handleAddCustomRoot}
+            onRemoveCustomRoot={handleRemoveCustomRoot}
+            onRefreshRoots={fetchRoots}
             theme={theme}
             isLight={isLight}
           />
+          {/* Telemetria e stato in tempo reale del micro-kernel nativo Rust */}
+          <SigmaEngineNativeBar isLight={isLight} />
+          {/* Il lavoro grande, spezzato e dato a piu' agenti */}
+          <FanoutPanel workspaceRoot={workspaceRoot} isLight={isLight} />
+          {/* Dove va a finire il lavoro fatto sui moduli */}
+          <ModulePublisher isLight={isLight} />
         </div>
       ) : (
-        <div 
+        <div
           onClick={() => setLeftCollapsed(false)}
           title="Espandi Esploratore File"
           style={{
@@ -367,113 +500,170 @@ export default function DeveloperStudio() {
         />
       )}
 
-      {/* 2. Center Panel: Code Editor + Bottom Terminal */}
+      {/* 2 & 3. Main Center + Right Workspace Area with Unified Modern Top Header */}
       <div style={{
         flex: 1,
         display: 'flex',
         flexDirection: 'column',
         height: '100%',
         overflow: 'hidden',
-        minWidth: '320px'
+        minWidth: 0,
+        position: 'relative'
       }}>
-        <CodeEditor
-          openFiles={openFiles}
-          activeFilePath={activeFilePath}
-          onSelectTab={setActiveFilePath}
-          onCloseTab={handleCloseTab}
-          onContentChange={handleContentChange}
-          onSaveFile={handleSaveFile}
-          onRunFileInTerminal={handleRunFileInTerminal}
-          activeDiff={activeDiff}
-          onAcceptDiff={() => {
-            setActiveDiff(null);
-            fetchTree();
-          }}
-          onRejectDiff={() => setActiveDiff(null)}
-          theme={theme}
-          isLight={isLight}
-        />
-
-        <TerminalPanel
-          workspaceRoot={workspaceRoot}
-          isExpanded={terminalExpanded}
-          onToggleExpand={() => setTerminalExpanded(!terminalExpanded)}
-          terminalLogs={terminalLogs}
-          onExecuteCommand={handleExecuteTerminalCommand}
-          onClearLogs={() => setTerminalLogs([])}
-          isRunningCommand={isRunningCommand}
-          theme={theme}
-          isLight={isLight}
-        />
-      </div>
-
-      {/* Right Resizer Splitter */}
-      {!rightCollapsed && (
+        {/* Unified Top Header Bar Container spanning both center and right columns */}
         <div
-          onMouseDown={() => setIsResizingRight(true)}
+          ref={node => { if (node && node !== headerPortalNode) setHeaderPortalNode(node); }}
+          id="dev-studio-top-header"
           style={{
-            width: '5px',
-            cursor: 'col-resize',
-            background: isResizingRight ? '#00f2fe' : 'transparent',
-            zIndex: 10,
-            position: 'relative',
-            transition: 'background 0.15s ease'
+            width: '100%',
+            flexShrink: 0,
+            zIndex: 30
           }}
-          onMouseEnter={e => { if (!isResizingRight) e.currentTarget.style.background = 'rgba(0, 242, 254, 0.4)'; }}
-          onMouseLeave={e => { if (!isResizingRight) e.currentTarget.style.background = 'transparent'; }}
         />
-      )}
 
-      {/* 3. Right Panel: Admin AI Developer Agent (Resizable & Collapsible) */}
-      {!rightCollapsed ? (
+        {/* Lower Split Area: Code Editor (Center) + Admin Chat (Right) */}
         <div style={{
-          width: `${rightWidth}px`,
-          minWidth: `${rightWidth}px`,
-          height: '100%',
+          flex: 1,
           display: 'flex',
-          flexDirection: 'column',
-          position: 'relative'
+          width: '100%',
+          overflow: 'hidden',
+          minHeight: 0
         }}>
-          <AdminAgentChat
-            workspaceRoot={workspaceRoot}
-            activeFilePath={activeFilePath}
-            activeFileContent={openFiles.find(f => f.path === activeFilePath)?.content}
-            onApplyDiff={(diff, path, content) => {
-              setActiveDiff(diff);
-              if (path) {
-                handleOpenFile(path);
-              }
-            }}
-            onOpenFile={handleOpenFile}
-            onExecuteTerminalCommand={handleExecuteTerminalCommand}
-            onRefreshTree={fetchTree}
-            theme={theme}
-            isLight={isLight}
-          />
-        </div>
-      ) : (
-        <div 
-          onClick={() => setRightCollapsed(false)}
-          title="Espandi Admin AI Chat"
-          style={{
-            width: '28px',
-            height: '100%',
-            background: isLight ? '#f6f8fa' : '#0d1117',
-            borderLeft: isLight ? '1px solid #d0d7de' : '1px solid rgba(255,255,255,0.08)',
+          {/* 2. Center Panel: Code Editor + Bottom Terminal */}
+          <div style={{
+            flex: 1,
             display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            cursor: 'pointer',
-            writingMode: 'vertical-rl',
-            fontSize: '0.66rem',
-            fontWeight: 700,
-            color: '#00f2fe',
-            letterSpacing: '1px'
-          }}
-        >
-          ⚡ ADMIN AI AGENT
+            flexDirection: 'column',
+            height: '100%',
+            overflow: 'hidden',
+            minWidth: '320px'
+          }}>
+            <McpQuickActionsBar
+              workspaceRoot={workspaceRoot}
+              onLogTerminal={(msg) => setTerminalLogs(prev => [...prev, msg])}
+              isLight={isLight}
+            />
+
+            <CodeEditor
+              openFiles={openFiles}
+              activeFilePath={activeFilePath}
+              onSelectTab={setActiveFilePath}
+              onCloseTab={handleCloseTab}
+              onContentChange={handleContentChange}
+              onSaveFile={handleSaveFile}
+              onRunFileInTerminal={handleRunFileInTerminal}
+              onOpenGraph={handleOpenGraph}
+              onAiCreate={(node) => setAiModalState({ isOpen: true, node })}
+              workspaceRoot={workspaceRoot}
+              activeDiff={activeDiff}
+              onAcceptDiff={() => {
+                setActiveDiff(null);
+                fetchTree();
+              }}
+              onRejectDiff={() => setActiveDiff(null)}
+              theme={theme}
+              isLight={isLight}
+            />
+
+            {/* Striscia compatta ad una riga con lo stato dell'attività/agente in corso */}
+            <ActivityTerminalStrip isLight={isLight} />
+
+            <TerminalPanel
+              workspaceRoot={workspaceRoot}
+              isExpanded={terminalExpanded}
+              onToggleExpand={() => setTerminalExpanded(!terminalExpanded)}
+              terminalLogs={terminalLogs}
+              onExecuteCommand={handleExecuteTerminalCommand}
+              onClearLogs={() => setTerminalLogs([])}
+              isRunningCommand={isRunningCommand}
+              theme={theme}
+              isLight={isLight}
+            />
+          </div>
+
+          {/* Right Resizer Splitter */}
+          {!rightCollapsed && (
+            <div
+              onMouseDown={() => setIsResizingRight(true)}
+              style={{
+                width: '5px',
+                cursor: 'col-resize',
+                background: isResizingRight ? '#00f2fe' : 'transparent',
+                zIndex: 10,
+                position: 'relative',
+                transition: 'background 0.15s ease'
+              }}
+              onMouseEnter={e => { if (!isResizingRight) e.currentTarget.style.background = 'rgba(0, 242, 254, 0.4)'; }}
+              onMouseLeave={e => { if (!isResizingRight) e.currentTarget.style.background = 'transparent'; }}
+            />
+          )}
+
+          {/* 3. Right Panel: Admin AI Developer Agent (Resizable & Collapsible) */}
+          {!rightCollapsed ? (
+            <div style={{
+              width: `${rightWidth}px`,
+              minWidth: `${rightWidth}px`,
+              height: '100%',
+              display: 'flex',
+              flexDirection: 'column',
+              position: 'relative'
+            }}>
+              <AdminAgentChat
+                workspaceRoot={workspaceRoot}
+                activeFilePath={activeFilePath}
+                activeFileContent={openFiles.find(f => f.path === activeFilePath)?.content}
+                onApplyDiff={(diff, path, content) => {
+                  setActiveDiff(diff);
+                  if (path) {
+                    handleOpenFile(path);
+                  }
+                }}
+                onOpenFile={handleOpenFile}
+                onExecuteTerminalCommand={handleExecuteTerminalCommand}
+                onRefreshTree={fetchTree}
+                theme={theme}
+                isLight={isLight}
+                headerPortalNode={headerPortalNode}
+              />
+            </div>
+          ) : (
+            <div
+              onClick={() => setRightCollapsed(false)}
+              title="Espandi Admin AI Chat"
+              style={{
+                width: '28px',
+                height: '100%',
+                background: isLight ? '#f6f8fa' : '#0d1117',
+                borderLeft: isLight ? '1px solid #d0d7de' : '1px solid rgba(255,255,255,0.08)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                cursor: 'pointer',
+                writingMode: 'vertical-rl',
+                fontSize: '0.66rem',
+                fontWeight: 700,
+                color: '#00f2fe',
+                letterSpacing: '1px'
+              }}
+            >
+              ⚡ ADMIN AI AGENT
+            </div>
+          )}
         </div>
-      )}
+      </div>
+      {/* Modale Creazione Guidata con Ruoli AI */}
+      <AiCreateFileModal
+        isOpen={aiModalState.isOpen}
+        onClose={() => setAiModalState({ isOpen: false, node: null })}
+        targetFolderNode={aiModalState.node}
+        workspaceRoot={workspaceRoot}
+        onFileCreated={(createdPath) => {
+          fetchTree();
+          handleOpenFile(createdPath);
+        }}
+        addToast={addToast}
+        isLight={isLight}
+      />
     </div>
   );
 }

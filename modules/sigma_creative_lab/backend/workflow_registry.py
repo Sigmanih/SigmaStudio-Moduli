@@ -29,7 +29,9 @@ from core.logger import get_logger
 
 log = get_logger("workflow_registry")
 
-WORKFLOW_DIR = Path("data/creative/workflows")
+from core import paths
+
+WORKFLOW_DIR = paths.creative_dir() / "workflows"
 MANIFEST_SUFFIX = ".manifest.json"
 
 PLACEHOLDER = re.compile(r"\{\{\s*([a-zA-Z0-9_]+)\s*\}\}")

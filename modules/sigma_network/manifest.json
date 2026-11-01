@@ -1,0 +1,39 @@
+{
+  "id": "sigma_network",
+  "enabled_by_default": true,
+  "name": "Sigma Network",
+  "version": "v0.4.0",
+  "category": "Rete & Inferenza Distribuita",
+  "tabType": "sigma_network",
+  "sidebarLabel": "Sigma Network",
+  "sidebarIcon": "Network",
+  "sidebarBadge": "NET",
+  "sidebarBadgeColor": "rgba(88,101,242,0.15)",
+  "sidebarCategory": "Infrastruttura & Sistema",
+  "description": "Rete peer-to-peer per inferenza distribuita con contabilita' AiloCoin. Ospita l'infrastruttura AiLo (il coordinatore originale e' dismesso): hub con registro ALC, account, smistamento dell'inferenza ai nodi via WebSocket e migrazione dal vecchio ailo.db.",
+  "author": "Sigma Core Team",
+  "repository": "https://github.com/Sigmanih/SigmaStudio-Moduli",
+  "branch": "main",
+  "path": "modules/sigma_network",
+  "tags": [
+    "P2P",
+    "Inferenza Remota",
+    "AiloCoin",
+    "Discovery UDP",
+    "AiLo Network",
+    "ALC",
+    "AiLo Hub"
+  ],
+  "size": "~1 MB",
+  "icon": "Network",
+  "color": "#5865f2",
+  "requirements": "requirements.txt",
+  "backend": {
+    "handlers_module": "core.modules.sigma_network.handlers",
+    "install_to": "core/modules/sigma_network/"
+  },
+  "frontend": {
+    "entrypoint": "frontend/index.jsx",
+    "install_to": "sigma_studio/src/modules/sigma_network/"
+  }
+}

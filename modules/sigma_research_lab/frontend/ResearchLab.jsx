@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { 
-  Play, Square, RotateCcw, ChevronRight, Cpu, Target, Layers, RefreshCw, 
+import {
+  Play, Square, RotateCcw, ChevronRight, Cpu, Target, Layers, RefreshCw,
   Database, GitCompare, Settings, Wifi, WifiOff, X, Sliders, MessageSquare, Send,
   Plus, Trash2, CheckCircle, Circle, ArrowRight, GitBranch, StopCircle, AlertTriangle, FlaskConical
 } from 'lucide-react';
@@ -46,13 +46,13 @@ function AgentConfigPanel({ agentId, meta, config, onUpdate, onClose, testState,
   const [manifesti, setManifesti] = React.useState([]);
   const [ollamaModels, setOllamaModels] = React.useState([]);
   const [saving, setSaving] = React.useState(false);
-  
+
   React.useEffect(() => {
     fetch('/api/list_manifesti').then(r => r.json()).then(d => {
       if (d.success) setManifesti(d.manifesti || []);
     }).catch(() => {});
   }, []);
-  
+
   // Fetch Ollama models dynamically when provider is ollama
   React.useEffect(() => {
     if (config.provider === 'ollama') {
@@ -63,7 +63,7 @@ function AgentConfigPanel({ agentId, meta, config, onUpdate, onClose, testState,
       }).catch(() => {});
     }
   }, [config.provider]);
-  
+
   const handleSave = async () => {
     setSaving(true);
     try {
@@ -81,7 +81,7 @@ function AgentConfigPanel({ agentId, meta, config, onUpdate, onClose, testState,
     setSaving(false);
     onClose();
   };
-  
+
   return (
     <div className="agent-config-overlay" onClick={onClose}>
       <div className="agent-config-panel" onClick={e => e.stopPropagation()}>
@@ -111,9 +111,9 @@ function AgentConfigPanel({ agentId, meta, config, onUpdate, onClose, testState,
             </select>
           </div>
           <div className="agent-config-field">
-            <span className="agent-config-label">Manifesto / Ruolo</span>
+            <span className="agent-config-label">Ruolo Specialista</span>
             <select className="agent-config-select" value={config.manifesto || agentsMeta?.[agentId]?.manifesto || ''} onChange={e => onUpdate(agentId, { manifesto: e.target.value })}>
-              <option value="">— Nessun manifesto —</option>
+              <option value="">— Nessun ruolo —</option>
               {manifesti.map((mf, i) => (
                 <option key={i} value={mf.path}>{mf.name || mf.filename}</option>
               ))}
@@ -281,7 +281,7 @@ export default function ResearchLab({ onClose, onTasksUpdated, addToast }) {
     addBtnText: isLight ? '#ea580c' : '#8b8fa3',
     addBtnSub: isLight ? '#78716c' : '#5a5e72',
   };
-  
+
   // --- Full pipeline hook (restored) ---
   const {
     AGENTS_META, getAgentColor,
@@ -707,7 +707,7 @@ export default function ResearchLab({ onClose, onTasksUpdated, addToast }) {
 
   const handleAddNewAgentInstance = async (prefix, baseId) => {
     if (!activeSessionId) return;
-    
+
     const activeAgents = sessionData?.agents || [];
     const team = activeAgents.filter(a => (a.agent_id || a.id) !== 'sigma_architect');
 
@@ -716,26 +716,26 @@ export default function ResearchLab({ onClose, onTasksUpdated, addToast }) {
       const aid = a.agent_id || a.id;
       return aid.startsWith(prefix);
     }).length;
-    
+
     // Generate unique numbered ID (e.g., math_2, math_3)
     let newAgentId = count === 0 ? baseId : `${prefix}_${count + 1}`;
-    
+
     // Safety check to avoid duplicate ID
     let idx = count + 1;
     while (team.some(a => (a.agent_id || a.id) === newAgentId)) {
       idx++;
       newAgentId = `${prefix}_${idx}`;
     }
-    
+
     const baseConfig = getAgentConfig(baseId);
     const newAgent = {
       agent_id: newAgentId,
       provider: baseConfig.provider || 'deepseek',
       model: baseConfig.model || 'deepseek-v4-flash',
       temperature: baseConfig.temperature ?? 0.4,
-      manifesto: baseConfig.manifesto || `manifesti/${baseId}.md`
+      manifesto: baseConfig.manifesto || `Ruoli/${baseId}.md`
     };
-    
+
     try {
       const res = await fetch('/api/research/update_agents', {
         method: 'POST',

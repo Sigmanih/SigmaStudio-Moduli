@@ -1,9 +1,11 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { 
-  Mic, Volume2, Play, Square, Download, Sliders, Sparkles, RefreshCw, 
+import {
+  Mic, Volume2, Play, Square, Download, Sliders, Sparkles, RefreshCw,
   Radio, Check, Save, User, Activity, Settings2, FileAudio, Upload
 } from 'lucide-react';
 import './styles/voice-studio.css';
+import TabHeader from '../../components/common/TabHeader';
+import VoiceLibrary from './VoiceLibrary';
 
 const DEFAULT_PRESETS = [
   { id: 'assistant_it', name: 'Assistente AI Italiano', engine: 'kokoro', voice: 'if_sara', rate: 1.1, pitch: 1.0 },
@@ -17,7 +19,7 @@ export default function VoiceStudio() {
   const [defaultConfig, setDefaultConfig] = useState(null);
   const [systemVoices, setSystemVoices] = useState([]);
   const [loading, setLoading] = useState(false);
-  
+
   // Voice Controls State
   const [selectedEngine, setSelectedEngine] = useState('browser');
   const [selectedVoice, setSelectedVoice] = useState('');
@@ -26,7 +28,7 @@ export default function VoiceStudio() {
   const [pitch, setPitch] = useState(1.0);
   const [volume, setVolume] = useState(1.0);
   const [text, setText] = useState('Ciao! Questo è il Voice Studio di Sigma. Qui puoi personalizzare, testare e costruire la voce ideale per i tuoi assistenti AI.');
-  
+
   const [audioUrl, setAudioUrl] = useState(null);
   const [isPlaying, setIsPlaying] = useState(false);
   const [savedSuccess, setSavedSuccess] = useState(false);
@@ -184,27 +186,46 @@ export default function VoiceStudio() {
   const activeEngineObj = engines.find(e => e.id === selectedEngine);
 
   return (
-    <div className="voice-studio-container">
-      {/* SIDEBAR PARAMETRI & VOCI */}
-      <div className="vs-sidebar">
-        <div style={{ padding: '20px', borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
-          <h2 style={{ display: 'flex', alignItems: 'center', gap: '8px', margin: 0, fontSize: '1.15rem', color: '#ff79c6', fontWeight: 800 }}>
-            <Mic size={20} />
-            Voice Studio & Lab
-          </h2>
-          <div style={{ fontSize: '0.72rem', color: '#8b8fa3', marginTop: '4px' }}>
-            Configuratore & Sintetizzatore Vocale Neurale
-          </div>
-        </div>
-        
-        <div style={{ padding: '16px', flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '16px' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', width: '100%', overflow: 'hidden' }}>
+      <TabHeader
+        icon={Mic}
+        title="Voice Studio"
+        highlight="SINTESI VOCALE"
+        description="Configuratore e sintetizzatore vocale neurale multi-engine (Kokoro, Piper, Browser Speech)"
+        actions={
+          <button
+            onClick={applyAsAssistantDefault}
+            title="Salva questa voce come default per l'assistente vocale"
+            style={{
+              background: savedSuccess ? 'rgba(16, 185, 129, 0.2)' : 'rgba(255, 121, 198, 0.15)',
+              border: savedSuccess ? '1px solid #10b981' : '1px solid rgba(255, 121, 198, 0.35)',
+              color: savedSuccess ? '#10b981' : '#ff79c6',
+              borderRadius: '6px',
+              padding: '4px 10px',
+              fontSize: '0.72rem',
+              fontWeight: 700,
+              display: 'flex',
+              alignItems: 'center',
+              gap: '5px',
+              cursor: 'pointer'
+            }}
+          >
+            <Check size={12} />
+            <span>{savedSuccess ? 'Salvata come Voce Predefinita' : 'Imposta come Voce Predefinita'}</span>
+          </button>
+        }
+      />
+      <div className="voice-studio-container" style={{ flex: 1, minHeight: 0, height: 'calc(100% - 38px)' }}>
+        {/* SIDEBAR PARAMETRI & VOCI */}
+        <div className="vs-sidebar">
+          <div style={{ padding: '16px', flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '16px' }}>
           {/* Engine Selector */}
           <div>
             <label style={{ display: 'block', marginBottom: '6px', fontSize: '0.76rem', fontWeight: 700, color: '#8b8fa3' }}>
               Motore Vocale:
             </label>
-            <select 
-              value={selectedEngine} 
+            <select
+              value={selectedEngine}
               onChange={e => setSelectedEngine(e.target.value)}
               style={{
                 width: '100%', padding: '8px 10px', background: '#0e1016',
@@ -227,8 +248,8 @@ export default function VoiceStudio() {
               <label style={{ display: 'block', marginBottom: '6px', fontSize: '0.76rem', fontWeight: 700, color: '#8b8fa3' }}>
                 Voce Neurale ({activeEngineObj.name}):
               </label>
-              <select 
-                value={selectedVoice || activeEngineObj.default_voice} 
+              <select
+                value={selectedVoice || activeEngineObj.default_voice}
                 onChange={e => setSelectedVoice(e.target.value)}
                 style={{
                   width: '100%', padding: '8px 10px', background: '#0e1016',
@@ -251,8 +272,8 @@ export default function VoiceStudio() {
               <label style={{ display: 'block', marginBottom: '6px', fontSize: '0.76rem', fontWeight: 700, color: '#8b8fa3' }}>
                 Seleziona Voce Sospesa:
               </label>
-              <select 
-                value={systemVoiceURI} 
+              <select
+                value={systemVoiceURI}
                 onChange={e => setSystemVoiceURI(e.target.value)}
                 style={{
                   width: '100%', padding: '8px 10px', background: '#0e1016',
@@ -288,13 +309,13 @@ export default function VoiceStudio() {
               <span style={{ fontWeight: 600, color: '#8b8fa3' }}>Velocità (Speed):</span>
               <span style={{ color: '#ff79c6', fontWeight: 700 }}>{speed.toFixed(2)}x</span>
             </div>
-            <input 
-              type="range" 
+            <input
+              type="range"
               className="vs-slider"
-              min="0.5" 
-              max="2.0" 
-              step="0.05" 
-              value={speed} 
+              min="0.5"
+              max="2.0"
+              step="0.05"
+              value={speed}
               onChange={e => setSpeed(parseFloat(e.target.value))}
             />
           </div>
@@ -305,13 +326,13 @@ export default function VoiceStudio() {
               <span style={{ fontWeight: 600, color: '#8b8fa3' }}>Tono (Pitch):</span>
               <span style={{ color: '#00d2ff', fontWeight: 700 }}>{pitch.toFixed(2)}</span>
             </div>
-            <input 
-              type="range" 
+            <input
+              type="range"
               className="vs-slider"
-              min="0.5" 
-              max="1.8" 
-              step="0.05" 
-              value={pitch} 
+              min="0.5"
+              max="1.8"
+              step="0.05"
+              value={pitch}
               onChange={e => setPitch(parseFloat(e.target.value))}
               style={{ accentColor: '#00d2ff' }}
             />
@@ -369,15 +390,28 @@ export default function VoiceStudio() {
 
       {/* MAIN PLAYGROUND */}
       <div className="vs-main">
+        <VoiceLibrary activeVoice={selectedEngine === 'sigma_voices' ? selectedVoice : ''}
+                      onUse={v => {
+                        // Un clic e la chat parla con questa voce: stessa chiave che legge audioSpeech.js.
+                        try {
+                          const prev = JSON.parse(localStorage.getItem('sigma_assistant_voice_config') || '{}');
+                          localStorage.setItem('sigma_assistant_voice_config',
+                            JSON.stringify({ ...prev, engine: 'sigma_voices', neuralVoice: v.id }));
+                        } catch { /* storage non disponibile: resta la selezione nella pagina */ }
+                        window.dispatchEvent(new CustomEvent('sigma_toast', {
+                          detail: { message: `La chat ora parla con la voce "${v.name}"`, type: 'success' },
+                        }));
+                        fetchEngines().then(() => { setSelectedEngine('sigma_voices'); setSelectedVoice(v.id); });
+                      }} />
         {/* Test Synthesizer Card */}
         <div className="vs-card" style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px' }}>
             <h3 style={{ margin: 0, display: 'flex', alignItems: 'center', gap: '8px', fontSize: '1rem', color: '#f0f2f8' }}>
-              <Radio size={18} color="#ff79c6" /> 
+              <Radio size={18} color="#ff79c6" />
               Sintesi Vocale Live & Test
             </h3>
-            
-            <button 
+
+            <button
               onClick={handleTestVoice}
               disabled={loading}
               style={{
@@ -405,7 +439,7 @@ export default function VoiceStudio() {
               <span>{isPlaying ? 'Ferma Test' : '🔊 Test Voce'}</span>
             </button>
           </div>
-          
+
           <textarea
             value={text}
             onChange={e => setText(e.target.value)}
@@ -451,23 +485,23 @@ export default function VoiceStudio() {
         {/* Audio Result & Download Card (when Neural audio generated) */}
         {audioUrl && (
           <div className="vs-card" style={{ display: 'flex', alignItems: 'center', gap: '16px', padding: '16px 20px' }}>
-            <audio 
-              ref={audioRef} 
+            <audio
+              ref={audioRef}
               onEnded={() => setIsPlaying(false)}
               onPause={() => setIsPlaying(false)}
               onPlay={() => setIsPlaying(true)}
               style={{ display: 'none' }}
             />
-            
+
             <div style={{ flex: 1 }}>
               <div style={{ fontWeight: 700, fontSize: '0.85rem', color: '#f0f2f8' }}>File Audio WAV Generato</div>
               <div style={{ fontSize: '0.72rem', color: '#8b8fa3' }}>
                 Motore: {selectedEngine} • Voce: {selectedVoice || 'default'} • Velocità: {speed}x
               </div>
             </div>
-            
-            <a 
-              href={audioUrl} 
+
+            <a
+              href={audioUrl}
               download={`sigma_voice_${selectedEngine}_${selectedVoice || 'audio'}.wav`}
               style={{
                 background: 'rgba(255,255,255,0.08)',
@@ -488,6 +522,7 @@ export default function VoiceStudio() {
           </div>
         )}
       </div>
+    </div>
     </div>
   );
 }

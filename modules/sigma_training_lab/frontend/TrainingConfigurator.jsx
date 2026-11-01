@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Play, Square, Cpu, Brain, Sliders, Database, ChevronDown, ChevronUp, AlertTriangle } from 'lucide-react';
+import { Play, Square, Cpu, Brain, Sliders, Database, ChevronDown, ChevronUp, AlertTriangle, ShieldCheck, Sparkles, Zap } from 'lucide-react';
 import InfoHint from './InfoHint';
 
 // ==============================================================================
@@ -68,6 +68,13 @@ const FWE_MODELS = [
 
 
 const POPULAR_MODELS = [
+  // Qwen Coding & Dense Reasoning
+  'Qwen/Qwen2.5-Coder-32B-Instruct',
+  'Qwen/Qwen2.5-Coder-14B-Instruct',
+  'Qwen/Qwen2.5-Coder-7B-Instruct',
+  'Qwen/Qwen2.5-32B-Instruct',
+  'Qwen/Qwen2.5-14B-Instruct',
+  'Qwen/Qwen2.5-7B-Instruct',
   // Fine-tuning (Unsloth optimized)
   'unsloth/llama-3.2-3b-instruct',
   'unsloth/llama-3.2-1b-instruct',
@@ -123,6 +130,23 @@ export default function TrainingConfigurator({ myDatasets, selectedDatasetId: pr
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [creating, setCreating] = useState(false);
   const [ollamaModels, setOllamaModels] = useState([]);
+  const [localModels, setLocalModels] = useState([]);
+
+  useEffect(() => {
+    fetch('/api/models/local/list')
+      .then(r => r.json())
+      .then(d => {
+        if (d.success && Array.isArray(d.models)) {
+          setLocalModels(d.models);
+          const localTrainable = d.models.find(m => (m.model_id || '').includes('Qwen3.8-27B') && !(m.model_id || '').includes('GGUF'));
+          if (localTrainable) {
+            setBaseModel(localTrainable.model_id);
+          }
+        }
+      })
+      .catch(() => {});
+  }, []);
+
   // Continuazione: invece di partire da un modello base si riprende un
   // fine-tuning gia' fatto, tipicamente per specializzarlo su un altro dataset.
   const [startFrom, setStartFrom] = useState('base');   // 'base' | 'continue'
@@ -404,10 +428,8 @@ export default function TrainingConfigurator({ myDatasets, selectedDatasetId: pr
     } catch {
       addToast && addToast('Errore di rete', 'error');
     } finally {
-      setCreating(false);
     }
   };
-
 
   return (
     <div className={embedded ? "" : "training-panel"}>
@@ -735,7 +757,20 @@ export default function TrainingConfigurator({ myDatasets, selectedDatasetId: pr
                       </optgroup>
                     ) : (
                       <>
-                        <optgroup label="🤗 HuggingFace (Unsloth optimized)">
+                        {localModels.length > 0 && (
+                          <optgroup label="💾 Modelli Locali Reali (C:\ModelliAI)">
+                            {localModels.map(m => {
+                              const id = m.model_id || m.filename || m.name;
+                              const isGguf = id.toLowerCase().includes('.gguf') || id.toLowerCase().includes('-gguf');
+                              return (
+                                <option key={`local:${id}`} value={id} disabled={isGguf}>
+                                  {id} {isGguf ? '(GGUF inferenza)' : '✓ (Safetensors addestrabile)'}
+                                </option>
+                              );
+                            })}
+                          </optgroup>
+                        )}
+                        <optgroup label="🤗 HuggingFace (Unsloth / Hub)">
                           {POPULAR_MODELS.map(m => <option key={m} value={m}>{m}</option>)}
                         </optgroup>
                         {ollamaModels.length > 0 && (

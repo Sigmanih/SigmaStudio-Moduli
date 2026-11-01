@@ -17,7 +17,7 @@ from typing import Any, Dict, List, Optional
 from core.logger import get_logger
 from core.mcp.base_server import BaseMCPServer
 from core.mcp.governance import SAFE
-from core.modules.sigma_developer_lab.fs_manager import get_default_workspace_root
+from core.harness.fs_manager import get_default_workspace_root
 
 log = get_logger(__name__)
 
