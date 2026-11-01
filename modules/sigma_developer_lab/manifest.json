@@ -29,7 +29,7 @@
   "requirements": "requirements.txt",
   "backend": {
     "handlers_module": "core.modules.sigma_developer_lab.handlers",
-    "mcp_server_module": "core.modules.sigma_developer_lab.mcp_tools.git_server",
+    "mcp_server_module": "core.modules.sigma_developer_lab.mcp_server",
     "routes_prefix": "/api/developer",
     "install_to": "core/modules/sigma_developer_lab/"
   },

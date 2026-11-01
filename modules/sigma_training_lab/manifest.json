@@ -33,7 +33,7 @@
   },
   "backend": {
     "handlers_module": "core.modules.sigma_training_lab.handlers",
-    "mcp_server_module": "core.modules.sigma_training_lab.training_server",
+    "mcp_server_module": "core.modules.sigma_training_lab.mcp_server",
     "routes_prefix": "/api/training",
     "install_to": "core/modules/sigma_training_lab/"
   },

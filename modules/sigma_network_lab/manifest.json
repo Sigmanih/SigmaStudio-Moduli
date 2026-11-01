@@ -33,7 +33,7 @@
   },
   "backend": {
     "handlers_module": "core.modules.sigma_network_lab.handlers",
-    "mcp_server_module": "core.modules.sigma_network_lab.network_server",
+    "mcp_server_module": "core.modules.sigma_network_lab.mcp_server",
     "routes_prefix": "/api/network",
     "install_to": "core/modules/sigma_network_lab/"
   },

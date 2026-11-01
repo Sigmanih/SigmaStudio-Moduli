@@ -402,8 +402,7 @@ def json_from(text: str) -> dict:
         return json.loads(raw, strict=False)
     except ValueError:
         pass
-    # Il LaTeX scritto dentro il JSON con un solo backslash: "
-rac" diventa form feed
+    # Il LaTeX scritto dentro il JSON con un solo backslash: "rac" diventa form feed
     # piu' "rac", "	heta" un tab. Si raddoppiano i backslash dei comandi LaTeX
     # (escape valida seguita da altre lettere) e quelli che non sono escape JSON.
     fixed = re.sub(r'\\(?=[bfnrt][A-Za-z])', r'\\\\', raw)

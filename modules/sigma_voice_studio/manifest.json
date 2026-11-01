@@ -34,8 +34,8 @@
     }
   ],
   "backend": {
-    "handlers_module": "core.modules.sigma_voice_studio.backend.handlers",
-    "mcp_server_module": "core.modules.sigma_voice_studio.backend.mcp_server",
+    "handlers_module": "core.modules.sigma_voice_studio.handlers",
+    "mcp_server_module": "core.modules.sigma_voice_studio.mcp_server",
     "routes_prefix": "/api/tts",
     "install_to": "core/modules/sigma_voice_studio/"
   },

@@ -26,8 +26,8 @@
   "color": "#bc8cff",
   "requirements": "requirements.txt",
   "backend": {
-    "handlers_module": "core.modules.sigma_messaging_hub.backend.handlers",
-    "mcp_server_module": "core.modules.sigma_messaging_hub.backend.messaging_server",
+    "handlers_module": "core.modules.sigma_messaging_hub.handlers",
+    "mcp_server_module": "core.modules.sigma_messaging_hub.mcp_server",
     "routes_prefix": "/api/messaging",
     "install_to": "core/modules/sigma_messaging_hub/"
   },

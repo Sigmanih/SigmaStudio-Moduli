@@ -33,7 +33,7 @@
     }
   ],
   "backend": {
-    "handlers_module": "core.modules.sigma_research_lab.backend.handlers",
+    "handlers_module": "core.modules.sigma_research_lab.handlers",
     "routes_prefix": "/api/research",
     "install_to": "core/modules/sigma_research_lab/"
   },

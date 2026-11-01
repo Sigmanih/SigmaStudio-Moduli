@@ -26,8 +26,8 @@
   "color": "#ffb454",
   "requirements": "requirements.txt",
   "backend": {
-    "handlers_module": "core.modules.sigma_email_client.backend.handlers",
-    "mcp_server_module": "core.modules.sigma_email_client.backend.email_server",
+    "handlers_module": "core.modules.sigma_email_client.handlers",
+    "mcp_server_module": "core.modules.sigma_email_client.mcp_server",
     "routes_prefix": "/api/email",
     "install_to": "core/modules/sigma_email_client/"
   },

@@ -41,8 +41,8 @@
     "modules": []
   },
   "backend": {
-    "handlers_module": "core.modules.sigma_hardware_lab.backend.handlers",
-    "mcp_server_module": "core.modules.sigma_hardware_lab.backend.mcp_server",
+    "handlers_module": "core.modules.sigma_hardware_lab.handlers",
+    "mcp_server_module": "core.modules.sigma_hardware_lab.mcp_server",
     "routes_prefix": "/api/hardware",
     "install_to": "core/modules/sigma_hardware_lab/"
   },

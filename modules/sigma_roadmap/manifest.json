@@ -36,7 +36,7 @@
     }
   ],
   "backend": {
-    "handlers_module": "core.modules.sigma_roadmap.backend.handlers",
+    "handlers_module": "core.modules.sigma_roadmap.handlers",
     "routes_prefix": "/api/tasks",
     "install_to": "core/modules/sigma_roadmap/"
   },

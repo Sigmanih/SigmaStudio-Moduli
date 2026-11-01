@@ -48,8 +48,8 @@
     }
   ],
   "backend": {
-    "handlers_module": "core.modules.sigma_creative_lab.backend.handlers",
-    "mcp_server_module": "core.modules.sigma_creative_lab.backend.mcp_server",
+    "handlers_module": "core.modules.sigma_creative_lab.handlers",
+    "mcp_server_module": "core.modules.sigma_creative_lab.mcp_server",
     "routes_prefix": "/api/creative",
     "install_to": "core/modules/sigma_creative_lab/"
   },

@@ -48,8 +48,8 @@
     "modules": []
   },
   "backend": {
-    "handlers_module": "core.modules.sigma_knowledge.backend.handlers",
-    "mcp_server_module": "core.modules.sigma_knowledge.backend.topic_server",
+    "handlers_module": "core.modules.sigma_knowledge.handlers",
+    "mcp_server_module": "core.modules.sigma_knowledge.mcp_server",
     "routes_prefix": "/api/topics",
     "install_to": "core/modules/sigma_knowledge/"
   },
