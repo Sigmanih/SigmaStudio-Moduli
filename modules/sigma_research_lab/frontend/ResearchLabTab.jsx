@@ -33,6 +33,12 @@ const MODES = [
     icon: Users,
     desc: 'Configurazione ruoli di squadra, prompt, tool abilitati e turn budget (roles.json)'
   },
+  { 
+    id: 'roles', 
+    label: '👥 Ruoli AI', 
+    icon: Users, 
+    desc: 'Configurazione ruoli di squadra, prompt, tool abilitati e turn budget (roles.json)' 
+  },
 ];
 
 export default function ResearchLabTab({ onTasksUpdated, addToast }) {

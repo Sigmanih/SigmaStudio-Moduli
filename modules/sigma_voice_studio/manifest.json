@@ -14,23 +14,18 @@
   "repository": "https://github.com/Sigmanih/SigmaStudio-Moduli",
   "branch": "main",
   "path": "modules/sigma_voice_studio",
-  "tags": ["Kokoro 82M", "XTTS-v2", "Neural TTS", "Voice Cloning", "Speech Synthesis", "Voice MCP"],
+  "tags": [
+    "Kokoro 82M",
+    "XTTS-v2",
+    "Neural TTS",
+    "Voice Cloning",
+    "Speech Synthesis",
+    "Voice MCP"
+  ],
   "size": "~3 MB (modelli scaricati al primo avvio)",
   "icon": "Mic",
   "color": "#ff79c6",
-  "frontend": {
-    "entrypoint": "frontend/index.jsx",
-    "styles": ["frontend/styles/voice-studio.css"],
-    "install_to": "sigma_studio/src/modules/sigma_voice_studio/"
-  },
-  "backend": {
-    "handlers_module": "core.modules.sigma_voice_studio.backend.handlers",
-    "mcp_server_module": "core.modules.sigma_voice_studio.backend.mcp_server",
-    "routes_prefix": "/api/tts",
-    "install_to": "core/modules/sigma_voice_studio/"
-  },
   "requirements": "requirements.txt",
-  "kernel_modules_required": [],
   "changelog": [
     {
       "version": "v1.0.0",

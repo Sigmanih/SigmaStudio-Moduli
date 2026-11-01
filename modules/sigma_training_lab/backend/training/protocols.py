@@ -234,3 +234,4 @@ def describe(suite_id: str) -> Dict[str, object]:
         "normalize": protocol.normalize or None,
         "note": protocol.note,
     }
+

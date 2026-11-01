@@ -14,21 +14,15 @@
   "repository": "https://github.com/Sigmanih/SigmaStudio-Moduli",
   "branch": "main",
   "path": "modules/sigma_messaging_hub",
-  "tags": ["Telegram", "Slack", "Discord", "Webhooks", "Messaging MCP"],
+  "tags": [
+    "Telegram",
+    "Slack",
+    "Discord",
+    "Webhooks",
+    "Messaging MCP"
+  ],
   "size": "~1 MB",
   "icon": "Send",
   "color": "#bc8cff",
-  "frontend": {
-    "entrypoint": "frontend/index.jsx",
-    "styles": ["frontend/styles/messaging-hub.css"],
-    "install_to": "sigma_studio/src/modules/sigma_messaging_hub/"
-  },
-  "backend": {
-    "handlers_module": "core.modules.sigma_messaging_hub.backend.handlers",
-    "mcp_server_module": "core.modules.sigma_messaging_hub.backend.messaging_server",
-    "routes_prefix": "/api/messaging",
-    "install_to": "core/modules/sigma_messaging_hub/"
-  },
-  "requirements": "requirements.txt",
-  "kernel_modules_required": []
+  "requirements": "requirements.txt"
 }

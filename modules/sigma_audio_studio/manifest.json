@@ -19,7 +19,6 @@
     "Audiophile"
   ],
   "frontend": {
-    "entrypoint": "frontend/index.js",
     "components": {
       "Tab": "frontend/AudioStudioTab.jsx",
       "FloatingWidget": "frontend/AudioFloatingWidget.jsx",

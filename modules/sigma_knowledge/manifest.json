@@ -26,18 +26,7 @@
   "size": "~2 MB",
   "icon": "PieChart",
   "color": "#00d2ff",
-  "frontend": {
-    "entrypoint": "frontend/index.jsx",
-    "install_to": "sigma_studio/src/modules/sigma_knowledge/"
-  },
-  "backend": {
-    "handlers_module": "core.modules.sigma_knowledge.backend.handlers",
-    "mcp_server_module": "core.modules.sigma_knowledge.backend.topic_server",
-    "routes_prefix": "/api/topics",
-    "install_to": "core/modules/sigma_knowledge/"
-  },
   "requirements": "requirements.txt",
-  "kernel_modules_required": [],
   "changelog": [
     {
       "version": "v1.1.0",
