@@ -1156,8 +1156,18 @@ def _list_drive_roots():
         return []
 
 
+def register_services(registry) -> None:
+    owner = __package__
+    registry.register("models.inventory", scan_local_models, owner=owner)
+    registry.register("artifacts.downloads", downloader_manager, owner=owner)
+    if uploader_manager is not None:
+        registry.register("artifacts.uploads", uploader_manager, owner=owner)
+
+
 def register_routes(app=None) -> None:
     """Registra tutte le route HTTP di Model Hub su FastAPI / Handler Adapter."""
+    from core import service_registry
+    register_services(service_registry)
     get_routes = {
         '/api/models/hf/search': handle_models_hf_search,
         '/api/models/hf/details': handle_models_hf_details,

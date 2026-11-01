@@ -1,0 +1,2 @@
+# Nessuna dipendenza esterna: il modulo usa solo la libreria standard.
+# Le mani sulla scheda le mette il server MCP di EasyEDA, che gira su Node.

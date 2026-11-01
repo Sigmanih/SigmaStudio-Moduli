@@ -289,19 +289,26 @@ async def handle_agent_chat(request: Request):
 async def handle_workspace_roots(request: Request):
     """GET /api/developer/workspace/roots — Lists suggested workspace roots and drives."""
     roots = []
-    default_root = get_default_workspace_root()
-    roots.append({"label": f"Project Root ({Path(default_root).name})", "path": default_root.replace("\\", "/")})
+    from core.progetti import radice_progetti, radice_pericolosa
+    default_root = str(radice_progetti())
+    roots.append({"label": f"Progetti ({Path(default_root).name})", "path": default_root.replace("\\", "/"),
+                  "kind": "projects_root", "is_default": True})
+    studio = str(paths.project_root())
+    roots.append({"label": "Sigma Studio — il programma stesso", "path": studio.replace("\\", "/"),
+                  "kind": "studio", "is_default": False})
     
     # Windows drive roots (C:/, D:/, etc.) or home
     home = str(Path.home())
-    roots.append({"label": f"User Home ({Path(home).name})", "path": home.replace("\\", "/")})
+    roots.append({"label": f"User Home ({Path(home).name})", "path": home.replace("\\", "/"),
+                  "kind": "other", "unsafe": radice_pericolosa(home)})
 
     if os.name == "nt":
         import string
         for letter in string.ascii_uppercase:
             drive = f"{letter}:\\"
             if os.path.exists(drive):
-                roots.append({"label": f"Drive {letter}:", "path": f"{letter}:/"})
+                roots.append({"label": f"Drive {letter}:", "path": f"{letter}:/",
+                              "kind": "other", "unsafe": radice_pericolosa(drive)})
 
     return JSONResponse(status_code=200, content={"success": True, "roots": roots, "current": default_root.replace("\\", "/")})
 
