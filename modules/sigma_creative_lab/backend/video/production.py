@@ -444,6 +444,8 @@ def summary(prod: dict) -> dict:
     shots = [s for s in (prod.get("shots") or []) if s.get("origin") not in ("edit", "import", "title", "scene")]
     done = [s for s in shots if s.get("status") == "done"]
     total_s = sum(float(s.get("duration_s") or 0) for s in shots)
+    if prod.get('audio_project'):
+        total_s = float(prod['audio_project']['mix']['duration'])
     rendered_s = sum(float(s.get("timings", {}).get("total_s") or 0) for s in done)
     # Con piu' corsie i clip escono in parallelo: il tempo medio per clip
     # misurato su una corsia va diviso per quante lavorano insieme.
@@ -2646,6 +2648,10 @@ class ProductionRunner:
 
     async def _soundtrack(self, prod: dict) -> None:
         """Compone la musica sulla GPU principale, prima di liberarla."""
+        if (prod.get('soundtrack') or {}).get('external_mix'):
+            if not Path(prod.get('soundtrack_path') or '').is_file():
+                raise ValueError('Il mix approvato di AudioStudio non è più disponibile')
+            return
         from core.modules.sigma_creative_lab.backends.comfy_launcher import instances
         from core.modules.sigma_creative_lab.backends.comfyui_backend import ComfyUIBackend
         from core.modules.sigma_creative_lab.video.soundtrack import generate_soundtrack
@@ -2710,6 +2716,24 @@ class ProductionRunner:
         self._upscale_all(prod)
         out = paths.creative_output_dir("video") / f"{_slug(prod['title'])}_{prod['id'][-6:]}.mp4"
         music = Path(prod.get("soundtrack_path") or "")
+        if prod.get('audio_project'):
+            if not music.is_file():
+                raise ValueError('Manca il mix audio collegato al video')
+            duration = float(prod['audio_project']['mix']['duration'])
+            if abs(float(probe(music)['duration']) - duration) > .1:
+                raise ValueError('La durata del mix audio è cambiata')
+            dry = out.with_name(out.stem + '_visual.mp4')
+            assemble(prod, dry, fps=int(s.get('fps', FPS)), codec=s.get('final_codec', 'libx264'),
+                     quality=int(s.get('final_quality',18)), settings=s,
+                     progress=lambda message:self._emit(type='assemble',message=message))
+            from .postprocess import video_encoder_args
+            repeat = ['-stream_loop','-1'] if prod['audio_project'].get('mode')=='loop' else []
+            _run([ffmpeg_bin(), '-v','error','-y',*repeat,'-i',str(dry),'-i',str(music),'-map','0:v:0','-map','1:a:0',
+                  '-vf',f'tpad=stop_mode=clone:stop_duration={duration},fps=24','-t',str(duration),
+                  *video_encoder_args(int(s.get('final_quality',18)),0),'-c:a','aac','-b:a','256k','-movflags','+faststart',str(out)],7200)
+            if abs(float(probe(out)['duration'])-duration)>.1:
+                raise ValueError('Il video finale non coincide con la durata della musica')
+            return out
         if (prod.get("soundtrack") or {}).get("enabled") and music.is_file():
             from core.modules.sigma_creative_lab.video.soundtrack import DEFAULT_SOUNDTRACK, mix_soundtrack
             cfg = {**DEFAULT_SOUNDTRACK, **prod["soundtrack"]}

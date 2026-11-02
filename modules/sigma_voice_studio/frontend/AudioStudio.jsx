@@ -3,6 +3,7 @@ import { Music, Mic, Radio, Download, RefreshCw, X, RotateCcw } from 'lucide-rea
 import MusicTab from '../../components/Music/MusicTab';
 import TabHeader from '../../components/common/TabHeader';
 import VoiceStudio from './VoiceStudio';
+import AudioEditor from './AudioEditor';
 import '../../styles/03-modules/audio-studio.css';
 
 async function api(path, body) {
@@ -14,7 +15,7 @@ async function api(path, body) {
   return value;
 }
 
-function MusicStudio() {
+function MusicStudio({ onEdit }) {
   const [engine, setEngine] = useState(null);
   const [jobs, setJobs] = useState([]);
   const [genre, setGenre] = useState('lofi_study');
@@ -94,6 +95,7 @@ function MusicStudio() {
         <audio controls preload="metadata" src={job.result.mp3_url} aria-label={`Ascolta ${job.result.title}`} />
         <div className="as-form-row"><a href={job.result.wav_url} download><Download size={14} /> WAV</a>
           <a href={job.result.mp3_url} download><Download size={14} /> MP3</a></div>
+        <button className="as-secondary" onClick={()=>onEdit(job.id)}>Modifica nell’editor</button>
         <details><summary>Modifica questa base</summary>
         <label>Come vuoi cambiarla?<textarea value={feedback[job.id] || ''} maxLength={800}
           placeholder="Per esempio: piano più naturale, niente fruscio, meno batteria, melodia più semplice"
@@ -117,6 +119,7 @@ function MusicStudio() {
 }
 
 export default function AudioStudio() {
+  const [sourceJob,setSourceJob] = useState(null);
   const [tab, setTab] = useState(() => window.sessionStorage.getItem('sigmaAudioStudioSection') === 'radio' ? 'radio' : 'music');
   useEffect(() => {
     const select = event => { if (['music', 'voice', 'radio'].includes(event.detail)) setTab(event.detail); };
@@ -128,7 +131,8 @@ export default function AudioStudio() {
     <nav className="as-tabs" aria-label="Aree di AudioStudio">
       <button aria-pressed={tab === 'music'} onClick={() => setTab('music')}><Music size={16} /> Musica</button>
       <button aria-pressed={tab === 'voice'} onClick={() => setTab('voice')}><Mic size={16} /> Voci e narrazione</button>
+      <button aria-pressed={tab === 'editor'} onClick={() => setTab('editor')}><Music size={16}/> Editor audio</button>
       <button aria-pressed={tab === 'radio'} onClick={() => setTab('radio')}><Radio size={16} /> Radio</button>
-    </nav><div className="as-content">{tab === 'music' ? <MusicStudio /> : tab === 'radio' ? <MusicTab /> : <VoiceStudio />}</div>
+    </nav><div className="as-content">{tab === 'music' ? <MusicStudio onEdit={id=>{setSourceJob(id);setTab('editor');}} /> : tab === 'editor' ? <AudioEditor sourceJob={sourceJob} onOpened={()=>setSourceJob(null)}/> : tab === 'radio' ? <MusicTab /> : <VoiceStudio />}</div>
   </div>;
 }

@@ -216,13 +216,14 @@ async def refine(service, job):
 
 class MusicService:
     def __init__(self, state_path=None):
+        from .audio_editor import export_job, layer_job
         self.worker = PersistentJobWorker(JobStore(state_path or paths.var_dir() / 'audio_studio' / 'music.sqlite3'),
-                                          {'compose': compose, 'refine': refine}, self, blocked=self.blocked, reserve=self.reserve,
+                                          {'compose': compose, 'refine': refine, 'mix': export_job, 'layer': layer_job}, self, blocked=self.blocked, reserve=self.reserve,
                                           id_prefix='music')
 
     @staticmethod
     def blocked(job):
-        if job['kind'] == 'refine':
+        if job['kind'] in ('refine', 'mix'):
             return ''
         try:
             from core.modules.sigma_creative_lab.backends.resources import accelerator_busy
@@ -232,7 +233,7 @@ class MusicService:
 
     @staticmethod
     def reserve(job):
-        if job['kind'] == 'refine':
+        if job['kind'] in ('refine', 'mix'):
             return nullcontext()
         from core.modules.sigma_creative_lab.backends.resources import reserve_accelerator
         return reserve_accelerator(job['id'])

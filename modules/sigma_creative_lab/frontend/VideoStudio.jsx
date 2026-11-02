@@ -29,6 +29,12 @@ export default function VideoStudio() {
   const [view, setView] = useState('productions');
   const [engines, setEngines] = useState(null);
   const [editing, setEditing] = useState(null);       // produzione aperta nell'editor
+  const [requestedProduction,setRequestedProduction] = useState(()=>window.sessionStorage.getItem('sigmaAudioVideoProduction'));
+  useEffect(()=>{
+    const open = event=>{setRequestedProduction(event.detail);setView('productions');};
+    window.addEventListener('sigma_video_open_production',open);
+    return()=>window.removeEventListener('sigma_video_open_production',open);
+  },[]);
 
   const refreshEngines = useCallback(async () => {
     try {
@@ -60,7 +66,7 @@ export default function VideoStudio() {
       />
       <div className="cs-video-body">
         {view === 'productions' && (
-          <ProductionPanel aceInstalled={aceInstalled} onOpenEditor={id => { setEditing(id); setView('editor'); }} />
+          <ProductionPanel aceInstalled={aceInstalled} requestedId={requestedProduction} onOpenEditor={id => { setEditing(id); setView('editor'); }} />
         )}
         {view === 'editor' && <EditorView productionId={editing} onPickProduction={setEditing} />}
         {view === 'characters' && <CharacterLibrary />}

@@ -1,7 +1,7 @@
 {
   "id": "sigma_voice_studio",
   "name": "AudioStudio — Musica e Voci",
-  "version": "v1.2.0",
+  "version": "v1.3.0",
   "category": "Audio & Voce Neurale",
   "tabType": "voice_studio",
   "sidebarLabel": "AudioStudio",
@@ -27,6 +27,7 @@
   "color": "#ff79c6",
   "requirements": "requirements.txt",
   "changelog": [
+    {"version":"v1.3.0","date":"2026-11-03","notes":"Aggiungi editor audio multitraccia, importazione e forme d’onda, montaggio non distruttivo, livelli musicali da prompt, mix WAV e trasferimento della colonna sonora approvata a VideoStudio."},
     {"version": "v1.2.0", "date": "2026-11-02", "notes": "Integra la radio, aggiungi ricomposizione con feedback e rifinitura non distruttiva di timbro e tempo; genera le anteprime in una sola sezione musicale."},
     {
       "version": "v1.1.0",
@@ -53,7 +54,7 @@
     "install_to": "sigma_studio/src/modules/sigma_voice_studio/"
   },
   "kernel_modules_required": [],
-  "min_kernel_version": "0.9.6",
+  "min_kernel_version": "0.9.7",
   "kernel_api": 1,
   "required_kernel_features": ["persistent_jobs", "resource_reservations"]
 }

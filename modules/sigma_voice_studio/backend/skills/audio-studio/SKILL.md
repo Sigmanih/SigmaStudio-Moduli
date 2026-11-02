@@ -12,3 +12,9 @@ Le basi sono strumentali. Scegli il preset richiesto e usa `prompt`, BPM e seed 
 Il tema visivo del risultato descrive l'accompagnamento previsto; non dichiarare generato un video se è presente soltanto l'audio. Le sessioni lunghe e l'eventuale pubblicazione seguono la richiesta dell'utente.
 
 Per cambiare una base usa `revise_study_music` con `source_job`: `feedback` ricompone un nuovo brano, mentre `treatment=soft|warm|slower` applica una rifinitura alla registrazione esistente. Entrambi conservano l'originale. Non promettere isolamento di strumenti o conservazione della melodia quando ricomponi con feedback.
+
+Per montare audio usa `audio_projects` e `create_audio_project`. Prima di `edit_audio_project` leggi la revisione corrente: taglio, posizione, volume in dB, pan, dissolvenze, muto, split, duplicazione e annullamento conservano le sorgenti. `settings` imposta BPM e tonalità come riferimenti per le generazioni successive; non traspone né modifica il tempo della registrazione esistente.
+
+Per aggiungere uno strumento usa `render_audio_project` con `kind=layer`, prompt, posizione e durata da 5 a 120 secondi. Il modello genera audio nuovo usando i riferimenti musicali del progetto: non è separazione delle tracce e non garantisce isolamento o sincronizzazione perfetta con la registrazione. Fai ascoltare il risultato e regola il mix prima di proseguire.
+
+Esporta con `render_audio_project` e `kind=mix`, attendi `music_jobs` completato e proponi l'ascolto. `audio_to_video` richiede il mix aggiornato e una descrizione della scena: prepara una produzione VideoStudio con una copia della colonna sonora approvata. La bozza non è un video generato. Il render si avvia da VideoStudio; il montaggio finale deve conservare il mix e coincidere con la sua durata.

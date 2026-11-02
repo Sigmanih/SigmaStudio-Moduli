@@ -433,11 +433,12 @@ const SHOT_STATUS = {
   failed: 'fallita', skipped: 'saltata',
 };
 
-export default function ProductionPanel({ aceInstalled = false, onOpenEditor }) {
+export default function ProductionPanel({ aceInstalled = false, onOpenEditor, requestedId }) {
   const [list, setList] = useState([]);
   const [native, setNative] = useState(null);
   const [active, setActive] = useState(null);
   const [selectedId, setSelectedId] = useState(null);
+  useEffect(()=>{if(requestedId)setSelectedId(requestedId);},[requestedId]);
   const [prod, setProd] = useState(null);
   const [draft, setDraft] = useState(null);       // copia modificabile finche' non si salva
   const [minutes, setMinutes] = useState(10);
@@ -690,8 +691,14 @@ export default function ProductionPanel({ aceInstalled = false, onOpenEditor }) 
 
             <SettingsCard draft={draft} disabled={running} onSettings={settings => editDraft({ settings })} />
             <LoraCard draft={draft} disabled={running} onBible={bible => editDraft({ bible })} />
-            <SoundtrackCard draft={draft} disabled={running} aceInstalled={aceInstalled}
-                            onSoundtrack={soundtrack => editDraft({ soundtrack })} />
+            {draft.audio_project ? <div className="cs-mesh-card">
+              <h3 className="cs-mesh-title">Colonna sonora da AudioStudio</h3>
+              <p className="cs-hint">Mix approvato · revisione {draft.audio_project.revision} · {fmtTime(draft.audio_project.mix.duration)}.
+                {draft.audio_project.mode==='loop' ? ' La scena viene ripetuta per tutta la musica.' : ' Le scene accompagnano l’intero brano.'}
+                {' '}Il render conserva questa registrazione.</p>
+              {prod?.soundtrack_url && <audio controls preload="none" src={prod.soundtrack_url}/>}
+            </div> : <SoundtrackCard draft={draft} disabled={running} aceInstalled={aceInstalled}
+                            onSoundtrack={soundtrack => editDraft({ soundtrack })} />}
 
             {(draft.shots || []).length > 0 && (
               <div className="cs-mesh-card">

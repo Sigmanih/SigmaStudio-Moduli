@@ -126,10 +126,30 @@ def build_from_shots(prod: dict) -> dict:
         tl["video"].append({"id": _id("v"), "shot_id": shot["id"], "take_id": take["id"],
                             "src_in": src_in, "src_out": _snap(dur), "transition": {"type": "cut", "duration": 0.0}})
     music = Path(prod.get("soundtrack_path") or "")
+    audio_project = prod.get('audio_project') or {}
+    target_duration = float((audio_project.get('mix') or {}).get('duration') or 0)
+    if audio_project.get('mode') == 'loop' and tl['video'] and target_duration > 0:
+        # Una scena breve accompagna tutto il brano anche nell'editor, senza altre generazioni.
+        original = [item for item in tl['video'] if item['src_out']-item['src_in']>.001]
+        if not original:
+            raise ValueError('La scena da ripetere non ha una durata valida')
+        repeated, position = [], 0.0
+        while position < target_duration - .001:
+            for item in original:
+                span = min(item['src_out']-item['src_in'],target_duration-position)
+                if span <= .001:
+                    break
+                repeated.append({**item,'id':_id('v'),'src_out':item['src_in']+span})
+                position += span
+        tl['video'] = repeated
+    if audio_project:
+        audio_track(tl,'clip')['mute'] = True
     if music.is_file():
         track = audio_track(tl, "music")
+        if audio_project:
+            track['gain_db'] = 0.0
         track["clips"].append({"id": _id("a"), "src": str(music), "start": 0.0, "src_in": 0.0,
-                               "src_out": layout(tl, prod)["duration"], "gain_db": 0.0, "label": "Colonna sonora"})
+                               "src_out": target_duration or layout(tl, prod)["duration"], "gain_db": 0.0, "label": "Colonna sonora"})
     return tl
 
 
@@ -445,6 +465,9 @@ class TimelineStore:
         if f.is_file():
             tl = json.loads(f.read_text(encoding="utf-8"))
             tl.setdefault("overlays", [])           # timeline salvate prima dei testi sovrapposti
+            if prod.get('audio_project') and not tl['video'] and not tl.get('version') and any(s.get('status')=='done' for s in prod['shots']):
+                tl = build_from_shots(prod)
+                self._write(f,tl)
             return tl
         tl = build_from_shots(prod)
         self._write(f, tl)

@@ -12,11 +12,13 @@ def register_routes(app=None) -> None:
     """Registra le route HTTP di Voice Studio su FastAPI / Handler Adapter."""
     from .tts_handler import handle_tts_engines, handle_tts_speak
     from .music_routes import handle_music_status, handle_music_jobs, handle_music_generate, handle_music_action
+    from .audio_editor_routes import handle_audio_projects, handle_audio_editor_action, handle_audio_upload
     from .library_handler import (
         handle_voice_library, handle_voice_library_create, handle_voice_library_speak, handle_voice_library_update,
     )
 
     get_routes = {
+        '/api/audio-studio/projects': handle_audio_projects,
         '/api/audio-studio/music/status': handle_music_status,
         '/api/audio-studio/music/jobs': handle_music_jobs,
         '/api/tts/engines': handle_tts_engines,
@@ -24,6 +26,8 @@ def register_routes(app=None) -> None:
     }
 
     post_routes = {
+        '/api/audio-studio/editor': handle_audio_editor_action,
+        '/api/audio-studio/upload': handle_audio_upload,
         '/api/audio-studio/music/generate': handle_music_generate,
         '/api/audio-studio/music/action': handle_music_action,
         '/api/tts/speak': handle_tts_speak,

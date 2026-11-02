@@ -59,6 +59,7 @@ def _url(path: str) -> str:
 def _decorate(prod: dict) -> dict:
     prod = dict(prod)
     prod["output_url"] = _url(prod.get("output_path", ""))
+    prod['soundtrack_url'] = _url(prod.get('soundtrack_path',''))
     prod["shots"] = [{**s, "clip_url": _url(s.get("clip_path", "")), "frame_url": _url(s.get("last_frame", "")),
                       "keyframe_url": _url(s.get("keyframe", ""))} for s in prod.get("shots", [])]
     prod["summary"] = summary(prod)
