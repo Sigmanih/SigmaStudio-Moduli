@@ -605,8 +605,9 @@ MOOD_PROMPT = ("Three frames from one sequence of a silent film, left to right. 
                "sequence: {texts}\nFirst judge the situation from what you SEE and READ: night, darkness, a "
                "threat, illness or death call for a dark score even if the previous sequence was dark too; daylight, "
                "love, a journey or a festive scene call for a lighter one. The previous sequence was scored as: "
-               "{previous}. Keep its mood when the situation is the same, change it only when the situation "
-               "changes. Then describe the score as 5 to 8 short comma-separated English music tags (emotion, "
+               "{previous}. Judge these frames independently; do not copy the previous tags. "
+               "A train is a setting, not a request for industrial or mechanical music. "
+               "Describe a developing orchestral score as 5 to 8 short comma-separated English music tags (emotion, "
                "tempo, dynamics, instruments). Instruments only, no voices. Output only the tags.")
 
 
@@ -625,22 +626,41 @@ def sequences(analysis: dict) -> list[list[float]]:
 
 def describe_moods(clip: Path, seqs: list[list[float]], cards: list[dict], ask_image: AskImage,
                    progress: Progress = _nop) -> list[dict]:
+    from core.modules.sigma_creative_lab.video.score_plan import ARRANGEMENTS
+
+    def clean(value):
+        return ", ".join(t.strip() for t in re.split(r"[,\n]", value)
+                         if t.strip() and not _VOCAL_WORDS.search(t)).strip(" .")
+
+    def similar(a, b):
+        left, right = set(re.findall(r"\w+", a.lower())), set(re.findall(r"\w+", b.lower()))
+        return bool(left and right and len(left & right) / len(left | right) >= 0.85)
+
     out, previous = [], "nothing yet (opening of the film)"
     for k, (a, b) in enumerate(seqs):
         progress(f"Atmosfera delle sequenze ({k + 1}/{len(seqs)})", k / max(1, len(seqs)))
         texts = " / ".join(c["text"] for c in cards if a <= c["start"] < b)[:500] or "none"
         img = strip_jpeg(clip, [a + f * (b - a) for f in (0.2, 0.5, 0.8)])
-        tags = ask_image(img, MOOD_PROMPT.format(texts=texts, previous=previous))
-        tags = ", ".join(t.strip() for t in re.split(r"[,\n]", tags) if t.strip() and not _VOCAL_WORDS.search(t))
-        tags = tags.strip(" .") or "calm, sparse, strings, piano"
-        out.append({"start": a, "end": b, "tags": tags})
+        prompt = MOOD_PROMPT.format(texts=texts, previous=previous)
+        tags = clean(ask_image(img, prompt))
+        repeats = len(out) >= 2 and all(similar(tags, m["tags"]) for m in out[-2:])
+        if repeats:
+            tags = clean(ask_image(img, prompt + "\nThe last two descriptions were almost identical. "
+                                   "Read these frames independently and choose fresh phrasing and orchestration "
+                                   "appropriate to the actual emotion. Consider: " + ARRANGEMENTS[k % len(ARRANGEMENTS)]))
+        review = not tags or (len(out) >= 2 and all(similar(tags, m["tags"]) for m in out[-2:]))
+        row = {"start": a, "end": b, "tags": tags or "lyrical strings, piano"}
+        if review:
+            row["needs_review"] = True
+            log.warning("Atmosfera musicale da verificare tra %.1f e %.1f s", a, b)
+        out.append(row)
         previous = tags
     return out
 
 
 #: Secondi di silenzio tollerati in un brano (pause interne piu' coda anticipata) prima di riprovarlo.
 CUE_MAX_SILENCE_S = 8.0
-CUE_ATTEMPTS = 3
+CUE_ATTEMPTS = 6
 SILENCE_DB = -45.0
 
 
@@ -727,29 +747,46 @@ def fill_silences(audio: Path, seconds: float, sr: int = 48000) -> float:
 
 
 async def compose(moods: list[dict], out_dir: Path, gpu: int, style: str = "", bpm: int = 76,
-                  keyscale: str = "D minor", seed: int = 1922, progress: Progress = _nop) -> list[dict]:
-    """Un brano ACE-Step per sequenza, lungo quanto lei piu' la dissolvenza nella successiva."""
-    from core.modules.sigma_creative_lab.backends.comfy_launcher import instances
-    from core.modules.sigma_creative_lab.backends.comfyui_backend import ComfyUIBackend
+                  keyscale: str = "D minor", seed: int = 1922, progress: Progress = _nop,
+                  backend=None, cancel_event=None) -> list[dict]:
+    """Brani brevi e distinti, verificati prima di entrare nella timeline."""
     from core.modules.sigma_creative_lab.video.soundtrack import build_ace_step
+    from core.modules.sigma_creative_lab.video.score_plan import SCORE_REVISION, plan_cues
+    from core.modules.sigma_creative_lab.video.score_quality import inspect_audio
     import asyncio
+    moods = plan_cues(moods)
     ffmpeg_bin, _probe = _ff()
     out_dir.mkdir(parents=True, exist_ok=True)
-    url = await asyncio.to_thread(instances.ensure, gpu)
-    backend = ComfyUIBackend(base_url=url, config={"timeout": 1800})
+    if backend is None:
+        from core.modules.sigma_creative_lab.backends.comfy_launcher import instances
+        from core.modules.sigma_creative_lab.backends.comfyui_backend import ComfyUIBackend
+        url = await asyncio.to_thread(instances.ensure, gpu)
+        backend = ComfyUIBackend(base_url=url, config={"timeout": 1800})
     base = (style or DEFAULT_SCORE_STYLE).strip().rstrip(",")
-    cues = []
+    cues, fingerprints = [], set()
     for k, m in enumerate(moods):
+        if cancel_event is not None and cancel_event.is_set():
+            raise RuntimeError("Composizione musicale interrotta")
         progress(f"Musica ({k + 1}/{len(moods)})", k / max(1, len(moods)))
         last = k == len(moods) - 1
         seconds = m["end"] - m["start"] + (0.0 if last else MUSIC_CROSSFADE_S)
         # Il nome dipende da stile e atmosfera: correggendo una sequenza si rifa' solo il suo brano.
-        sig = hashlib.sha1(f"{base}|{m['tags']}|{seconds:.2f}|{bpm}|{keyscale}|{seed}".encode()).hexdigest()[:8]
+        tags = (f"{base}, {m['tags']}, {m['arrangement']}, acoustic orchestral instruments only, "
+                "evolving melody and harmony, contrasting phrases, through-composed continuous underscore, "
+                "supple orchestral rhythm, restrained percussion")
+        cue_seed = seed + 101 * k
+        sig = hashlib.sha256(f"{SCORE_REVISION}|{tags}|{seconds:.6f}|{bpm}|{keyscale}|{cue_seed}".encode()).hexdigest()[:16]
         target = out_dir / f"cue_{k:03d}_{sig}.flac"
-        if not target.is_file():
-            best = None
+        report = inspect_audio(target, seconds) if target.is_file() else None
+        if report and report["fingerprint"] in fingerprints:
+            report.update(ok=False, issues=[*report["issues"], "brano_duplicato"])
+        if report is None or not report["ok"]:
             for attempt in range(CUE_ATTEMPTS):
-                graph = build_ace_step(f"{base}, {m['tags']}", seconds, seed + 101 * k + 7919 * attempt, bpm,
+                if cancel_event is not None and cancel_event.is_set():
+                    raise RuntimeError("Composizione musicale interrotta")
+                # Il modello tende a chiudere il pezzo prima della durata chiesta:
+                # generiamo una coda extra, invece di clonare frasi per coprire il vuoto.
+                graph = build_ace_step(tags, seconds + 16.0 * (attempt + 1), cue_seed + 7919 * attempt, bpm,
                                        keyscale, prefix=f"sigma/restore/cue_{k:03d}")
                 data, _name = await backend.run({"workflow": graph}, timeout_s=1800)
                 raw = out_dir / f"cue_{k:03d}_{attempt}.raw"
@@ -758,23 +795,25 @@ async def compose(moods: list[dict], out_dir: Path, gpu: int, style: str = "", b
                 # gli altri e, misurati grezzi, sembravano muti anche quando la musica c'era.
                 norm = out_dir / f"cue_{k:03d}_{attempt}.flac"
                 subprocess.run([ffmpeg_bin(), "-v", "error", "-y", "-i", str(raw), "-t", f"{seconds:.3f}",
-                                "-af", "loudnorm=I=-16:TP=-1:LRA=7", "-ar", "48000", "-ac", "2", str(norm)],
+                                "-af", "silenceremove=start_periods=1:start_duration=0.1:start_threshold=-50dB,"
+                                "loudnorm=I=-16:TP=-1:LRA=7", "-ar", "48000", "-ac", "2", str(norm)],
                                check=True, timeout=600, creationflags=_flags())
                 raw.unlink(missing_ok=True)
-                gaps = silence_gaps(norm, seconds)
-                log.info(f"brano {k} tentativo {attempt + 1}: silenzi {gaps}")
-                if best is None or gaps["silent_s"] < best[1]["silent_s"]:
-                    if best:
-                        best[0].unlink(missing_ok=True)
-                    best = (norm, gaps)
-                else:
-                    norm.unlink(missing_ok=True)
-                if gaps["silent_s"] <= CUE_MAX_SILENCE_S:
+                report = await asyncio.to_thread(inspect_audio, norm, seconds)
+                if report["fingerprint"] in fingerprints:
+                    report.update(ok=False, issues=[*report["issues"], "brano_duplicato"])
+                log.info(f"brano {k} tentativo {attempt + 1}: qualita' {report}")
+                if report["ok"]:
+                    norm.replace(target)
                     break
-            filled = fill_silences(best[0], seconds)
-            best[0].replace(target)
-            log.info(f"brano {k}: {best[1]['silent_s']:.0f} s di silenzio, {filled:.0f} s riempiti")
+                norm.unlink(missing_ok=True)
+            else:
+                raise RuntimeError(f"Musica non valida da {m['start']:.1f} a {m['end']:.1f} s: "
+                                   f"{', '.join(report['issues'])}. Rigenerare il brano prima dell'esportazione.")
+        fingerprints.add(report["fingerprint"])
+        target.with_suffix(".quality.json").write_text(json.dumps(report, indent=2), encoding="utf-8")
         cues.append({"start": m["start"], "seconds": round(seconds, 3), "path": str(target), "tags": m["tags"],
+                     "arrangement": m["arrangement"], "quality": report,
                      "fade_in": 0.0 if k == 0 else MUSIC_CROSSFADE_S, "fade_out": 3.0 if last else MUSIC_CROSSFADE_S})
     return cues
 

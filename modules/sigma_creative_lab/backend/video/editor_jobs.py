@@ -635,7 +635,8 @@ async def job_restore_score(self: EditorJobs, job: dict) -> dict:
     state.update(analysis=analysis, moods=moods)
     R.save_state(pdir, shot["id"], state)
     cues = await R.compose(moods, pdir / "restoration" / shot["id"] / "music", 0, str(a.get("style") or ""),
-                           progress=lambda m, p: self._note(job, m, 0.4 + 0.55 * p))
+                           progress=lambda m, p: self._note(job, m, 0.4 + 0.55 * p),
+                           cancel_event=job.get("cancel_event"))
     lay = next(it for it in T.layout(self.timelines.get(pid), self.prods.get(pid))["items"] if it["id"] == item["id"])
     removed = _remove_restoration_audio(self, pid, shot["id"], "restoration_score")
     added = 0
@@ -645,7 +646,9 @@ async def job_restore_score(self: EditorJobs, job: dict) -> dict:
             continue
         _, res = self.timelines.apply(pid, "audio_add", {"kind": "music", "src": c["path"], "start": round(t, 3),
                                                          "label": c["tags"][:40],
-                                                         "meta": {"tags": c["tags"], "restoration_score": shot["id"]}})
+                                                         "meta": {"tags": c["tags"], "restoration_score": shot["id"],
+                                                                  "arrangement": c.get("arrangement"),
+                                                                  "quality": c.get("quality")}})
         self.timelines.apply(pid, "audio_update", {"clip_id": res["clip"], "fade_in": c["fade_in"],
                                                    "fade_out": c["fade_out"]})
         added += 1

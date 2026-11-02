@@ -30,13 +30,14 @@ def _audio_mix(tracks: list[dict], language: str, out: Path, duration: float,
     import subprocess
     from core.modules.sigma_creative_lab.video.production import _run, ffmpeg_bin
 
-    cmd = [ffmpeg_bin(), "-hide_banner", "-v", "error", "-y"]
+    cmd = [ffmpeg_bin(), "-hide_banner", "-v", "error", "-y", "-filter_complex_threads", "2"]
     graph, buses = [], {"voice": [], "dialogue": [], "music": [], "sfx": []}
     index = -1
     if source_audio:
+        from core.modules.sigma_creative_lab.video.score_quality import source_music_filter
         cmd += ["-i", str(source_audio)]
         index = 0
-        graph.append(f"[0:a]aresample=48000,aformat=channel_layouts=stereo,volume=-6dB,apad,"
+        graph.append(f"[0:a]{source_music_filter(tracks)},aresample=48000,aformat=channel_layouts=stereo,volume=-6dB,apad,"
                      f"atrim=duration={duration:.6f}[original]")
         buses["music"].append("[original]")
     for track in tracks:
@@ -97,8 +98,9 @@ def _audio_mix(tracks: list[dict], language: str, out: Path, duration: float,
             final_parts.append(bus("sfx", buses["sfx"]))
         graph.append(f"{''.join(final_parts)}amix=inputs={len(final_parts)}:duration=longest:normalize=0,"
                      f"alimiter=limit=0.95,apad,atrim=duration={duration:.6f}[mix]")
+    codec = ["-c:a", "flac"] if out.suffix.lower() == ".flac" else ["-c:a", "aac", "-b:a", "192k", "-movflags", "+faststart"]
     cmd += ["-filter_complex", ";".join(graph), "-map", "[mix]", "-t", f"{duration:.6f}",
-            "-c:a", "aac", "-b:a", "192k", "-ar", "48000", "-ac", "2", "-movflags", "+faststart", str(out)]
+            *codec, "-threads", "2", "-ar", "48000", "-ac", "2", str(out)]
     _run(cmd, timeout=1800)
 
 

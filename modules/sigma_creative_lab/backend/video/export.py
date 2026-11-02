@@ -129,7 +129,9 @@ def _mix_tracks(base: Path, tracks: list[dict], out: Path) -> None:
             chains.append(f"{''.join(labels)}amix=inputs={len(labels)}:duration=longest:normalize=0[{name}]")
         return f"[{name}]"
 
-    final = ["[0:a]"]
+    from core.modules.sigma_creative_lab.video.score_quality import source_music_filter
+    chains.append(f"[0:a]{source_music_filter(tracks)}[source_audio]")
+    final = ["[source_audio]"]
     speech = by_kind.get("dialogue", []) + by_kind.get("voice", [])
     speech_bus = bus("speech", speech) if speech else None
     if by_kind.get("music"):

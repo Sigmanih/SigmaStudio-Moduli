@@ -9,6 +9,8 @@ l'audio dei clip, che le passa sopra quando c'e' un suono (ducking).
 
 from __future__ import annotations
 
+import json
+import math
 import time
 from pathlib import Path
 
@@ -17,7 +19,7 @@ from core.logger import get_logger
 log = get_logger("creative_soundtrack")
 
 ACE_CHECKPOINT = "ace_step_1.5_turbo_aio.safetensors"
-MAX_SEGMENT_S = 240.0
+MAX_SEGMENT_S = 96.0
 CROSSFADE_S = 2.0
 
 DEFAULT_SOUNDTRACK = {
@@ -70,17 +72,16 @@ def scene_segments(prod: dict, fps: int = 24) -> list[dict]:
     # Scene troppo lunghe si dividono: oltre qualche minuto il brano perde coerenza.
     out = []
     for seg in segments:
-        remaining = seg["seconds"]
-        while remaining > MAX_SEGMENT_S:
-            out.append({"scene": seg["scene"], "seconds": MAX_SEGMENT_S})
-            remaining -= MAX_SEGMENT_S - CROSSFADE_S
-        out.append({"scene": seg["scene"], "seconds": remaining})
+        count = max(1, math.ceil(seg["seconds"] / MAX_SEGMENT_S))
+        out.extend({"scene": seg["scene"], "seconds": seg["seconds"] / count} for _ in range(count))
     return [s for s in out if s["seconds"] >= 1.0]
 
 
 async def generate_soundtrack(prod: dict, work_dir: Path, backend, progress=None) -> Path:
     """Genera i brani delle scene e li unisce con dissolvenze incrociate in un WAV."""
     from core.modules.sigma_creative_lab.video.production import ffmpeg_bin, _run
+    from core.modules.sigma_creative_lab.video.score_quality import inspect_audio
+    from core.modules.sigma_creative_lab.video.score_plan import SCORE_REVISION, ARRANGEMENTS
     cfg = {**DEFAULT_SOUNDTRACK, **(prod.get("soundtrack") or {})}
     bible = prod.get("bible") or {}
     base_tags = cfg["tags"] or bible.get("audio_style") or "cinematic orchestral score"
@@ -90,27 +91,56 @@ async def generate_soundtrack(prod: dict, work_dir: Path, backend, progress=None
     segments = scene_segments(prod, int(prod["settings"].get("fps", 24)))
     if not segments:
         raise RuntimeError("nessuna scena completata per cui comporre la musica")
+    fades = [min(CROSSFADE_S, a["seconds"] / 2, b["seconds"] / 2) for a, b in zip(segments, segments[1:])]
+    fingerprints = set()
     for k, seg in enumerate(segments):
         target = work_dir / f"music_{k:03d}.flac"
-        if target.is_file():
-            parts.append(target)                 # gia' generato: la ripresa non lo rifa'
-            continue
         if progress:
             progress(f"Musica {k + 1}/{len(segments)}: {seg['scene']}")
         # La scena colora il brano, tonalita' e tempo restano comuni: i passaggi
         # fra un brano e l'altro restano musicali.
         tags = f"{base_tags}, {seg['scene']}" if cfg["instrumental"] else base_tags
-        seconds = seg["seconds"] + (CROSSFADE_S if k < len(segments) - 1 else 0.0)
-        graph = build_ace_step(tags, seconds, seed0 + 101 * k, cfg["bpm"], cfg["keyscale"], cfg["timesignature"],
-                               prefix=f"sigma/{prod['id']}/music_{k:03d}")
+        if cfg["instrumental"] and "orchestr" in tags.lower():
+            tags += f", {ARRANGEMENTS[k % len(ARRANGEMENTS)]}"
+        tags += ", evolving melodic and harmonic development, contrasting musical phrases"
+        seconds = seg["seconds"] + (fades[k] if k < len(fades) else 0.0)
+        recipe = {"revision": SCORE_REVISION, "tags": tags, "seconds": seconds, "seed": seed0 + 101 * k,
+                  "bpm": cfg["bpm"], "keyscale": cfg["keyscale"], "timesignature": cfg["timesignature"]}
+        metadata = target.with_suffix(".quality.json")
+        try:
+            cached = json.loads(metadata.read_text(encoding="utf-8")) if metadata.is_file() else {}
+        except (OSError, ValueError):
+            cached = {}
+        if not isinstance(cached, dict):
+            cached = {}
+        report = inspect_audio(target, seconds) if target.is_file() and cached.get("recipe") == recipe else None
+        if report and report["fingerprint"] in fingerprints:
+            report.update(ok=False, issues=[*report["issues"], "brano_duplicato"])
         t0 = time.monotonic()
-        data, _name = await backend.run({"workflow": graph}, timeout_s=1800)
-        raw = work_dir / f"music_{k:03d}.raw"
-        raw.write_bytes(data)
-        # Normalizza formato e durata esatta: ACE-Step puo' sforare di qualche frazione di secondo.
-        _run([ffmpeg_bin(), "-v", "error", "-y", "-i", str(raw), "-t", f"{seconds:.3f}", "-ar", "48000", "-ac", "2",
-              str(target)])
-        raw.unlink(missing_ok=True)
+        if report is None or not report["ok"]:
+            for attempt in range(3):
+                graph = build_ace_step(tags, seconds + 16.0, seed0 + 101 * k + 7919 * attempt,
+                                       cfg["bpm"], cfg["keyscale"], cfg["timesignature"],
+                                       prefix=f"sigma/{prod['id']}/music_{k:03d}")
+                data, _name = await backend.run({"workflow": graph}, timeout_s=1800)
+                raw = work_dir / f"music_{k:03d}.raw"
+                raw.write_bytes(data)
+                candidate = target.with_name(f"music_{k:03d}.part.flac")
+                _run([ffmpeg_bin(), "-v", "error", "-y", "-i", str(raw), "-t", f"{seconds:.3f}",
+                      "-af", "silenceremove=start_periods=1:start_duration=0.1:start_threshold=-50dB,"
+                      "loudnorm=I=-16:TP=-1:LRA=7", "-ar", "48000", "-ac", "2", str(candidate)])
+                raw.unlink(missing_ok=True)
+                report = inspect_audio(candidate, seconds)
+                if report["fingerprint"] in fingerprints:
+                    report.update(ok=False, issues=[*report["issues"], "brano_duplicato"])
+                if report["ok"]:
+                    candidate.replace(target)
+                    break
+                candidate.unlink(missing_ok=True)
+            else:
+                raise RuntimeError(f"Colonna sonora non valida per {seg['scene']}: {', '.join(report['issues'])}")
+        fingerprints.add(report["fingerprint"])
+        metadata.write_text(json.dumps({"recipe": recipe, "quality": report}, indent=2), encoding="utf-8")
         log.info(f"brano {k + 1}/{len(segments)} ({seconds:.0f} s) in {time.monotonic() - t0:.0f} s")
         parts.append(target)
     out = work_dir / "soundtrack.wav"
@@ -123,7 +153,7 @@ async def generate_soundtrack(prod: dict, work_dir: Path, backend, progress=None
         inputs += ["-i", str(p)]
     for k in range(1, len(parts)):
         label = f"[x{k}]"
-        chain.append(f"{last}[{k}:a]acrossfade=d={CROSSFADE_S}:c1=tri:c2=tri{label}")
+        chain.append(f"{last}[{k}:a]acrossfade=d={fades[k - 1]:.6f}:c1=tri:c2=tri{label}")
         last = label
     _run([ffmpeg_bin(), "-v", "error", "-y", *inputs, "-filter_complex", ";".join(chain), "-map", last, str(out)])
     return out
