@@ -21,6 +21,19 @@ def test_template_modificato_richiede_nuova_verifica(tmp_path):
         validate_template(tmp_path)
 
 
+def test_voce_di_altra_sigla_non_eredita_approvazione(tmp_path):
+    for name in ['intro.mp4', 'outro.mp4', 'intro_en.wav']:
+        (tmp_path / name).write_bytes(name.encode())
+    value = {'layout': 'sigma-logo-title-v1',
+             **{kind + '_sha256': hashlib.sha256((tmp_path / f'{kind}.mp4').read_bytes()).hexdigest() for kind in ('intro', 'outro')},
+             'audio_sha256': {'intro_en.wav': hashlib.sha256((tmp_path / 'intro_en.wav').read_bytes()).hexdigest()}}
+    JsonStore(tmp_path / 'sigla_template.json').save(value)
+    validate_template(tmp_path)
+    (tmp_path / 'intro_en.wav').write_bytes(b'Frankenstein')
+    with pytest.raises(ValueError, match='Audio della sigla cambiato'):
+        validate_template(tmp_path)
+
+
 @pytest.mark.parametrize('wrong_title,wrong_year', [('FRANKENSTEIN', '1910'), ('THE GENERAL', '1910')])
 def test_sigla_di_altro_film_non_supera_la_verifica_visiva(tmp_path, wrong_title, wrong_year):
     from core.modules.sigma_creative_lab.video.production import _run, ffmpeg_bin

@@ -2,6 +2,7 @@
 import json
 import hashlib
 import os
+import re
 from pathlib import Path
 
 
@@ -25,6 +26,15 @@ def validate_template(directory):
         clip = Path(directory) / f'{kind}.mp4'
         if not clip.is_file() or file_sha256(clip) != value.get(f'{kind}_sha256'):
             raise ValueError(f'Il video {kind} è cambiato: verifica nuovamente il template della sigla')
+    voices = value.get('audio_sha256', {})
+    if not isinstance(voices, dict):
+        raise ValueError('Registro delle voci della sigla non valido')
+    for name, digest in voices.items():
+        if not re.fullmatch(r'(intro|outro)_[a-z]{2}\.wav', name):
+            raise ValueError('Nome della voce della sigla non valido')
+        audio = Path(directory) / name
+        if not audio.is_file() or file_sha256(audio) != digest:
+            raise ValueError(f'Audio della sigla cambiato: verifica nuovamente {name}')
     return value
 
 
