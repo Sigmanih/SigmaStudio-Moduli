@@ -155,6 +155,8 @@ def test_pacchetto_reale_ffmpeg_e_compatibilita_youtube(tmp_path):
 
 
 def test_ripresa_dopo_errore_pubblicazione_non_rifacesse_restauro(tmp_path, monkeypatch):
+    from core.modules.sigma_creative_lab.video import publication_checks
+    monkeypatch.setattr(publication_checks, 'validate_package', lambda *_: {'complete': True})
     from core.modules.sigma_creative_lab.video import restoration_pipeline as pipe, editor_jobs, audio_export, production, manga
     args = prefs.options({'item_id': 'item', 'languages': ['en'], 'include_sigla': False,
                           'make_music': False, 'output_dir': str(tmp_path)}, prefs.DEFAULTS)
@@ -204,7 +206,7 @@ def test_ripresa_dopo_errore_pubblicazione_non_rifacesse_restauro(tmp_path, monk
         manifest = directory / 'youtube_package.json'
         manifest.write_text(json.dumps({'video': str(video), 'thumbnail': str(clip), 'captions': {'en': str(sub)},
                                         'audio_tracks': {'en': str(clip)}, 'text_files': {'en': {'title': str(sub), 'description': str(sub)}},
-                                        'validation': {'complete': True}}))
+                                        'validation': {'complete': True}, 'identity': {'title': 'Film'}}))
         (directory / 'pacchetto_youtube.md').write_text('Pacchetto')
         return {'package_path': str(manifest), 'publication_ready': True}
     monkeypatch.setattr(editor_jobs, 'job_remaster', remaster)

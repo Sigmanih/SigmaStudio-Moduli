@@ -14,3 +14,5 @@ Interrompere l'attesa nel browser non equivale a fermare il calcolo. Controlla l
 Per un film importato usa `video_restore_pipeline`: il preset del canale definisce lingue, cartella di uscita e sigle. Scegli `content_type=silent` per i muti, `documentary` per conservare e trascrivere il parlato originale. Titolo, anno e fonte sono dati del singolo film, non del preset; non inventarli.
 
 Il successo richiede master multilingua, audio separati, sottotitoli, miniatura, file di titolo e descrizione per lingua e `youtube_package.json`. Riusa i checkpoint verificati dopo un errore. Il pacchetto è locale: la pubblicazione sul canale richiede una richiesta esplicita e i doppiaggi vengono aggiunti tramite YouTube Studio → Lingue.
+
+Usa soltanto sigle con `sigla_template.json` verificato: gli hash dei video devono coincidere con gli asset approvati. Il titolo dell'intro viene renderizzato dai dati del film e confrontato con un fotogramma del master. Non riutilizzare audio estratti da un master precedente all'aggiunta delle sigle. Una verifica tecnica non sostituisce la revisione editoriale di testi, miniatura e resa audiovisiva.

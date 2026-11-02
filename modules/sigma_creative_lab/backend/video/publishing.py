@@ -141,7 +141,7 @@ def localizations(base, languages, ask_text, cache_path, progress, check_cancell
     return output
 
 
-def _thumbnail(video, target, duration, intro):
+def _thumbnail(video, target, duration, intro, title='', year=''):
     from PIL import Image, ImageStat
     best, best_score = None, -1
     for index, fraction in enumerate((.25, .5, .75)):
@@ -158,6 +158,14 @@ def _thumbnail(video, target, duration, intro):
     if best is None:
         raise ValueError('Impossibile preparare la miniatura')
     target.write_bytes(best.read_bytes())
+    if title:
+        from .publication_identity import title_overlay
+        overlay_path = target.with_name('.thumbnail_title.png')
+        title_overlay(1280, 720, title, year, overlay_path)
+        with Image.open(target) as background, Image.open(overlay_path) as overlay:
+            Image.alpha_composite(background.convert('RGBA'), overlay.convert('RGBA')).convert('RGB').save(
+                target, format='JPEG', quality=90, optimize=True)
+        overlay_path.unlink(missing_ok=True)
     for index in range(3):
         target.with_name(f'.thumbnail_{index}.jpg').unlink(missing_ok=True)
 
@@ -208,7 +216,7 @@ def create_package(video, directory, facts, cards, ask_text, progress=lambda mes
         progress(f'Audio e sottotitoli {language.upper()}', .5 + .35 * (index + 1) / len(languages))
     check_cancelled()
     thumbnail = directory / 'miniatura.jpg'
-    _thumbnail(video, thumbnail, duration, float(facts.get('intro_duration') or 0))
+    _thumbnail(video, thumbnail, duration, float(facts.get('intro_duration') or 0), facts['title'], facts.get('year', ''))
     import os
     relative_video = Path(os.path.relpath(video, directory)).as_posix()
     default = LOCALES.get(facts.get('default_language', languages[0]), facts.get('default_language', languages[0]))
@@ -228,7 +236,12 @@ def create_package(video, directory, facts, cards, ask_text, progress=lambda mes
         value = locs[LOCALES.get(language, language)]
         body += ['## ' + LANG_NAMES[language], '', '**Titolo**', value['title'], '', '**Descrizione**', value['description'], '']
     (directory / 'pacchetto_youtube.md').write_text('\n'.join(body), encoding='utf-8')
+    from .publication_checks import validate_package
+    package['identity'] = {'title': facts['title'], 'year': str(facts.get('year') or ''),
+                           'include_sigla': bool(facts.get('include_sigla')), 'intro_duration': facts.get('intro_duration', 0)}
+    package['validation'] = {**package['validation'], **validate_package(package, directory)}
     JsonStore(directory / 'youtube_package.json').save(package)
     progress('Pacchetto YouTube completo e verificato', 1)
     return {'package_path': str(directory / 'youtube_package.json'), 'package_dir': str(directory),
-            'publication_ready': True, 'languages': languages, 'standard': STANDARD}
+            'publication_ready': True, 'languages': languages, 'standard': STANDARD,
+            'thumbnail_path': str(thumbnail), 'editorial_review_required': True}

@@ -1,7 +1,7 @@
 {
   "id": "sigma_creative_lab",
   "name": "Creative Lab 3D/2D",
-  "version": "v1.4.1",
+  "version": "v1.5.0",
   "category": "Multimodale & Grafica",
   "tabType": "creative_studio",
   "workDomain": "creative",
@@ -41,6 +41,7 @@
     "sd_webui"
   ],
   "changelog": [
+    {"version": "v1.5.0", "date": "2026-11-02", "notes": "Genera sigle con identità del film e confronto visivo del titolo, verifica tutte le durate e i materiali YouTube e mostra la miniatura nel risultato."},
     {
       "version": "v1.4.1",
       "date": "2026-11-02",
@@ -82,7 +83,7 @@
     "install_to": "sigma_studio/src/modules/sigma_creative_lab/"
   },
   "kernel_modules_required": [],
-  "min_kernel_version": "0.9.4",
+  "min_kernel_version": "0.9.6",
   "kernel_api": 1,
   "required_kernel_features": [
     "persistent_jobs",

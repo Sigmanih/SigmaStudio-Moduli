@@ -20,6 +20,12 @@ class VoiceMCPServer(BaseMCPServer):
         self._init_tools()
 
     def _init_tools(self):
+        self.register_tool(name='revise_study_music',
+            description='Rivede una composizione: feedback ricompone il brano; treatment modifica la registrazione in una nuova copia senza cambiare melodia.',
+            input_schema={'type': 'object', 'properties': {'source_job': {'type': 'string'},
+                'feedback': {'type': 'string', 'maxLength': 800},
+                'treatment': {'type': 'string', 'enum': ['soft', 'warm', 'slower']}}, 'required': ['source_job']},
+            handler=self._handle_generate_music, safety=SAFE, category='music')
         self.register_tool(
             name='list_music_presets', description='Elenca generi musicali e disponibilità del motore locale di AudioStudio.',
             input_schema={'type': 'object', 'properties': {}}, handler=self._handle_music_presets,

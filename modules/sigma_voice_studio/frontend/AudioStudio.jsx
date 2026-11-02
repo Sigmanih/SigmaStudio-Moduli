@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Music, Mic, Download, RefreshCw, X, RotateCcw } from 'lucide-react';
+import { Music, Mic, Radio, Download, RefreshCw, X, RotateCcw } from 'lucide-react';
+import MusicTab from '../../components/Music/MusicTab';
 import TabHeader from '../../components/common/TabHeader';
 import VoiceStudio from './VoiceStudio';
 import '../../styles/03-modules/audio-studio.css';
@@ -23,6 +24,8 @@ function MusicStudio() {
   const [bpm, setBpm] = useState('');
   const [pending, setPending] = useState(false);
   const [error, setError] = useState('');
+  const [feedback, setFeedback] = useState({});
+  const [treatments, setTreatments] = useState({});
   const loadJobs = useCallback(async () => {
     try { const value = await api('/api/audio-studio/music/jobs'); setJobs(value.jobs || []); }
     catch (exc) { setError(exc.message); }
@@ -86,23 +89,46 @@ function MusicStudio() {
       {problems.map(job => <article key={job.id} className="as-track"><p className="as-error">{job.error || job.message || 'Composizione interrotta'}</p>
         <button className="as-secondary" disabled={pending} onClick={() => act('/api/audio-studio/music/action', {job_id: job.id, action: 'resume'})}><RotateCcw size={14} /> Riprendi</button></article>)}
       {!jobs.length && <p className="as-empty">La prima base nasce qui. Scegli un genere e crea un’anteprima.</p>}
-      {completed.map(job => <article key={job.id} className="as-track"><strong>{job.result.title}</strong>
-        <span>{job.result.duration / 60} minuti · {job.result.recipe.bpm} BPM · seed {job.result.recipe.seed}</span>
+      {completed.map(job => <article key={job.id} className="as-track"><strong>{job.result.title}{job.args.revision_of ? ' · Ricomposta' : ''}</strong>
+        <span>{(job.result.duration / 60).toFixed(1)} minuti · {job.result.recipe.bpm} BPM · seed {job.result.recipe.seed}</span>
         <audio controls preload="metadata" src={job.result.mp3_url} aria-label={`Ascolta ${job.result.title}`} />
         <div className="as-form-row"><a href={job.result.wav_url} download><Download size={14} /> WAV</a>
           <a href={job.result.mp3_url} download><Download size={14} /> MP3</a></div>
+        <details><summary>Modifica questa base</summary>
+        <label>Come vuoi cambiarla?<textarea value={feedback[job.id] || ''} maxLength={800}
+          placeholder="Per esempio: piano più naturale, niente fruscio, meno batteria, melodia più semplice"
+          onChange={event => setFeedback(current => ({...current, [job.id]: event.target.value}))} /></label>
+        <button className="as-secondary" disabled={pending || !feedback[job.id]?.trim()} onClick={() =>
+          act('/api/audio-studio/music/generate', {source_job: job.id, feedback: feedback[job.id]})}>Ricompone con queste indicazioni</button>
+        <p className="as-note">Crea una nuova composizione e conserva questa versione. Il modello può cambiare melodia e arrangiamento.</p>
+        <label>Modifica questa registrazione<select value={treatments[job.id] || 'soft'} onChange={event =>
+          setTreatments(current => ({...current, [job.id]: event.target.value}))}>
+          <option value="soft">Alti meno aggressivi</option><option value="warm">Timbro più caldo</option>
+          <option value="slower">Tempo più lento del 5%</option></select></label>
+        <button className="as-secondary" disabled={pending} onClick={() => act('/api/audio-studio/music/generate',
+          {source_job: job.id, treatment: treatments[job.id] || 'soft'})}>Applica a una nuova copia</button>
+        </details>
+        {(job.args.revision_of || job.result.source_job) && <details><summary>Confronta con la versione precedente</summary>
+          <audio controls preload="none" aria-label="Versione precedente" src={jobs.find(old => old.id === (job.args.revision_of || job.result.source_job))?.result?.mp3_url} />
+        </details>}
       </article>)}
     </section>
   </div>;
 }
 
 export default function AudioStudio() {
-  const [tab, setTab] = useState('music');
+  const [tab, setTab] = useState(() => window.sessionStorage.getItem('sigmaAudioStudioSection') === 'radio' ? 'radio' : 'music');
+  useEffect(() => {
+    const select = event => { if (['music', 'voice', 'radio'].includes(event.detail)) setTab(event.detail); };
+    window.addEventListener('sigma_audio_studio_section', select);
+    return () => window.removeEventListener('sigma_audio_studio_section', select);
+  }, []);
   return <div className="as-studio"><TabHeader icon={Music} title="AudioStudio" highlight="MUSICA & VOCI"
     description="Componi basi musicali e crea le voci dei tuoi progetti" />
     <nav className="as-tabs" aria-label="Aree di AudioStudio">
       <button aria-pressed={tab === 'music'} onClick={() => setTab('music')}><Music size={16} /> Musica</button>
       <button aria-pressed={tab === 'voice'} onClick={() => setTab('voice')}><Mic size={16} /> Voci e narrazione</button>
-    </nav><div className="as-content">{tab === 'music' ? <MusicStudio /> : <VoiceStudio />}</div>
+      <button aria-pressed={tab === 'radio'} onClick={() => setTab('radio')}><Radio size={16} /> Radio</button>
+    </nav><div className="as-content">{tab === 'music' ? <MusicStudio /> : tab === 'radio' ? <MusicTab /> : <VoiceStudio />}</div>
   </div>;
 }

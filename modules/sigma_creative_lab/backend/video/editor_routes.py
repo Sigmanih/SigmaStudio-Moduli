@@ -57,7 +57,7 @@ def _payload(pid: str, tl: dict) -> dict:
     return {"timeline": {**tl, "audio": audio}, "items": lay["items"], "duration": lay["duration"],
             "shots": shots, "characters": characters, "history": ts.history_depth(pid),
             "video_model": (prod.get("settings") or {}).get("video_model", "h3"),
-            "output_url": _url(prod.get("output_path", ""))}
+            "output_url": _url(prod.get("output_path", "")), 'publication': prod.get('publication'), 'title': prod.get('title', '')}
 
 
 def handle_editor_timeline(self):
@@ -316,6 +316,30 @@ def handle_editor_restoration(self):
     _ok(self, **_restoration_view(R.load_state(prods.path(q["id"]), q.get("shot", ""))))
 
 
+def handle_editor_publication_preview(self):
+    import base64
+    import json
+    from .editor_jobs import editor_jobs
+    query = _qs(self)
+    job = next((j for j in editor_jobs().list() if j['id'] == query.get('job_id')), None)
+    result = (job or {}).get('result') if job and job['status'] == 'done' else None
+    if query.get('id'):
+        prods, _ = _store()
+        result = (prods.get(query['id']) or {}).get('publication')
+    if not result or not result.get('package_path'):
+        return _err(self, 'Pacchetto del lavoro non disponibile', 404)
+    try:
+        manifest = Path(result['package_path'])
+        package = json.loads(manifest.read_text(encoding='utf-8'))
+        thumbnail = manifest.parent / 'miniatura.jpg'
+        if thumbnail.stat().st_size > 2 * 1024 * 1024:
+            raise ValueError('Miniatura troppo grande')
+        _ok(self, identity=package.get('identity', {}), validation=package.get('validation', {}),
+            thumbnail='data:image/jpeg;base64,' + base64.b64encode(thumbnail.read_bytes()).decode('ascii'))
+    except (OSError, ValueError, KeyError) as exc:
+        _err(self, str(exc))
+
+
 def handle_editor_restoration_defaults(self):
     from .restoration_preferences import load_defaults
     _ok(self, defaults=load_defaults())
@@ -364,6 +388,7 @@ def handle_editor_restoration_protect(self):
 
 
 GET_ROUTES = {
+    '/api/creative/editor/publication/preview': handle_editor_publication_preview,
     '/api/creative/editor/restoration/defaults': handle_editor_restoration_defaults,
     "/api/creative/editor/restoration": handle_editor_restoration,
     "/api/creative/editor/timeline": handle_editor_timeline,

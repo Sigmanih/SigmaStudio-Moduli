@@ -14,3 +14,9 @@ resta affidata all'ascolto. Ogni genere associa un tema per il successivo video,
 La sezione Voci mantiene configurazione dell'assistente, sintesi e libreria vocale. L'identificativo interno
 `sigma_voice_studio` e le API TTS restano compatibili; le nuove rotte sono `/api/audio-studio/music/*`.
 I tool MCP `list_music_presets`, `generate_study_music` e `music_jobs` espongono lo stesso flusso agli agenti.
+
+La scheda Radio usa il lettore già presente in Sigma Studio. Il comando Audio e radio si trova negli Strumenti AI;
+il player non viene più imposto nell'angolo della pagina. Le composizioni si possono ricomporre con feedback
+oppure rifinire su una nuova copia (alti più morbidi, timbro caldo o tempo ridotto del 5%) senza perdere l'originale.
+`revise_study_music` espone queste operazioni agli agenti. La ricomposizione può cambiare melodia e arrangiamento;
+la rifinitura DSP agisce sull'audio esistente e non separa i singoli strumenti.

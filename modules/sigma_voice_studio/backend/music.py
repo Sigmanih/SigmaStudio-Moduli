@@ -4,6 +4,8 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
+from contextlib import nullcontext
+from pathlib import Path
 import secrets
 import threading
 import time
@@ -142,6 +144,7 @@ async def compose(service, job):
         tags += ', ' + recipe['prompt']
     prod = {'id': 'audio_' + identity, 'settings': {'seed': recipe['seed']},
             'soundtrack': {'tags': tags, 'bpm': recipe['bpm'], 'keyscale': preset['key'], 'instrumental': True,
+                          'segment_seconds': 120,
                           'development': 'subtle natural variation, consistent restrained dynamics, seamless calm flow'},
             'shots': [{'id': 'composition', 'status': 'done', 'frames': recipe['duration'] * 24,
                        'scene': 'continuous calm instrumental study session'}]}
@@ -166,20 +169,61 @@ async def compose(service, job):
     checked.check()
     result = {'title': preset['name'], 'genre': recipe['genre'], 'duration': recipe['duration'],
               'wav': str(target), 'mp3': str(mp3), 'wav_url': paths.public_url(target), 'mp3_url': paths.public_url(mp3),
-              'quality': report, 'recipe': recipe, 'visual_theme': preset['visual'], 'scene': preset['scene']}
+              'quality': report, 'recipe': recipe, 'visual_theme': preset['visual'], 'scene': preset['scene'],
+              'revision_of': job['args'].get('revision_of')}
     JsonStore(directory / 'composition.json').save(result)
     job.update(message='Anteprima pronta' if recipe['duration'] == 120 else 'Base musicale pronta', progress=1)
+    return result
+
+
+TREATMENTS = {'soft': 'highpass=f=30,lowpass=f=7000,equalizer=f=3200:t=q:w=1:g=-3',
+              'warm': 'highpass=f=35,equalizer=f=180:t=q:w=0.8:g=2,lowpass=f=10000',
+              'slower': 'atempo=0.95'}
+
+
+async def refine(service, job):
+    from core.modules.sigma_creative_lab.video.production import _run, ffmpeg_bin
+    from core.modules.sigma_creative_lab.video.score_quality import inspect_audio
+    previous = service.worker.store.get(job['args']['source_job'])
+    if not previous or previous['status'] != 'done' or not Path(previous['result']['wav']).is_file():
+        raise ValueError('Audio originale non disponibile per la modifica')
+    source = previous['result']
+    treatment = job['args']['treatment']
+    if treatment not in TREATMENTS:
+        raise ValueError('Trattamento audio non supportato')
+    directory = paths.works_area('audio_studio') / source['genre'] / (job.get('operation_id') or job['id'])
+    directory.mkdir(parents=True, exist_ok=True)
+    target = directory / 'refined.wav'
+    mp3 = target.with_suffix('.mp3')
+    duration = float(source['duration']) / (.95 if treatment == 'slower' else 1)
+    job.update(message='Rifinitura della registrazione esistente', progress=.2)
+    await asyncio.to_thread(_run, [ffmpeg_bin(), '-v', 'error', '-y', '-i', source['wav'], '-af',
+        TREATMENTS[treatment] + ',alimiter=limit=0.8913:level=false', '-ar', '48000', '-ac', '2', '-c:a', 'pcm_s24le', str(target)], 600)
+    report = await asyncio.to_thread(inspect_audio, target, duration)
+    if not report['ok']:
+        raise ValueError('Rifinitura audio non valida: ' + ', '.join(report['issues']))
+    await asyncio.to_thread(_run, [ffmpeg_bin(), '-v', 'error', '-y', '-i', str(target), '-c:a', 'libmp3lame', '-b:a', '256k', str(mp3)], 600)
+    if job['cancel_event'].is_set():
+        raise JobCancelled('Rifinitura annullata')
+    result = {**source, 'duration': round(duration, 3), 'wav': str(target), 'mp3': str(mp3),
+              'wav_url': paths.public_url(target), 'mp3_url': paths.public_url(mp3), 'quality': report,
+              'source_job': previous['id'], 'treatment': treatment, 'title': source['title'] + ' · Rifinitura'}
+    if treatment == 'slower':
+        result['recipe'] = {**source['recipe'], 'bpm': round(source['recipe']['bpm'] * .95, 1)}
+    JsonStore(directory / 'composition.json').save(result)
     return result
 
 
 class MusicService:
     def __init__(self, state_path=None):
         self.worker = PersistentJobWorker(JobStore(state_path or paths.var_dir() / 'audio_studio' / 'music.sqlite3'),
-                                          {'compose': compose}, self, blocked=self.blocked, reserve=self.reserve,
+                                          {'compose': compose, 'refine': refine}, self, blocked=self.blocked, reserve=self.reserve,
                                           id_prefix='music')
 
     @staticmethod
     def blocked(job):
+        if job['kind'] == 'refine':
+            return ''
         try:
             from core.modules.sigma_creative_lab.backends.resources import accelerator_busy
         except ImportError:
@@ -188,14 +232,33 @@ class MusicService:
 
     @staticmethod
     def reserve(job):
+        if job['kind'] == 'refine':
+            return nullcontext()
         from core.modules.sigma_creative_lab.backends.resources import reserve_accelerator
         return reserve_accelerator(job['id'])
 
     def submit(self, data):
+        parent = data.get('source_job') if isinstance(data, dict) else None
+        if parent:
+            previous = self.worker.store.get(parent)
+            if not previous or previous['status'] != 'done':
+                raise ValueError('La composizione da rivedere non è disponibile')
+            if data.get('treatment'):
+                if data['treatment'] not in TREATMENTS:
+                    raise ValueError('Trattamento audio non supportato')
+                return self.worker.submit('audio_studio', 'refine', {'source_job': parent, 'treatment': data['treatment']})
+            feedback = data.get('feedback', '')
+            if not isinstance(feedback, str) or not feedback.strip() or len(feedback) > 800:
+                raise ValueError('Descrivi la modifica desiderata (massimo 800 caratteri)')
+            recipe = (previous.get('result') or {}).get('recipe') or previous['args']
+            data = {**recipe, 'seed': None, 'bpm': int(round(recipe.get('bpm', 72))),
+                    'prompt': ', '.join(part for part in (recipe.get('prompt', ''), feedback.strip()) if part)}
         args = normalize(data)
         engine_status = status()
         if not engine_status['ready']:
             raise ValueError(engine_status['message'])
+        if parent:
+            args['revision_of'] = parent
         return self.worker.submit('audio_studio', 'compose', args)
 
     def list(self):
@@ -205,7 +268,7 @@ class MusicService:
         return self.worker.cancel(job_id)
 
     def resume(self, job_id):
-        return self.worker.retry(job_id, {'compose'})
+        return self.worker.retry(job_id, {'compose', 'refine'})
 
     def close(self, timeout=2):
         return self.worker.close(timeout)

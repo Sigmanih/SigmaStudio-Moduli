@@ -1,4 +1,5 @@
 import { AlertTriangle, CheckCircle2, Loader2, RotateCcw, X } from 'lucide-react';
+import PublicationResult from './PublicationResult';
 import '../../../../styles/03-modules/editor-jobs.css';
 
 const LABELS = {
@@ -23,11 +24,7 @@ export default function JobList({ jobs, error, pending, onAction }) {
         : job.status === 'done' ? <CheckCircle2 size={12} aria-hidden="true" /> : <AlertTriangle size={12} aria-hidden="true" />}
       <span>{LABELS[job.kind] || 'Operazione'}</span>
       <span className="cs-prod-status" title={job.error || job.message}>{job.status === 'error' ? job.error : job.message}</span>
-      {job.status === 'done' && job.result?.publication_ready && <label className="cs-ed-publication">
-        Pacchetto YouTube pronto · video, audio, sottotitoli e testi
-        <input className="cs-inline-input" aria-label="Cartella del pacchetto YouTube" readOnly
-               value={job.result.package_dir} onFocus={e => e.target.select()} />
-      </label>}
+      {job.status === 'done' && <PublicationResult publication={job.result} jobId={job.id} />}
       {['queued', 'running'].includes(job.status) && <button className="cs-ed-mini" disabled={pending}
         aria-label="Annulla lavoro" data-agent-action="cancel-job" onClick={() => onAction(job.id, 'cancel')}>
         <X size={11} aria-hidden="true" />

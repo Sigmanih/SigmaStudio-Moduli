@@ -10,3 +10,5 @@ Segui la composizione con `music_jobs`. Un identificativo di job o uno stato in 
 Le basi sono strumentali. Scegli il preset richiesto e usa `prompt`, BPM e seed solo per le indicazioni musicali dell'utente. I controlli tecnici su durata, silenzi e ripetizioni non dimostrano qualità artistica o benefici per la concentrazione: proponi l'ascolto dell'anteprima.
 
 Il tema visivo del risultato descrive l'accompagnamento previsto; non dichiarare generato un video se è presente soltanto l'audio. Le sessioni lunghe e l'eventuale pubblicazione seguono la richiesta dell'utente.
+
+Per cambiare una base usa `revise_study_music` con `source_job`: `feedback` ricompone un nuovo brano, mentre `treatment=soft|warm|slower` applica una rifinitura alla registrazione esistente. Entrambi conservano l'originale. Non promettere isolamento di strumenti o conservazione della melodia quando ricomponi con feedback.

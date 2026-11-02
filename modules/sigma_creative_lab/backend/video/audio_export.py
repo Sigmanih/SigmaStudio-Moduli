@@ -214,7 +214,8 @@ def _join_sigla_video(source: Path, bumpers: list[Path], output: Path, info: dic
 
 
 def add_sigla_to_master(source: Path, output: Path, asset_dir: str | Path, languages: list[str],
-                        cta_language: str = "en", progress: Callable[[str, float], None] | None = None) -> dict:
+                        cta_language: str = "en", progress: Callable[[str, float], None] | None = None,
+                        film_title: str = '', film_year: str = '') -> dict:
     """Inserisce intro/outro animate e localizzate senza alterare il montaggio del film."""
     from core.modules.sigma_creative_lab.video.production import _run, ffmpeg_bin, probe
     from core.modules.sigma_creative_lab.video.postprocess import nvenc_available, video_encoder_args
@@ -222,7 +223,12 @@ def add_sigla_to_master(source: Path, output: Path, asset_dir: str | Path, langu
     langs = list(dict.fromkeys(str(x).lower()[:2] for x in languages))
     if not langs or set(langs) - LANG_TAGS.keys():
         raise ValueError("lingue della sigla non supportate")
+    if not str(film_title).strip():
+        raise ValueError('Indica il titolo del film prima di aggiungere una sigla')
     assets = validate_sigla_assets(asset_dir, langs)
+    if film_title:
+        from .publication_identity import validate_template
+        validate_template(asset_dir)
     source_info = probe(source)
     if not source_info["width"] or not source_info["height"]:
         raise ValueError("Il master deve contenere un video valido")
@@ -265,6 +271,15 @@ def add_sigla_to_master(source: Path, output: Path, asset_dir: str | Path, langu
                     "-filter_complex", vf, "-map", "[v]", "-an", "-t", f"{assets[kind + '_duration']:.6f}",
                     *encoder, str(target)]
             _run(args, timeout=1800)
+            if film_title and kind == 'intro':
+                from .publication_identity import title_overlay
+                card = title_overlay(source_info['width'], source_info['height'], film_title, film_year,
+                                     work / 'film_title.png')
+                titled = work / 'intro_titled.mp4'
+                _run([ff, '-v', 'error', '-y', '-i', str(target), '-loop', '1', '-i', str(card),
+                      '-filter_complex', '[0:v][1:v]overlay=0:0:format=auto,format=yuv420p[v]',
+                      '-map', '[v]', '-an', '-t', str(assets['intro_duration']), *encoder, str(titled)], timeout=300)
+                target = titled
             enhanced.append(target)
 
         joined_video = work / "joined_video.mp4"
@@ -334,12 +349,21 @@ def add_sigla_to_master(source: Path, output: Path, asset_dir: str | Path, langu
         if abs(final_info["duration"] - (assets["intro_duration"] + source_info["duration"] + assets["outro_duration"])) > 0.5:
             temporary.unlink(missing_ok=True)
             raise RuntimeError("Durata del master con sigla non coerente")
+        if film_title:
+            from .publication_identity import verify_title_frame
+            verify_title_frame(temporary, card, assets['intro_duration'] / 2, work / 'title_verified.png')
         temporary.replace(output)
+        if film_title:
+            from core.store import JsonStore
+            preview = output.with_name(output.stem + '_intro.png')
+            shutil.copy2(work / 'title_verified.png', preview)
+            JsonStore(output.with_suffix('.identity.json')).save({'title': film_title, 'year': film_year,
+                'intro_verified': True, 'preview': str(preview), 'size': output.stat().st_size})
         if progress:
             progress("Sigla completata e verificata", 1.0)
         return {"output_path": str(output), "duration": final_info["duration"], "intro_duration": assets["intro_duration"],
                 "outro_duration": assets["outro_duration"], "languages": langs, "cta_language": cta_language,
-                "film_video_copied": copied_video}
+                "film_video_copied": copied_video, 'identity_title': film_title, 'identity_year': film_year}
     finally:
         shutil.rmtree(work, ignore_errors=True)
 

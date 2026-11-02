@@ -57,7 +57,7 @@ def build_ace_step(tags: str, seconds: float, seed: int, bpm: int = 90, keyscale
     }
 
 
-def scene_segments(prod: dict, fps: int = 24) -> list[dict]:
+def scene_segments(prod: dict, fps: int = 24, max_seconds: float = MAX_SEGMENT_S) -> list[dict]:
     """Durata reale di ogni scena nel montaggio (frame duplicati dei `continue` esclusi)."""
     segments: list[dict] = []
     done = [s for s in prod["shots"] if s.get("status") == "done"]
@@ -72,7 +72,7 @@ def scene_segments(prod: dict, fps: int = 24) -> list[dict]:
     # Scene troppo lunghe si dividono: oltre qualche minuto il brano perde coerenza.
     out = []
     for seg in segments:
-        count = max(1, math.ceil(seg["seconds"] / MAX_SEGMENT_S))
+        count = max(1, math.ceil(seg["seconds"] / max_seconds))
         out.extend({"scene": seg["scene"], "seconds": seg["seconds"] / count} for _ in range(count))
     return [s for s in out if s["seconds"] >= 1.0]
 
@@ -88,7 +88,7 @@ async def generate_soundtrack(prod: dict, work_dir: Path, backend, progress=None
     seed0 = production_seed(prod["id"], int(prod["settings"].get("seed", 1000)))
     work_dir.mkdir(parents=True, exist_ok=True)
     parts: list[Path] = []
-    segments = scene_segments(prod, int(prod["settings"].get("fps", 24)))
+    segments = scene_segments(prod, int(prod["settings"].get("fps", 24)), float(cfg.get('segment_seconds', MAX_SEGMENT_S)))
     if not segments:
         raise RuntimeError("nessuna scena completata per cui comporre la musica")
     fades = [min(CROSSFADE_S, a["seconds"] / 2, b["seconds"] / 2) for a, b in zip(segments, segments[1:])]

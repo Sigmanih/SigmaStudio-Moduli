@@ -27,6 +27,8 @@ def preflight(editor, pid, args):
         raise ValueError('La pipeline automatica richiede il film intero; ripristina i bordi del video prima di avviarla')
     if value['include_sigla']:
         validate_sigla_assets(value['sigla_assets_dir'], value['languages'])
+        from .publication_identity import validate_template
+        validate_template(value['sigla_assets_dir'])
     if value['output_dir'] and not Path(value['output_dir']).expanduser().is_absolute():
         raise ValueError('La destinazione del restauro deve essere un percorso assoluto')
     if value['output_dir']:
@@ -169,8 +171,10 @@ async def run(editor, job):
     if args['include_sigla']:
         result = await phase('sigla', 'Intro e outro', .94, .97,
             lambda: asyncio.to_thread(add_sigla_to_master, base, output, args['sigla_assets_dir'], languages,
-                args['sigla_cta_language'], lambda message, fraction: editor._note(job, message, .94 + .03 * fraction)),
-            lambda r: _file_valid(r, 'output_path'))
+                args['sigla_cta_language'], lambda message, fraction: editor._note(job, message, .94 + .03 * fraction),
+                film_title=args.get('publication_title') or prod['title'], film_year=args.get('publication_year', '')),
+            lambda r: (_file_valid(r, 'output_path') and r.get('identity_title') == (args.get('publication_title') or prod['title'])
+                       and r.get('identity_year') == args.get('publication_year', '')))
     publication = {}
     if args['make_publication']:
         facts = {**args, 'title': args.get('publication_title') or prod['title'],
@@ -191,7 +195,11 @@ async def run(editor, job):
                 required = [package['video'], package['thumbnail'], 'pacchetto_youtube.md',
                             *package['captions'].values(), *package['audio_tracks'].values(),
                             *[path for files in package['text_files'].values() for path in files.values()]]
-                return bool(package.get('validation', {}).get('complete')) and all((directory / path).is_file() for path in required)
+                from .publication_checks import validate_package
+                expected = args.get('publication_title') or prod['title']
+                return (package.get('identity', {}).get('title') == expected
+                        and bool(validate_package(package, directory)['complete'])
+                        and all((directory / path).is_file() for path in required))
             except (OSError, ValueError, KeyError):
                 return False
         publication = await phase('publication', 'Pacchetto YouTube', .97, 1, lambda: asyncio.to_thread(publish), publication_valid)

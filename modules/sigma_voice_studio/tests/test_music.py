@@ -97,3 +97,48 @@ def test_motore_esterno_occupato_non_accoda_un_secondo_prompt(tmp_path, monkeypa
     with pytest.raises(RuntimeError, match='occupato'):
         asyncio.run(music.compose(None, job))
     assert not list(tmp_path.iterdir())
+
+
+@pytest.mark.parametrize('treatment', ['soft', 'warm', 'slower'])
+def test_rifinitura_modifica_una_copia_e_conserva_originale(tmp_path, monkeypatch, treatment):
+    import hashlib
+    from core.modules.sigma_creative_lab.video import production
+    source = tmp_path / 'original.wav'
+    production._run([production.ffmpeg_bin(), '-v', 'error', '-y', '-f', 'lavfi', '-i',
+                    'anoisesrc=duration=2:sample_rate=48000:amplitude=0.2:seed=42', str(source)], 30)
+    original_hash = hashlib.sha256(source.read_bytes()).hexdigest()
+    previous = {'id': 'parent', 'status': 'done', 'result': {'wav': str(source), 'duration': 2,
+                 'genre': 'lofi_study', 'title': 'Test', 'recipe': {'bpm': 72, 'seed': 42}}}
+    service = SimpleNamespace(worker=SimpleNamespace(store=SimpleNamespace(get=lambda _: previous)))
+    monkeypatch.setattr(music.paths, 'works_area', lambda _: tmp_path)
+    monkeypatch.setattr(music.paths, 'public_url', lambda p: '/works/' + Path(p).relative_to(tmp_path).as_posix())
+    result = asyncio.run(music.refine(service, {'id': treatment, 'args': {'source_job': 'parent', 'treatment': treatment},
+                                              'cancel_event': threading.Event()}))
+    assert hashlib.sha256(source.read_bytes()).hexdigest() == original_hash
+    assert hashlib.sha256(Path(result['wav']).read_bytes()).hexdigest() != original_hash
+    assert result['source_job'] == 'parent' and result['quality']['ok']
+    assert abs(result['duration'] - (2 / .95 if treatment == 'slower' else 2)) < .001
+
+
+def test_rifinitura_non_richiede_motore_ai(monkeypatch):
+    previous = {'status': 'done'}
+    calls = []
+    service = SimpleNamespace(worker=SimpleNamespace(store=SimpleNamespace(get=lambda _: previous),
+        submit=lambda *args: calls.append(args) or {'id': 'refined'}))
+    monkeypatch.setattr(music, 'status', lambda: pytest.fail('La rifinitura DSP deve funzionare senza GPU'))
+    assert music.MusicService.submit(service, {'source_job': 'parent', 'treatment': 'soft'}) == {'id': 'refined'}
+    assert calls[0][1] == 'refine'
+
+
+def test_ricomporre_una_rifinitura_conserva_genere_e_durata(monkeypatch):
+    previous = {'status': 'done', 'args': {'source_job': 'original', 'treatment': 'warm'},
+                'result': {'recipe': {'genre': 'deep_focus', 'duration': 900, 'seed': 42, 'bpm': 60, 'prompt': 'soft pads'}}}
+    calls = []
+    service = SimpleNamespace(worker=SimpleNamespace(store=SimpleNamespace(get=lambda _: previous),
+        submit=lambda *args: calls.append(args) or {'id': 'revision'}))
+    monkeypatch.setattr(music, 'status', lambda: {'ready': True})
+    music.MusicService.submit(service, {'source_job': 'refined', 'feedback': 'no percussion'})
+    args = calls[0][2]
+    assert args['genre'] == 'deep_focus' and args['duration'] == 900
+    assert args['prompt'] == 'soft pads, no percussion'
+    assert args['revision_of'] == 'refined'

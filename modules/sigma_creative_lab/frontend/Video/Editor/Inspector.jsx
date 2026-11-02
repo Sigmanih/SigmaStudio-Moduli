@@ -62,7 +62,7 @@ function ItemInspector({ pid, data, item, index, time, onOp, onJob }) {
       )}
       {shot.origin !== 'title' && (
         // Ogni passo crea una versione o clip audio annullabili: l'originale resta fra le Versioni.
-        <RestorationPanel pid={pid} item={item} sourceOrigin={shot.origin || active?.kind} refresh={data} onJob={onJob} />
+        <RestorationPanel pid={pid} item={item} sourceOrigin={shot.origin || active?.kind} refresh={data} onJob={onJob} publication={data.publication} projectTitle={data.title} />
       )}
       {shot.origin === 'scene' ? (
         <>

@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useState } from 'react';
+import PublicationResult from './PublicationResult';
 import { Palette, Maximize2, ScanText, Mic, Music, Trash2, Skull, Sparkles, Shield, Plus, Film, Languages, FolderOpen, ChevronLeft } from 'lucide-react';
 
 /*
@@ -121,7 +122,7 @@ function MoodRow({ mood, index, onSave }) {
   );
 }
 
-export default function RestorationPanel({ pid, item, sourceOrigin, refresh, onJob }) {
+export default function RestorationPanel({ pid, item, sourceOrigin, refresh, onJob, publication, projectTitle }) {
   const [savedSettings] = useState(savedRestorationSettings);
   const [height, setHeight] = useState(() => Number(savedSettings.height) || 1440);
   const [language, setLanguage] = useState('en');
@@ -226,7 +227,9 @@ export default function RestorationPanel({ pid, item, sourceOrigin, refresh, onJ
   return (
     <div className="cs-ed-restore">
       <h4>Restauro</h4>
+      <PublicationResult publication={publication} projectId={pid} />
       {sourceOrigin === 'import' && <>
+        <p className="cs-hint">Titolo del film: <strong>{publicationTitle.trim() || projectTitle}</strong>{publicationYear && ` · ${publicationYear}`}</p>
         <p className="cs-hint">Video pronto per YouTube: restauro, {pipelineLanguages.length} lingue, audio e sottotitoli, titoli, descrizioni e miniatura{includeSigla ? ', con intro e outro' : ''}.</p>
         <button className="cs-tool-btn" disabled={!defaultsReady || !pipelineLanguages.length || (includeSigla && !siglaAssetsDir.trim())}
                 title="Avvia il restauro completo e prepara tutti i materiali per YouTube" onClick={startPipeline}>
