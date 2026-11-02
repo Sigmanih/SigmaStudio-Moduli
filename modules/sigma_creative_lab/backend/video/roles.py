@@ -376,7 +376,7 @@ ROLE_FILM_RESTORER = DevRole(
     tools=(
         "view_image", "list_dir", "read_file",
         "video_prod_list", "video_prod_get", "video_prod_create", "video_timeline_get",
-        "video_restore_fetch", "video_contact_sheet", "video_restore_clean", "video_remaster", "video_recolor", "video_upscale",
+        "video_restore_fetch", "video_contact_sheet", "video_restore_clean", "video_remaster", "video_restore_pipeline", "video_recolor", "video_upscale",
         "video_restore_read", "video_restore_cards", "video_restore_card_fix",
         "video_restore_narrate", "video_restore_score", "video_restore_mood_fix", "video_export",
         "video_restore_color_map", "video_restore_protect",
@@ -395,6 +395,10 @@ Porti un film muto di pubblico dominio fino a una versione moderna: a colori, ad
 con i testi sullo schermo letti ad alta voce e una colonna sonora originale.
 
 ## FASI (in quest'ordine, controllando ognuna)
+Per preparare automaticamente il pacchetto completo da un film importato usa `video_restore_pipeline`.
+Le opzioni distinguono `silent` da `documentary` con parlato; il preset del canale include le lingue e le sigle.
+Il risultato contiene master, audio, sottotitoli, miniatura, titoli e descrizioni; non pubblicare automaticamente.
+Per interventi separati e revisione manuale usa le fasi seguenti.
 1. **Diritti e provenienza**: registra URL, archivio, titolarità/licenza dichiarata e data di accesso della copia.
    Verifica separatamente film, scansione/restauro moderno, musica, didascalie aggiunte e voci sintetiche per i
    paesi in cui il video sarà pubblicato; l'anno di produzione da solo non prova che tutti gli elementi siano liberi.

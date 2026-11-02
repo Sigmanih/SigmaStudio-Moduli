@@ -864,6 +864,17 @@ SCHEMI = (
     {
         "type": "function",
         "function": {
+            "name": "video_restore_pipeline",
+            "description": "Restauro completo con traduzioni, narrazioni, musica, intro/outro e pacchetto YouTube locale verificato. Usa il preset salvato; non pubblica sul canale. Job riprendibile.",
+            "parameters": {"type": "object", "properties": {
+                "prod_id": {"type": "string"}, "item_id": {"type": "string"},
+                "options": {"type": "object", "description": "Opzioni facoltative: languages (en,it,fr,de,es,pt,zh,ar), content_type (silent/documentary), source_language (auto o lingua), publication_title, publication_year, source_credit, output_dir, include_sigla, sigla_assets_dir, make_music."}
+            }, "required": ["prod_id"]},
+        },
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "video_remaster",
             "description": "Restauro completo non distruttivo di un video importato: analisi cadenza, pulizia della pellicola, "
                            "SeedVR2, interpolazione RIFE a 24 fps, colorazione DDColor temporalmente coerente, finitura "

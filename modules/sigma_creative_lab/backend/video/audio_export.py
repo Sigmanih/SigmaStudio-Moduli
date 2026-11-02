@@ -26,7 +26,7 @@ def _flags() -> int:
 
 
 def _audio_mix(tracks: list[dict], language: str, out: Path, duration: float,
-               source_audio: Path | None = None) -> None:
+               source_audio: Path | None = None, source_is_dialogue: bool = False) -> None:
     import subprocess
     from core.modules.sigma_creative_lab.video.production import _run, ffmpeg_bin
 
@@ -37,9 +37,11 @@ def _audio_mix(tracks: list[dict], language: str, out: Path, duration: float,
         from core.modules.sigma_creative_lab.video.score_quality import source_music_filter
         cmd += ["-i", str(source_audio)]
         index = 0
-        graph.append(f"[0:a]{source_music_filter(tracks)},aresample=48000,aformat=channel_layouts=stereo,volume=-6dB,apad,"
+        source_filter = 'anull' if source_is_dialogue else source_music_filter(tracks)
+        gain = 0 if source_is_dialogue else -6
+        graph.append(f"[0:a]{source_filter},aresample=48000,aformat=channel_layouts=stereo,volume={gain}dB,apad,"
                      f"atrim=duration={duration:.6f}[original]")
-        buses["music"].append("[original]")
+        buses['dialogue' if source_is_dialogue else 'music'].append('[original]')
     for track in tracks:
         kind = track.get("kind")
         if kind not in buses:
@@ -354,7 +356,8 @@ def export_multilingual(tl: dict, prod: dict, production_dir: Path, output: Path
     if not langs or set(langs) - LANG_TAGS.keys():
         raise ValueError("lingue di esportazione non supportate")
     audio_tracks = tl.get("audio") or []
-    missing = [lang for lang in langs if not any(t.get("kind") == "voice" and
+    native_language = (prod.get('settings') or {}).get('source_language') if (prod.get('settings') or {}).get('restoration_content_type') == 'documentary' else None
+    missing = [lang for lang in langs if lang != native_language and not any(t.get("kind") == "voice" and
                str(t.get("id", "")).startswith("restore_voice_") and str(t["id"]).endswith(f"_{lang}")
                and t.get("clips") for t in audio_tracks)]
     if missing:
@@ -387,13 +390,17 @@ def export_multilingual(tl: dict, prod: dict, production_dir: Path, output: Path
                     quality=int((prod.get("settings") or {}).get("final_quality", 18)))
     from core.modules.sigma_creative_lab.video.production import probe
     source_audio = base if preserve_audio and probe(base)["has_audio"] else None
+    if native_language in langs and source_audio is None:
+        raise ValueError("La traccia originale del documentario non contiene audio utilizzabile")
 
     mix_paths = []
     for i, lang in enumerate(langs):
         mix = work / f"audio_{lang}.m4a"
         if progress:
             progress(f"Mix audio {lang.upper()}", 0.08 + 0.72 * i / len(langs))
-        _audio_mix(audio_tracks, lang, mix, duration, source_audio)
+        _audio_mix(audio_tracks, lang, mix, duration,
+                   source_audio if not native_language or lang == native_language else None,
+                   source_is_dialogue=bool(native_language and lang == native_language))
         mix_paths.append(mix)
 
     subtitles = []

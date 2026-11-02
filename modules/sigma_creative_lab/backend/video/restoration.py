@@ -422,7 +422,7 @@ def cast_cards(cards: list[dict], title: str, ask_text: AskText, ask_image: AskI
     return out
 
 
-def translate_cards(cards: list[dict], language: str, ask_text: AskText, batch: int = 25) -> list[dict]:
+def translate_cards(cards: list[dict], language: str, ask_text: AskText, batch: int = 25, strict: bool = False) -> list[dict]:
     """Traduzione dei testi letti (le didascalie sullo schermo restano originali)."""
     names = {"it": "Italian", "en": "English", "fr": "French", "de": "German", "es": "Spanish",
              "pt": "Portuguese", "zh": "Mandarin Chinese (Simplified Chinese script)", "ar": "Arabic"}
@@ -436,6 +436,8 @@ def translate_cards(cards: list[dict], language: str, ask_text: AskText, batch: 
             # Chatterbox legge male le cifre: "1443" in italiano diventava una parola inventata.
             f"Write every number and year in words. "
             f"Answer with a JSON array of strings, one per line, in order.\n\n{lines}", 3000))
+        if strict and (len(answer) != len(part) or any(not isinstance(x, str) or not x.strip() for x in answer)):
+            raise ValueError(f'Traduzione {language} incompleta: attesi {len(part)} testi, ricevuti {len(answer)}')
         for c in part:
             # Bozza: su Nosferatu l'8B sbagliava una riga su tre ("Ammazza, non e' vero, signori?").
             c["translation_draft"] = True
@@ -867,14 +869,18 @@ def update_cards(prod_dir: Path, shot_id: str, edits: list[dict]) -> list[dict]:
             cards[i]["deleted"] = True
             continue
         lang = str(e.get("language") or "").lower()[:2]
-        if lang and lang != "en":
+        if lang and lang != (state.get('source_language') or 'en'):
             # Correzione della battuta tradotta: il testo originale resta com'e'.
             if e.get("text"):
                 state.setdefault("translations", {}).setdefault(lang, {})[str(i)] = _clean(str(e["text"]))
+                from .restoration_text import text_fingerprint
+                state.setdefault('translation_sources', {}).setdefault(lang, {})[str(i)] = text_fingerprint(cards[i])
             continue
         if e.get("text") is not None:
             cards[i]["text"] = _clean(str(e["text"]))
             cards[i].pop("text_spoken", None)
+            for translated in (state.get('translations') or {}).values():
+                translated.pop(str(i), None)
         if e.get("speaker"):
             cards[i]["speaker"] = str(e["speaker"]).strip().lower().replace(" ", "_")[:40]
         # Qualunque correzione a mano vale come revisione.

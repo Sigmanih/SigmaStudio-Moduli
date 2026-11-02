@@ -316,6 +316,11 @@ def handle_editor_restoration(self):
     _ok(self, **_restoration_view(R.load_state(prods.path(q["id"]), q.get("shot", ""))))
 
 
+def handle_editor_restoration_defaults(self):
+    from .restoration_preferences import load_defaults
+    _ok(self, defaults=load_defaults())
+
+
 def handle_editor_restoration_cards(self):
     """POST /api/creative/editor/restoration/cards {id, shot, edits:[{index, text?, speaker?, delete?}]}"""
     from core.modules.sigma_creative_lab.video import restoration as R
@@ -359,6 +364,7 @@ def handle_editor_restoration_protect(self):
 
 
 GET_ROUTES = {
+    '/api/creative/editor/restoration/defaults': handle_editor_restoration_defaults,
     "/api/creative/editor/restoration": handle_editor_restoration,
     "/api/creative/editor/timeline": handle_editor_timeline,
     "/api/creative/editor/media": handle_editor_media,

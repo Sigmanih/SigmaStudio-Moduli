@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import asyncio
 import difflib
+import json
 import os
 import re
 import subprocess
@@ -35,6 +36,10 @@ FPS = 24
 MAX_DIALOGUE_ATTEMPTS = 3
 #: Somiglianza minima fra la battuta del copione e cio' che Whisper sente.
 DIALOGUE_MATCH = 0.72
+
+
+class JobCancelled(RuntimeError):
+    """Interruzione richiesta dall'utente, distinta da un errore del motore."""
 
 
 def _now() -> float:
@@ -92,6 +97,14 @@ class EditorJobs:
     def submit(self, pid: str, kind: str, args: dict) -> dict:
         if self.prods.get(pid) is None:
             raise ValueError("produzione inesistente")
+        if kind == 'restore_pipeline':
+            from .restoration_pipeline import preflight
+            from .restoration_preferences import save_defaults
+            args = preflight(self, pid, args)
+            if any(j['scope'] == pid and j['kind'] == kind and j['status'] in ('queued', 'running')
+                   and j['args'].get('item_id') == args['item_id'] for j in self._worker.list()):
+                raise ValueError('Questo video ha già un restauro in corso o in coda')
+            save_defaults(args)
         job = self._public(self._worker.submit(pid, kind, args))
         self._checkpoint(job)
         return job
@@ -407,7 +420,7 @@ async def job_remaster(self: EditorJobs, job: dict) -> dict:
     if shot.get("origin") != "import" and source.get("kind") != "import":
         raise ValueError("il restauro completo è disponibile solo per video importati")
     if source.get("kind") != "import":
-        original = next((take for take in T.ensure_takes(shot) if take.get("kind") == "import"), None)
+        original = next((take for take in T.ensure_takes(shot) if str(take.get('kind', '')).startswith('import')), None)
         if original:
             source = original
             clip = Path(original["clip_path"])
@@ -500,8 +513,12 @@ async def job_restore_read(self: EditorJobs, job: dict) -> dict:
         cards = await asyncio.to_thread(R.read_cards, src, analysis, ask_image, lambda m, p: nota(m, 0.22 + 0.55 * p))
         self._note(job, "Chi legge ogni testo", 0.8)
         cards = await asyncio.to_thread(R.cast_cards, cards, title, ask_text, ask_image, src)
-    R.save_state(self.prods.path(pid), shot["id"], {"take": take["id"], "title": title, "analysis": analysis,
-                                                    "cards": cards})
+    state = R.load_state(self.prods.path(pid), shot['id'])
+    state.update(take=take['id'], title=title, analysis=analysis, cards=cards)
+    # Nuovi indici dei cartelli invalidano le traduzioni, ma non le protezioni del colore.
+    state.pop('translations', None)
+    state.pop('translation_sources', None)
+    R.save_state(self.prods.path(pid), shot['id'], state)
     speakers = sorted({c["speaker"] for c in cards})
     return {"shot": shot["id"], "titles": len(analysis["titles"]), "pages": len(analysis["pages"]),
             "cards": len(cards), "speakers": speakers}
@@ -535,25 +552,25 @@ async def job_restore_narrate(self: EditorJobs, job: dict) -> dict:
     if not cards:
         raise ValueError("nessun testo letto: lancia prima la lettura delle didascalie")
     language = str(a.get("language") or "en").lower()[:2]
-    if language != "en":
-        # Traduzione salvata per lingua: si rilegge e si corregge (card_fix con language), e la
-        # narrazione successiva la riusa invece di ritradurre da capo.
-        saved = (state.get("translations") or {}).get(language) or {}
-        missing = [c for c in cards if str(state["cards"].index(c)) not in saved]
-        if missing:
-            _ask_image, ask_text = _vista_asks()
-            self._note(job, f"Traduzione ({language})", 0.05)
-            with GpuPerLaVista(f"traduzione {shot['id']}"):
-                done = await asyncio.to_thread(R.translate_cards, missing, language, ask_text)
-            for c, t in zip(missing, done):
-                if t.get("text_spoken"):
-                    saved[str(state["cards"].index(c))] = t["text_spoken"]
-            state.setdefault("translations", {})[language] = saved
-            R.save_state(pdir, shot["id"], state)
-        cards = [{**c, "text_spoken": saved.get(str(state["cards"].index(c))) or c["text"]} for c in cards]
+    from .restoration_text import ensure_translations, subtitle_path, write_subtitles, fit_speech
+    _ask_image, ask_text = _vista_asks()
+    if a.get('translations_prepared'):
+        from .restoration_text import localized_cards
+        cards = localized_cards(state, language)
+    else:
+        with GpuPerLaVista(f"traduzione {shot['id']}"):
+            cards = await asyncio.to_thread(ensure_translations, state, language, ask_text)
+        R.save_state(pdir, shot['id'], state)
+    spoken_source = state.get('content_type') == 'documentary'
+    if spoken_source and language == state.get('source_language'):
+        _remove_restoration_audio(self, pid, shot['id'], 'restoration_language', f"{shot['id']}:{language}")
+        path = subtitle_path(pdir, state.get('title') or pid, language)
+        write_subtitles(path, cards)
+        return {'shot': shot['id'], 'language': language, 'lines': 0, 'subtitle': str(path),
+                'native_audio': True, 'unclear': []}
     narratable = []
     for card in cards:
-        spoken = R.narration_text(card.get("text_spoken") or card.get("text"), language)
+        spoken = (card.get('text_spoken') or card.get('text') or '').strip() if spoken_source else R.narration_text(card.get("text_spoken") or card.get("text"), language)
         if spoken:
             narratable.append({**card, "text_spoken": spoken})
     cards = narratable
@@ -574,7 +591,7 @@ async def job_restore_narrate(self: EditorJobs, job: dict) -> dict:
     language_key = f"{shot['id']}:{language}"
     removed = _remove_restoration_audio(self, pid, shot["id"], "restoration_language", language_key)
     added = 0
-    placed = R.place_lines(lines)
+    placed = await asyncio.to_thread(fit_speech, lines, pdir / 'restoration' / shot['id'] / language) if spoken_source else R.place_lines(lines)
     for line in placed:
         t = _timeline_time(lay, line["at"])
         if t is None:
@@ -662,79 +679,14 @@ async def job_restore_score(self: EditorJobs, job: dict) -> dict:
 
 
 async def job_restore_pipeline(self: EditorJobs, job: dict) -> dict:
-    """Esegue dal Video Studio il restauro visivo, i testi, la musica e le lingue selezionate."""
-    from core.modules.sigma_creative_lab.video.audio_export import validate_sigla_assets
+    """Restauro, traduzioni e pacchetto YouTube, con fasi riprendibili."""
+    from .restoration_pipeline import run
+    return await run(self, job)
 
-    pid, args = job["production"], job["args"]
-    item_id = str(args.get("item_id") or "")
-    languages = list(dict.fromkeys(str(x).lower()[:2] for x in args.get("languages") or
-                                   ("en", "fr", "de", "es", "pt", "it", "zh", "ar")))
-    allowed = {"en", "it", "fr", "de", "es", "pt", "zh", "ar"}
-    if not item_id or not languages or set(languages) - allowed:
-        raise ValueError("elemento o lingue della pipeline non validi")
-    sigla_dir = str(args.get("sigla_assets_dir") or "").strip() if args.get("include_sigla") else ""
-    sigla_assets = validate_sigla_assets(sigla_dir, languages) if args.get("include_sigla") else None
-    self.check_cancelled(job)
-    for track in list(self.timelines.get(pid).get("audio") or []):
-        if str(track.get("id", "")).startswith("legacy_mix_") and not track.get("mute"):
-            self.timelines.apply(pid, "track", {"track_id": track["id"], "mute": True})
-    stages = []
-    def stage(kind: str, stage_args: dict, start: float, end: float, label: str):
-        return {"id": job["id"], "operation_id": job.get("operation_id") or job["id"],
-                "production": pid, "kind": kind, "args": stage_args,
-                "message": label, "progress": 0.0, "_progress_parent": job, "_progress_range": (start, end)}
 
-    self._note(job, "Restauro del video", 0.0)
-    self.check_cancelled(job)
-    remaster_stage = stage("remaster", {
-        "item_id": item_id, "output_height": int(args.get("output_height", 1080)),
-        "preserve_source_audio": bool(args.get("preserve_source_audio", False)),
-    }, 0.0, 0.62, "Restauro video")
-    remaster_stage["cancel_event"] = job.get("cancel_event")
-    stages.append(await job_remaster(self, remaster_stage))
-    self.check_cancelled(job)
-    stages.append(await job_restore_read(self, stage("restore_read", {"item_id": item_id}, 0.62, 0.70,
-                                                         "Lettura dei testi")))
-    self.check_cancelled(job)
-    if args.get("make_music", True):
-        stages.append(await job_restore_score(self, stage("restore_score", {
-            "item_id": item_id, "style": str(args.get("music_style") or ""),
-        }, 0.70, 0.84, "Colonna sonora")))
-    for i, language in enumerate(languages):
-        self.check_cancelled(job)
-        start = 0.84 + 0.12 * i / len(languages)
-        end = 0.84 + 0.12 * (i + 1) / len(languages)
-        stages.append(await job_restore_narrate(self, stage("restore_narrate", {
-            "item_id": item_id, "language": language,
-        }, start, end, f"Voce {language.upper()}")))
-    self._note(job, "Esportazione multilingua", 0.90)
-    self.check_cancelled(job)
-    prod = self.prods.get(pid)
-    tl = self.timelines.get(pid)
-    from core import paths
-    from core.modules.sigma_creative_lab.video.production import _slug
-    requested_dir = str(args.get("output_dir") or "").strip()
-    output_dir = Path(requested_dir).expanduser() if requested_dir else paths.creative_output_dir("video")
-    if requested_dir and not output_dir.is_absolute():
-        raise ValueError("la cartella finale deve essere un percorso assoluto")
-    output_dir = output_dir.resolve()
-    output_dir.mkdir(parents=True, exist_ok=True)
-    output = output_dir / f"{_slug(prod['title'])}_{pid[-6:]}_restauro.mp4"
-    from core.modules.sigma_creative_lab.video.audio_export import export_multilingual
-    export_target = output.with_name(f"{output.stem}_senza_sigla{output.suffix}") if sigla_assets else output
-    result = await asyncio.to_thread(export_multilingual, tl, prod, self.prods.path(pid), export_target, languages,
-                                     lambda message, fraction: self._note(job, message, 0.90 + 0.06 * fraction))
-    if sigla_assets:
-        from core.modules.sigma_creative_lab.video.audio_export import add_sigla_to_master
-        result = await asyncio.to_thread(
-            add_sigla_to_master, export_target, output, sigla_dir, languages,
-            str(args.get("sigla_cta_language") or "en"),
-            lambda message, fraction: self._note(job, message, 0.96 + 0.04 * fraction))
-        export_target.unlink(missing_ok=True)
-    prod = self.prods.get(pid)
-    prod["output_path"] = str(output)
-    self.prods.save(prod)
-    return {"output_path": str(output), "languages": languages, "stages": stages, **result}
+async def job_restore_translate(self: EditorJobs, job: dict) -> dict:
+    from .restoration_text import translate_job
+    return await translate_job(self, job)
 
 
 #: Archivi di pubblico dominio da cui un agente puo' scaricare: niente URL arbitrari.
@@ -1383,6 +1335,7 @@ HANDLERS = {
     "insert": job_insert, "upscale": job_upscale, "restore_clean": job_restore_clean, "remaster": job_remaster,
     "restore_read": job_restore_read,
     "restore_narrate": job_restore_narrate, "restore_score": job_restore_score, "restore_pipeline": job_restore_pipeline,
+    "restore_translate": job_restore_translate,
     "restore_fetch": job_restore_fetch,
     "dialogue": job_dialogue, "voice_line": job_voice_line, "music_range": job_music_range,
     "export": job_export, "subtitles": job_subtitles, "import": job_import, "title": job_title,

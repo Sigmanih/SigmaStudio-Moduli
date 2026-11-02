@@ -70,6 +70,11 @@ async function api(path, body) {
   return data;
 }
 
+function savedRestorationSettings() {
+  try { return JSON.parse(window.localStorage.getItem('sigmaCreativeRestorationSettings') || '{}'); }
+  catch { return {}; }
+}
+
 function clock(t) {
   const m = Math.floor(t / 60);
   return `${m}:${String(Math.floor(t % 60)).padStart(2, '0')}`;
@@ -84,7 +89,7 @@ function CardRow({ card, index, onSave }) {
     <div className={`cs-ed-card ${card.needs_review ? 'review' : ''}`}
          title={card.seen ? `In scena: ${card.seen}` : undefined}>
       <span className="cs-prod-status">
-        {clock(card.start)} · {card.kind === 'page' ? 'pagina' : 'didascalia'}{card.needs_review ? ' · da rivedere' : ''}
+        {clock(card.start)} · {({ page: 'pagina', speech: 'parlato', narration: 'narrazione' })[card.kind] || 'didascalia'}{card.needs_review ? ' · da rivedere' : ''}
       </span>
       <input className="cs-inline-input" value={speaker} onChange={e => setSpeaker(e.target.value)}
              onBlur={() => speaker !== card.speaker && onSave({ index, speaker })} title="Chi legge" />
@@ -117,30 +122,64 @@ function MoodRow({ mood, index, onSave }) {
 }
 
 export default function RestorationPanel({ pid, item, sourceOrigin, refresh, onJob }) {
-  const [height, setHeight] = useState(1440);
+  const [savedSettings] = useState(savedRestorationSettings);
+  const [height, setHeight] = useState(() => Number(savedSettings.height) || 1440);
   const [language, setLanguage] = useState('en');
-  const [pipelineLanguages, setPipelineLanguages] = useState(LANGUAGES.map(([id]) => id));
-  const [makeMusic, setMakeMusic] = useState(true);
-  const [preserveSourceAudio, setPreserveSourceAudio] = useState(false);
-  const [outputDir, setOutputDir] = useState('');
+  const [pipelineLanguages, setPipelineLanguages] = useState(() => savedSettings.languages || LANGUAGES.map(([id]) => id));
+  const [makeMusic, setMakeMusic] = useState(() => savedSettings.makeMusic ?? true);
+  const [preserveSourceAudio, setPreserveSourceAudio] = useState(() => savedSettings.preserveSourceAudio ?? false);
+  const [outputDir, setOutputDir] = useState(() => savedSettings.outputDir || '');
   const [includeSigla, setIncludeSigla] = useState(() => typeof window !== 'undefined'
-    && window.localStorage.getItem('sigmaCreativeIncludeSigla') === 'true');
+    && (window.localStorage.getItem('sigmaCreativeIncludeSigla') === 'true' || savedSettings.includeSigla === true));
   const [siglaAssetsDir, setSiglaAssetsDir] = useState(() => typeof window !== 'undefined'
-    ? window.localStorage.getItem(`sigmaCreativeSiglaDir:${pid}`) || window.localStorage.getItem('sigmaCreativeSiglaDefaultDir') || '' : '');
+    ? window.localStorage.getItem(`sigmaCreativeSiglaDir:${pid}`) || window.localStorage.getItem('sigmaCreativeSiglaDefaultDir')
+      || savedSettings.siglaAssetsDir || '' : '');
   const [siglaPicker, setSiglaPicker] = useState(false);
   const [pickerTarget, setPickerTarget] = useState('sigla');
   const [siglaFolders, setSiglaFolders] = useState([]);
   const [siglaBrowsePath, setSiglaBrowsePath] = useState('');
   const [siglaHasIntro, setSiglaHasIntro] = useState(false);
-  const [siglaDefault, setSiglaDefault] = useState(() => typeof window !== 'undefined'
-    && Boolean(window.localStorage.getItem('sigmaCreativeSiglaDefaultDir'))
-    && window.localStorage.getItem('sigmaCreativeSiglaDefaultDir') === (window.localStorage.getItem(`sigmaCreativeSiglaDir:${pid}`)
-      || window.localStorage.getItem('sigmaCreativeSiglaDefaultDir')));
-  const [ctaLanguage, setCtaLanguage] = useState('en');
-  const [style, setStyle] = useState('');
+  const [ctaLanguage, setCtaLanguage] = useState(() => savedSettings.ctaLanguage || 'en');
+  const [style, setStyle] = useState(() => savedSettings.style || '');
+  const [contentType, setContentType] = useState('silent');
+  const [sourceLanguage, setSourceLanguage] = useState('auto');
+  const [defaultLanguage, setDefaultLanguage] = useState('en');
+  const [publicationTitle, setPublicationTitle] = useState('');
+  const [publicationYear, setPublicationYear] = useState('');
+  const [sourceCredit, setSourceCredit] = useState('');
+  const [madeForKids, setMadeForKids] = useState(false);
+  const [defaultsReady, setDefaultsReady] = useState(false);
   const [state, setState] = useState(null);
   const [error, setError] = useState('');
   const shot = item.shot_id;
+
+  useEffect(() => {
+    let active = true;
+    api('/api/creative/editor/restoration/defaults').then(({ defaults: d }) => {
+      if (!active || !d) return;
+      setHeight(d.output_height); setPipelineLanguages(d.languages);
+      setMakeMusic(d.make_music); setPreserveSourceAudio(d.preserve_source_audio);
+      setOutputDir(d.output_dir); setIncludeSigla(d.include_sigla);
+      setSiglaAssetsDir(d.sigla_assets_dir); setCtaLanguage(d.sigla_cta_language);
+      setStyle(d.music_style); setContentType(d.content_type);
+      setSourceLanguage(d.source_language); setDefaultLanguage(d.default_language);
+    }).catch(e => { if (active) setError(e.message); })
+      .finally(() => { if (active) setDefaultsReady(true); });
+    return () => { active = false; };
+  }, []);
+
+  useEffect(() => {
+    setPublicationTitle(''); setPublicationYear(''); setSourceCredit(''); setMadeForKids(false);
+  }, [pid, shot]);
+
+  useEffect(() => {
+    if (!defaultsReady) return;
+    window.localStorage.setItem('sigmaCreativeRestorationSettings', JSON.stringify({
+      height, languages: pipelineLanguages, makeMusic, preserveSourceAudio, outputDir,
+      includeSigla, siglaAssetsDir, ctaLanguage, style,
+    }));
+    window.localStorage.setItem('sigmaCreativeIncludeSigla', String(includeSigla));
+  }, [defaultsReady, height, pipelineLanguages, makeMusic, preserveSourceAudio, outputDir, includeSigla, siglaAssetsDir, ctaLanguage, style]);
 
   const load = useCallback(() => {
     api(`/api/creative/editor/restoration?id=${encodeURIComponent(pid)}&shot=${encodeURIComponent(shot)}`)
@@ -174,9 +213,30 @@ export default function RestorationPanel({ pid, item, sourceOrigin, refresh, onJ
 
   const cards = state?.cards || [];
   const voices = Object.entries(state?.voices || {});
+  const startPipeline = () => onJob('restore_pipeline', {
+    item_id: item.id, output_height: height, languages: pipelineLanguages,
+    make_music: makeMusic, preserve_source_audio: preserveSourceAudio,
+    music_style: style.trim(), output_dir: outputDir.trim(), include_sigla: includeSigla,
+    sigla_assets_dir: siglaAssetsDir.trim(), sigla_cta_language: ctaLanguage,
+    content_type: contentType, source_language: sourceLanguage,
+    default_language: pipelineLanguages.includes(defaultLanguage) ? defaultLanguage : pipelineLanguages[0],
+    make_publication: true, output_subfolder: true, publication_title: publicationTitle.trim(),
+    publication_year: publicationYear.trim(), source_credit: sourceCredit.trim(), made_for_kids: madeForKids,
+  });
   return (
     <div className="cs-ed-restore">
       <h4>Restauro</h4>
+      {sourceOrigin === 'import' && <>
+        <p className="cs-hint">Video pronto per YouTube: restauro, {pipelineLanguages.length} lingue, audio e sottotitoli, titoli, descrizioni e miniatura{includeSigla ? ', con intro e outro' : ''}.</p>
+        <button className="cs-tool-btn" disabled={!defaultsReady || !pipelineLanguages.length || (includeSigla && !siglaAssetsDir.trim())}
+                title="Avvia il restauro completo e prepara tutti i materiali per YouTube" onClick={startPipeline}>
+          <Languages size={14} /> Restaura video
+        </button>
+        <p className="cs-hint">{contentType === 'documentary' ? 'Documentario con parlato' : 'Film o documentario muto'} · {height}p · {outputDir || 'Destinazione del modulo'}</p>
+        {includeSigla && !siglaAssetsDir.trim() && <p className="cs-prod-error">Scegli la cartella delle sigle nelle impostazioni o disattiva intro/outro.</p>}
+      </>}
+      <details>
+      <summary>Impostazioni del restauro e dati YouTube</summary>
       {sourceOrigin === 'import' && (
         <div className="cs-ed-actions">
           <select className="cs-inline-input" value={height} onChange={e => setHeight(Number(e.target.value))}
@@ -186,16 +246,28 @@ export default function RestorationPanel({ pid, item, sourceOrigin, refresh, onJ
             <option value={2160}>2160 linee · 2880×2160 (4:3), 4K</option>
           </select>
           <p className="cs-hint">Il rapporto del film resta intatto. Il 4K ingrandisce il raster senza recuperare dettagli assenti nella pellicola; scegli 1080 per un file più leggero.</p>
-          <button className="cs-tool-btn" title="Analisi cadenza, pulizia forense, SeedVR2, RIFE 24 fps, colore coerente e rapporto originale"
-                  onClick={() => onJob('remaster', { item_id: item.id, output_height: height,
-                    preserve_source_audio: preserveSourceAudio })}>
-            <Film size={14} /> Restauro video
-          </button>
         </div>
       )}
       {sourceOrigin === 'import' && (
         <div className="cs-ed-restore-pipeline">
-          <p className="cs-hint">Mantiene sigla, cartelli e chiusura originali. Pipeline guidata: restauro video, testi, musica, voci e master multilingua; nessun taglio automatico.</p>
+          <p className="cs-hint">Un solo lavoro: restauro, traduzioni, audio e sottotitoli multilingua, intro/outro e pacchetto YouTube con miniatura, titoli e descrizioni. Le preferenze vengono riutilizzate per i prossimi video.</p>
+          <label className="cs-ed-inline">Contenuto
+            <select className="cs-inline-input" value={contentType} onChange={e => {
+              setContentType(e.target.value);
+              setPreserveSourceAudio(e.target.value === 'documentary');
+              setMakeMusic(e.target.value === 'silent');
+            }}>
+              <option value="silent">Film o documentario muto</option>
+              <option value="documentary">Documentario con parlato</option>
+            </select>
+          </label>
+          <label className="cs-ed-inline">Lingua originale
+            <select className="cs-inline-input" value={sourceLanguage} onChange={e => setSourceLanguage(e.target.value)}>
+              <option value="auto">{contentType === 'documentary' ? 'Rileva dal parlato' : 'Inglese (didascalie)'}</option>
+              {LANGUAGES.map(([id, label]) => <option key={id} value={id}>{label}</option>)}
+            </select>
+          </label>
+          <p className="cs-hint">Lingue del pacchetto</p>
           <div className="cs-ed-restore-languages">
             {LANGUAGES.map(([id, label]) => (
               <label key={id} className="cs-ed-inline">
@@ -206,6 +278,23 @@ export default function RestorationPanel({ pid, item, sourceOrigin, refresh, onJ
               </label>
             ))}
           </div>
+          <label className="cs-ed-inline">Lingua predefinita YouTube
+            <select className="cs-inline-input" value={pipelineLanguages.includes(defaultLanguage) ? defaultLanguage : pipelineLanguages[0] || ''}
+                    onChange={e => setDefaultLanguage(e.target.value)}>
+              {LANGUAGES.filter(([id]) => pipelineLanguages.includes(id)).map(([id, label]) => <option key={id} value={id}>{label}</option>)}
+            </select>
+          </label>
+          <details>
+            <summary>Dati editoriali del video</summary>
+            <p className="cs-hint">Il titolo del progetto viene usato se lasci il campo vuoto. Anno e fonte vengono inclusi solo se indicati.</p>
+            <input className="cs-inline-input cs-prod-wide" aria-label="Titolo originale del film" placeholder="Titolo originale del film o documentario"
+                   maxLength={100} value={publicationTitle} onChange={e => setPublicationTitle(e.target.value)} />
+            <input className="cs-inline-input" aria-label="Anno del film" placeholder="Anno (facoltativo)" maxLength={4}
+                   value={publicationYear} onChange={e => setPublicationYear(e.target.value)} />
+            <textarea className="cs-textarea" aria-label="Fonte e crediti" placeholder="Fonte e crediti verificati (facoltativi)" maxLength={1500}
+                      value={sourceCredit} onChange={e => setSourceCredit(e.target.value)} />
+            <label className="cs-ed-inline"><input type="checkbox" checked={madeForKids} onChange={e => setMadeForKids(e.target.checked)} /> Contenuto destinato ai bambini</label>
+          </details>
           <label className="cs-ed-inline">
             <input type="checkbox" checked={makeMusic} onChange={e => setMakeMusic(e.target.checked)} />
             Crea una colonna sonora originale a tema, adattata alle scene
@@ -213,9 +302,9 @@ export default function RestorationPanel({ pid, item, sourceOrigin, refresh, onJ
           <input className="cs-inline-input cs-prod-wide" value={style} onChange={e => setStyle(e.target.value)}
                  placeholder="Tema musicale facoltativo (es. sinfonico, jazz d'epoca, gotico, senza canto)" />
           <label className="cs-ed-inline">
-            <input type="checkbox" checked={preserveSourceAudio}
+            <input type="checkbox" checked={preserveSourceAudio} disabled={contentType === 'documentary'}
                    onChange={e => setPreserveSourceAudio(e.target.checked)} />
-            Mantieni l'audio originale sotto musica e voci
+            {contentType === 'documentary' ? 'Conserva il parlato originale nella sua lingua; doppiaggi sulle altre tracce' : "Mantieni l'audio originale sotto musica e voci"}
           </label>
           <div className="cs-ed-actions">
             <span className="cs-inline-input cs-prod-wide" title={outputDir}>{outputDir || 'Cartella del file finale (predefinita del modulo)'}</span>
@@ -237,15 +326,7 @@ export default function RestorationPanel({ pid, item, sourceOrigin, refresh, onJ
                 <FolderOpen size={14} /> Scegli cartella
               </button>
             </div>
-            <label className="cs-ed-inline">
-              <input type="checkbox" checked={siglaDefault} onChange={e => {
-                const enabled = e.target.checked;
-                setSiglaDefault(enabled);
-                if (enabled && siglaAssetsDir) window.localStorage.setItem('sigmaCreativeSiglaDefaultDir', siglaAssetsDir);
-                else window.localStorage.removeItem('sigmaCreativeSiglaDefaultDir');
-              }} />
-              Usa questa cartella come sigla predefinita per i prossimi film
-            </label>
+          </>}
             {siglaPicker && <div className="cs-ed-popover">
               <div className="cs-ed-actions">
                 <button className="cs-ed-mini" disabled={!siglaBrowsePath} title="Cartella precedente"
@@ -258,7 +339,7 @@ export default function RestorationPanel({ pid, item, sourceOrigin, refresh, onJ
                   if (pickerTarget === 'sigla') {
                     setSiglaAssetsDir(siglaBrowsePath);
                     window.localStorage.setItem(`sigmaCreativeSiglaDir:${pid}`, siglaBrowsePath);
-                    if (siglaDefault) window.localStorage.setItem('sigmaCreativeSiglaDefaultDir', siglaBrowsePath);
+                    window.localStorage.setItem('sigmaCreativeSiglaDefaultDir', siglaBrowsePath);
                   } else setOutputDir(siglaBrowsePath);
                   setSiglaPicker(false);
                 }}>{pickerTarget === 'sigla' ? `Seleziona cartella sigla${siglaHasIntro ? ' · intro e outro trovati' : ' · intro/outro mancanti'}` : 'Seleziona cartella di destinazione'}</button>}
@@ -268,6 +349,7 @@ export default function RestorationPanel({ pid, item, sourceOrigin, refresh, onJ
                 </button>))}</div>
               <button className="cs-tool-btn" onClick={() => setSiglaPicker(false)}>Chiudi</button>
             </div>}
+          {includeSigla && <>
             <div className="cs-ed-actions">
               <select className="cs-inline-input" value={ctaLanguage} onChange={e => setCtaLanguage(e.target.value)}
                       aria-label="Lingua dell'invito a iscriversi">
@@ -276,17 +358,16 @@ export default function RestorationPanel({ pid, item, sourceOrigin, refresh, onJ
             </div>
             <p className="cs-hint">Conserva animazione, countdown e voce originale; aggiunge una maschera neon al logo e una call to action animata. La cartella deve avere le voci per ogni lingua selezionata.</p>
           </>}
-          <button className="cs-tool-btn" disabled={!pipelineLanguages.length || (includeSigla && !siglaAssetsDir.trim())}
-                  title="Avvia tutti i passaggi e crea un MP4 con tracce audio e sottotitoli selezionabili"
-                  onClick={() => onJob('restore_pipeline', { item_id: item.id, output_height: height,
-                    languages: pipelineLanguages, make_music: makeMusic, preserve_source_audio: preserveSourceAudio,
-                    music_style: style.trim() || undefined, output_dir: outputDir.trim() || undefined,
-                    include_sigla: includeSigla, sigla_assets_dir: includeSigla ? siglaAssetsDir.trim() : undefined,
-                    sigla_cta_language: ctaLanguage })}>
-            <Languages size={14} /> Avvia pipeline completa
-          </button>
+          <p className="cs-hint">Il video finale e la cartella YouTube saranno salvati in una sottocartella dedicata. La pubblicazione sul canale resta un passaggio esplicito.</p>
         </div>
       )}
+      </details>
+      <details>
+      <summary>Interventi singoli e correzioni</summary>
+      {sourceOrigin === 'import' && <button className="cs-tool-btn"
+        onClick={() => onJob('remaster', { item_id: item.id, output_height: height, preserve_source_audio: preserveSourceAudio })}>
+        <Film size={14} /> Solo restauro visivo
+      </button>}
       <div className="cs-ed-actions">
         <button className="cs-tool-btn" title="Polvere, sfarfallio e tremolio del proiettore: da fare sul bianco e nero, prima del colore"
                 onClick={() => onJob('restore_clean', { item_id: item.id })}>
@@ -338,6 +419,7 @@ export default function RestorationPanel({ pid, item, sourceOrigin, refresh, onJ
         </>
       )}
       <ProtectSection color={state?.color} onSave={saveProtect} />
+      </details>
       {error && <p className="cs-prod-error">{error}</p>}
       {cards.length > 0 && (
         <>

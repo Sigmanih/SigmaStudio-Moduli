@@ -563,6 +563,11 @@ def video_remaster(prod_id: str, item_id: str = "", gpu: int = 0) -> dict:
     return _job_su_elemento("video_remaster", prod_id, item_id, "remaster", {"gpu": int(gpu)})
 
 
+def video_restore_pipeline(prod_id: str, item_id: str = "", options: dict | None = None) -> dict:
+    """Prepara restauro, traduzioni e pacchetto YouTube usando il preset del canale."""
+    return _job_su_elemento('video_restore_pipeline', prod_id, item_id, 'restore_pipeline', options or {})
+
+
 def video_recolor(prod_id: str, item_id: str = "") -> dict:
     """Ricolora un elemento in bianco e nero (DDColor, colori stabili nel tempo, didascalie lasciate in b/n)."""
     return _job_su_elemento("video_recolor", prod_id, item_id, "recolor", {})
@@ -1362,6 +1367,7 @@ ESECUTORI: Dict[str, Callable] = {
     "video_restore_fetch": video_restore_fetch,
     "video_restore_clean": video_restore_clean,
     "video_remaster": video_remaster,
+    "video_restore_pipeline": video_restore_pipeline,
     "video_recolor": video_recolor,
     "video_upscale": video_upscale,
     "video_restore_read": video_restore_read,
@@ -1383,6 +1389,7 @@ READ_TOOLS = frozenset({
 })
 
 WRITE_TOOLS = frozenset({
+    "video_restore_pipeline",
     "video_char_create", "video_char_update", "video_char_candidates", "video_char_pick",
     "video_prod_create", "video_prod_plan_storyboard", "video_prod_add_shot",
     "video_prod_update_shot", "video_render_shot", "video_judge_clip",
