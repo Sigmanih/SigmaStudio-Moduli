@@ -81,11 +81,11 @@ async def generate_soundtrack(prod: dict, work_dir: Path, backend, progress=None
     """Genera i brani delle scene e li unisce con dissolvenze incrociate in un WAV."""
     from core.modules.sigma_creative_lab.video.production import ffmpeg_bin, _run
     from core.modules.sigma_creative_lab.video.score_quality import inspect_audio
-    from core.modules.sigma_creative_lab.video.score_plan import SCORE_REVISION, ARRANGEMENTS
+    from core.modules.sigma_creative_lab.video.score_plan import SCORE_REVISION, ARRANGEMENTS, production_seed
     cfg = {**DEFAULT_SOUNDTRACK, **(prod.get("soundtrack") or {})}
     bible = prod.get("bible") or {}
     base_tags = cfg["tags"] or bible.get("audio_style") or "cinematic orchestral score"
-    seed0 = int(prod["settings"].get("seed", 1000))
+    seed0 = production_seed(prod["id"], int(prod["settings"].get("seed", 1000)))
     work_dir.mkdir(parents=True, exist_ok=True)
     parts: list[Path] = []
     segments = scene_segments(prod, int(prod["settings"].get("fps", 24)))

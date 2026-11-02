@@ -1,5 +1,6 @@
 """Frasi e orchestrazioni distinte, mantenendo l'atmosfera della scena."""
 
+import hashlib
 import math
 
 SCORE_REVISION = 3
@@ -14,6 +15,13 @@ ARRANGEMENTS = (
     "flute and oboe exchanges over warm strings, contrasting melodic sections",
     "chamber orchestra with piano flourishes and lyrical winds, varied melodic development",
 )
+
+
+def production_seed(production_id: str, seed: int) -> int:
+    # Anche due film con lo stesso stile predefinito devono avere musica propria;
+    # l'identificativo mantiene pero' riproducibile la ripresa dello stesso film.
+    digest = hashlib.sha256(f"{production_id}|{int(seed)}".encode()).digest()
+    return int.from_bytes(digest[:4], "big") & 0x7fffffff
 
 
 def plan_cues(moods: list[dict]) -> list[dict]:

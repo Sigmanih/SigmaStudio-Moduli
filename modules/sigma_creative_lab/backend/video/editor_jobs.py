@@ -614,6 +614,7 @@ async def job_restore_narrate(self: EditorJobs, job: dict) -> dict:
 async def job_restore_score(self: EditorJobs, job: dict) -> dict:
     """Colonna sonora a sequenze (atmosfera dal modello visivo, brani ACE-Step) sulla traccia musica."""
     from core.modules.sigma_creative_lab.video import restoration as R
+    from core.modules.sigma_creative_lab.video.score_plan import production_seed
     from core.modules.sigma_creative_lab.video.manga import GpuPerLaVista
     pid, a = job["production"], job["args"]
     item, shot, _take, src = _item_source(self, pid, a["item_id"])
@@ -635,6 +636,7 @@ async def job_restore_score(self: EditorJobs, job: dict) -> dict:
     state.update(analysis=analysis, moods=moods)
     R.save_state(pdir, shot["id"], state)
     cues = await R.compose(moods, pdir / "restoration" / shot["id"] / "music", 0, str(a.get("style") or ""),
+                           seed=production_seed(pid, int(a.get("seed", 1922))),
                            progress=lambda m, p: self._note(job, m, 0.4 + 0.55 * p),
                            cancel_event=job.get("cancel_event"))
     lay = next(it for it in T.layout(self.timelines.get(pid), self.prods.get(pid))["items"] if it["id"] == item["id"])
