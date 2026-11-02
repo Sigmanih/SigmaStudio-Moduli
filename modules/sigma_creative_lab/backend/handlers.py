@@ -23,7 +23,7 @@ def register_routes(app=None) -> None:
         handle_creative_downloads, handle_creative_download_start, handle_creative_download_cancel,
         handle_creative_model_search, handle_creative_model_categories,
         handle_creative_model_inventory, handle_creative_workflows,
-        handle_creative_workflow_save, handle_creative_workflow_delete, handle_creative_profile_save, handle_creative_skills, handle_creative_profile_components,
+        handle_creative_workflow_save, handle_creative_workflow_delete, handle_creative_profile_save, handle_creative_skills, handle_creative_profile_components, handle_creative_engine_start,
     )
 
     get_routes = {
@@ -48,6 +48,7 @@ def register_routes(app=None) -> None:
     }
 
     post_routes = {
+        '/api/creative/engine/start': handle_creative_engine_start,
         '/api/creative/generate': handle_creative_generate,
         '/api/creative/assets/create': handle_creative_asset_create,
         '/api/creative/assets/update': handle_creative_asset_update,

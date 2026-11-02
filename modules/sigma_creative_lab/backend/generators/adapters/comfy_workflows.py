@@ -138,6 +138,25 @@ def _flux_txt2img(p: dict) -> dict:
     }
 
 
+def _flux2_txt2img(p: dict) -> dict:
+    # FLUX.2 richiede latenti e scheduler propri, non il grafo di FLUX.1.
+    return {
+        '1': {'class_type': 'UNETLoader', 'inputs': {'unet_name': p['ckpt'], 'weight_dtype': 'default'}},
+        '2': {'class_type': 'CLIPLoader', 'inputs': {'clip_name': p.get('text_encoder', 'qwen_3_4b.safetensors'), 'type': 'flux2', 'device': 'default'}},
+        '3': {'class_type': 'VAELoader', 'inputs': {'vae_name': p.get('vae', 'flux2-vae.safetensors')}},
+        '4': {'class_type': 'CLIPTextEncode', 'inputs': {'clip': ['2', 0], 'text': p.get('prompt', '')}},
+        '5': {'class_type': 'CLIPTextEncode', 'inputs': {'clip': ['2', 0], 'text': p.get('negative_prompt', '')}},
+        '6': {'class_type': 'EmptyFlux2LatentImage', 'inputs': {'width': p.get('width', 1024), 'height': p.get('height', 1024), 'batch_size': p.get('batch_size', 1)}},
+        '7': {'class_type': 'RandomNoise', 'inputs': {'noise_seed': _seed(p)}},
+        '8': {'class_type': 'KSamplerSelect', 'inputs': {'sampler_name': _sampler(p)}},
+        '9': {'class_type': 'Flux2Scheduler', 'inputs': {'steps': p.get('steps', 4), 'width': p.get('width', 1024), 'height': p.get('height', 1024)}},
+        '10': {'class_type': 'CFGGuider', 'inputs': {'model': ['1', 0], 'positive': ['4', 0], 'negative': ['5', 0], 'cfg': p.get('cfg_scale', 1)}},
+        '11': {'class_type': 'SamplerCustomAdvanced', 'inputs': {'noise': ['7', 0], 'guider': ['10', 0], 'sampler': ['8', 0], 'sigmas': ['9', 0], 'latent_image': ['6', 0]}},
+        '12': {'class_type': 'VAEDecode', 'inputs': {'samples': ['11', 0], 'vae': ['3', 0]}},
+        '13': {'class_type': 'SaveImage', 'inputs': {'images': ['12', 0], 'filename_prefix': 'sigma_flux2'}},
+    }
+
+
 def _esrgan_upscale(p: dict) -> dict:
     return {
         "1": {"class_type": "LoadImage", "inputs": {"image": p["input_image"]}},
@@ -148,6 +167,7 @@ def _esrgan_upscale(p: dict) -> dict:
 
 
 BUILTIN = {
+    "flux2_txt2img": _flux2_txt2img,
     "sdxl_txt2img": _sdxl_txt2img,
     "sdxl_img2img": _sdxl_img2img,
     "sdxl_inpaint": _sdxl_inpaint,

@@ -6,6 +6,7 @@ import ModelInventory from './ModelInventory';
 import WorkflowPanel from './WorkflowPanel';
 import ModelProfiles from './ModelProfiles';
 import CreativeSkills from './CreativeSkills';
+import CreativeEngineButton from '../shared/CreativeEngineButton';
 
 const TASK_LABELS = {
   text_to_image: 'Text→Image', img_to_img: 'Image→Image', inpaint: 'Inpaint', outpaint: 'Outpaint',
@@ -15,17 +16,6 @@ const TASK_LABELS = {
   image_to_3d: 'Image→3D', multiview_to_3d: 'Multi-view→3D', texture_3d: 'Texture 3D',
   texture_pbr: 'PBR', text_to_video: 'Text→Video', image_to_video: 'Image→Video',
 };
-
-const GROUPS = [
-  { id: 'image', label: 'Generazione immagini', tasks: ['text_to_image', 'img_to_img'] },
-  { id: 'edit', label: 'Editing', tasks: ['instruct_edit', 'inpaint', 'outpaint'] },
-  { id: 'upscale', label: 'Upscaling', tasks: ['upscale', 'restore'] },
-  { id: 'vision', label: 'Vision', tasks: ['vision_describe', 'vision_qa', 'quality_score', 'ocr'] },
-  { id: 'segment', label: 'Segmentazione', tasks: ['segment', 'remove_background'] },
-  { id: '3d', label: '3D', tasks: ['image_to_3d', 'multiview_to_3d', 'texture_3d'] },
-  { id: 'materials', label: 'Materiali', tasks: ['texture_pbr'] },
-  { id: 'video', label: 'Video', tasks: ['text_to_video', 'image_to_video'] },
-];
 
 function Meter({ value, icon: Icon, title }) {
   return (
@@ -37,18 +27,23 @@ function Meter({ value, icon: Icon, title }) {
 }
 
 export default function ModelsPanel({ models = [], inventory = null, meta = null, loading = false, error = '', onRefresh, onUseModel, onOpenPipeline, onOpenSkill }) {
-  const [onlyAvailable, setOnlyAvailable] = useState(true);
+  const [showCatalog, setShowCatalog] = useState(false);
+  const [query, setQuery] = useState('');
+  const [tag, setTag] = useState('');
   const [enabling, setEnabling] = useState(false);
   const [section, setSection] = useState('catalog');
   const [actionError, setActionError] = useState('');
 
-  const grouped = useMemo(() => GROUPS.map(g => ({
-    ...g,
-    models: models
-      .filter(m => m.tasks?.some(t => g.tasks.includes(t)))
-      .filter(m => !onlyAvailable || m.available)
-      .sort((a, b) => (b.available - a.available) || (b.quality - a.quality)),
-  })).filter(g => g.models.length), [models, onlyAvailable]);
+  const matches = item => (!tag || (item.tags || []).includes(tag)) &&
+    [item.label, item.filename, ...(item.tags || [])].filter(Boolean).join(' ').toLowerCase().includes(query.toLowerCase());
+  const grouped = useMemo(() => [{ id: 'models', label: showCatalog ? 'Catalogo modelli' : 'I tuoi modelli', models: models
+    .filter(m => (showCatalog || m.installed || (m.available && m.available_via?.some(backend => backend !== 'comfyui'))) && (!tag || (m.tags || []).includes(tag)))
+    .filter(m => [m.label, m.filename, ...(m.tags || [])].filter(Boolean).join(' ').toLowerCase().includes(query.toLowerCase()))
+    .sort((a, b) => Number(Boolean(b.installed)) - Number(Boolean(a.installed)) || Number(b.available) - Number(a.available)),
+  }].filter(g => g.models.length), [models, showCatalog, query, tag]);
+  const components = (meta?.installed_files || []).filter(item => !item.workflow && matches(item));
+  const availableTags = new Set([...models.filter(m => showCatalog || m.installed || m.available), ...(meta?.installed_files || [])].flatMap(m => m.tags || []));
+  const tags = ['Immagini', 'Ritocco', 'Video', 'Musica', '3D', 'Materiali', 'Ingrandimento', 'Scontorno', 'Analisi', 'Testi', 'Componente'].filter(t => availableTags.has(t));
 
   /** ComfyUI è in esecuzione ma spento in config: un click lo collega. */
   const enableComfy = () => {
@@ -79,8 +74,8 @@ export default function ModelsPanel({ models = [], inventory = null, meta = null
           <span><HardDrive size={13} /> {data.vram_free_gb ? `${data.vram_free_gb} GB VRAM` : 'VRAM n/d'}</span>
           <span>{(data.available_backends || []).join(' · ') || 'nessun backend'}</span>
           <label className="cs-check">
-            <input type="checkbox" checked={onlyAvailable} onChange={e => setOnlyAvailable(e.target.checked)} />
-            solo disponibili
+            <input type="checkbox" checked={showCatalog} onChange={e => setShowCatalog(e.target.checked)} />
+            Mostra anche modelli da installare
           </label>
           <button className="cs-copy-btn" onClick={() => onRefresh?.()}>Aggiorna</button>
         </div>
@@ -92,8 +87,10 @@ export default function ModelsPanel({ models = [], inventory = null, meta = null
       {section === 'profiles' && <CreativeSkills onOpen={onOpenSkill} />}
       {(error || actionError) && <p className="cs-form-notice" role="alert">{error || actionError}</p>}
       {section === 'catalog' && loading && <p role="status">Aggiornamento dei modelli…</p>}
-      {section === 'catalog' && !loading && !grouped.length && <p className="cs-hint">Nessun modello disponibile per questo filtro. Disattiva «solo disponibili» oppure apri Installa modelli.</p>}
+      {section === 'catalog' && <div className="cs-model-filters"><label className="cs-field"><span>Cerca tra modelli e componenti</span><input type="search" value={query} onChange={e => setQuery(e.target.value)} placeholder="Nome, utilizzo o formato…" /></label><div className="cs-usage-filter" aria-label="Filtra per utilizzo"><button type="button" className="cs-choice" aria-pressed={!tag} onClick={() => setTag('')}>Tutti</button>{tags.map(t => <button type="button" className="cs-choice" aria-pressed={tag === t} key={t} onClick={() => setTag(t)}>{t}</button>)}</div></div>}
+      {section === 'catalog' && !loading && !grouped.length && !components.length && <p className="cs-hint">Nessun modello corrisponde al filtro. Puoi aggiungerne uno da Hugging Face o Civitai.</p>}
       {section === 'install' && <><ModelDownloads onInstalled={onRefresh} /><ModelBrowser onInstalled={onRefresh} /></>}
+      {!inventory?.enabled && <div className="cs-engine-notice"><p>Il motore locale è spento o non collegato. I modelli installati restano pronti sul disco.</p><CreativeEngineButton onReady={onRefresh} /></div>}
 
       {inventory?.reachable && !inventory.enabled && (
         <div className="cs-banner ok">
@@ -127,8 +124,7 @@ export default function ModelsPanel({ models = [], inventory = null, meta = null
                 </header>
 
                 <div className="cs-model-meters">
-                  <Meter value={m.quality} icon={Star} title="Qualità" />
-                  <Meter value={m.speed} icon={Zap} title="Velocità" />
+                  {!m.installed && <><Meter value={m.quality} icon={Star} title="Qualità" /><Meter value={m.speed} icon={Zap} title="Velocità" /></>}
                   {m.vram_gb > 0 && (
                     <span className={`cs-vram ${m.fits_vram ? '' : 'over'}`} title="VRAM consigliata">
                       <HardDrive size={11} /> {m.vram_gb} GB
@@ -137,8 +133,9 @@ export default function ModelsPanel({ models = [], inventory = null, meta = null
                 </div>
 
                 <div className="cs-model-tasks">
-                  {m.tasks.map(t => <span key={t}>{TASK_LABELS[t] || t}</span>)}
+                  {(m.tags?.length ? m.tags : m.tasks.map(t => TASK_LABELS[t] || t)).map(t => <span key={t}>{t}</span>)}
                 </div>
+                {m.installed && <p className="cs-model-status">{m.available ? 'Pronto per creare' : m.setup_message || 'Controllo del motore necessario'}</p>}
 
                 {m.strengths.length > 0 && (
                   <p className="cs-model-strengths">{m.strengths.map(s => s.replace(/_/g, ' ')).join(' · ')}</p>
@@ -146,9 +143,9 @@ export default function ModelsPanel({ models = [], inventory = null, meta = null
                 {m.notes && <p className="cs-model-notes">{m.notes}</p>}
 
                 <footer>
-                  {m.tasks.includes('text_to_image') && onUseModel && <button className="cs-secondary-button" onClick={() => onUseModel(m)}>Usa in 2D Generator</button>}
+                  {m.tasks.includes('text_to_image') && onUseModel && (m.installed || m.available ? <button className="cs-secondary-button" onClick={() => onUseModel(m)}>Usa in 2D Generator</button> : <button className="cs-secondary-button" onClick={() => setSection('install')}>Trova e installa</button>)}
                   <span>{m.available_via.length ? `via ${m.available_via.join(', ')}` : `richiede ${m.backends.join(' o ')}`}</span>
-                  {m.workflow && (
+                  {m.workflow && !m.installed && m.family === 'custom' && (
                     <button
                       className="cs-copy-btn"
                       title="Copia il nome del file workflow da creare"
@@ -163,6 +160,7 @@ export default function ModelsPanel({ models = [], inventory = null, meta = null
           </div>
         </section>
       ))}
+      {section === 'catalog' && components.length > 0 && <details className="cs-model-components" open={query || tag ? true : undefined}><summary>Componenti e modelli con workflow dedicato · {components.length}</summary><div className="cs-model-grid">{components.map(item => <article key={item.id} className="cs-model-card"><header><span className="cs-model-name">{item.label}</span><CheckCircle2 size={14} className="ok" /></header><div className="cs-usage-tags">{item.tags.map(t => <span key={t}>{t}</span>)}</div><p className="cs-model-notes">{item.issues?.join(' · ') || 'Installato. Viene utilizzato dai workflow che richiedono questo componente.'}</p>{item.issues?.length > 0 && <button className="cs-secondary-button" onClick={() => setSection('profiles')}>Associa workflow</button>}</article>)}</div></details>}
     </div>
   );
 }

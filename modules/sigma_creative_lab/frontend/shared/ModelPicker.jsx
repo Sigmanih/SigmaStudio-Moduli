@@ -17,7 +17,9 @@ export default function ModelPicker({
   disabled = false,
   showCheckpoint = true,
 }) {
-  const candidates = models.filter(m => m.tasks?.includes(task));
+  const localFamilies = new Set(models.filter(m => m.installed).map(m => m.family));
+  const candidates = models.filter(m => m.tasks?.includes(task) && (m.installed || m.id === value.model_id ||
+    (m.available && (!localFamilies.has(m.family) || m.available_via?.some(backend => backend !== 'comfyui')))));
   const selected = candidates.find(m => m.id === value.model_id);
 
   const checkpointOptions = [
@@ -32,7 +34,7 @@ export default function ModelPicker({
         {candidates.map(m => (
           <option key={m.id} value={m.id}>
             {m.label}
-            {m.available ? '' : ' · da configurare'}
+            {m.available ? '' : m.configured ? ' · motore spento' : ' · componenti mancanti'}
           </option>
         ))}
       </select>
@@ -50,11 +52,12 @@ export default function ModelPicker({
       {selected && !selected.available && !value.ckpt && (
         <p className="cs-hint cs-form-notice">
           <AlertTriangle size={12} />
-          {selected.workflow_missing
+          {selected.setup_message || (selected.workflow_missing
             ? `Serve il workflow ComfyUI ${selected.workflow}.json in works/creative/workflows/`
-            : `Richiede uno di questi backend: ${selected.backends.join(', ')}`}
+            : `Richiede uno di questi backend: ${selected.backends.join(', ')}`)}
         </p>
       )}
+      {selected?.tags?.length > 0 && <div className="cs-usage-tags" aria-label="Utilizzi del modello">{selected.tags.map(tag => <span key={tag}>{tag}</span>)}</div>}
 
       {showCheckpoint && selected && checkpointOptions.length > 0 && (
         <>

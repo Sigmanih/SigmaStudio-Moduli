@@ -1,7 +1,7 @@
 {
   "id": "sigma_creative_lab",
   "name": "Creative Lab 3D/2D",
-  "version": "v1.2.0",
+  "version": "v1.3.0",
   "category": "Multimodale & Grafica",
   "tabType": "creative_studio",
   "workDomain": "creative",
@@ -42,6 +42,11 @@
   ],
   "changelog": [
     {
+      "version": "v1.3.0",
+      "date": "2026-11-02",
+      "notes": "Riconosci automaticamente i pesi compatibili, assegna tag d'uso e ricette, ripristina il catalogo download e monta sigle brevi senza ricodificare il film H.264 compatibile."
+    },
+    {
       "version": "v1.2.0",
       "date": "2026-11-02",
       "notes": "Riorganizza Creative in tre aree, aggiungi profili modello e skill operative, valida i workflow e conserva le scelte del generatore."
@@ -67,7 +72,7 @@
     "install_to": "sigma_studio/src/modules/sigma_creative_lab/"
   },
   "kernel_modules_required": [],
-  "min_kernel_version": "0.9.2",
+  "min_kernel_version": "0.9.3",
   "kernel_api": 1,
   "required_kernel_features": [
     "persistent_jobs",

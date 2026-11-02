@@ -7,6 +7,7 @@ const KIND_LABEL = {
   checkpoint: 'Checkpoint', diffusion: 'Diffusion model', text_encoder: 'Text encoder',
   vae: 'VAE', upscaler: 'Upscaler', lora: 'LoRA',
 };
+const USE_TAG = { checkpoint: 'Immagini', diffusion: 'Generazione', text_encoder: 'Encoder testo', vae: 'Decoder', upscaler: 'Ingrandimento', lora: 'Adattatore' };
 
 const fmtGB = (bytes) => `${(bytes / 1024 ** 3).toFixed(1)} GB`;
 const fmtSpeed = (bps) => (bps > 1024 ** 2 ? `${(bps / 1024 ** 2).toFixed(1)} MB/s` : `${(bps / 1024).toFixed(0)} kB/s`);
@@ -17,6 +18,7 @@ export default function ModelDownloads({ onInstalled }) {
   const [error, setError] = useState(null);
   const timer = useRef(null);
   const wasDownloading = useRef(false);
+  const installedSnapshot = useRef(null);
 
   const load = useCallback(() => (
     fetch('/api/creative/downloads')
@@ -24,10 +26,13 @@ export default function ModelDownloads({ onInstalled }) {
       .then(d => {
         if (!d.success) return setError(d.error);
         setData(d);
+        setError(null);
         const active = (d.jobs || []).some(j => ['queued', 'downloading'].includes(j.status));
         // Al passaggio da "scaricando" a "fermo" il registro va riletto:
         // i modelli appena scesi diventano selezionabili.
-        if (wasDownloading.current && !active) onInstalled?.();
+        const installed = JSON.stringify((d.catalog || []).filter(item => item.installed).map(item => item.id));
+        if ((wasDownloading.current && !active) || installedSnapshot.current !== installed) onInstalled?.();
+        installedSnapshot.current = installed;
         wasDownloading.current = active;
       })
       .catch(e => setError(e.message))
@@ -61,7 +66,7 @@ export default function ModelDownloads({ onInstalled }) {
   const failed = (data.jobs || []).filter(j => j.status === 'error').slice(0, 3);
 
   return (
-    <div className="cs-downloads">
+    <section className="cs-downloads" data-agent-component="ModelDownloads" data-agent-id="creative-download-catalog">
       <div className="cs-downloads-head">
         <div>
           <h3 className="cs-mesh-title"><Download size={18} /> Scarica modelli</h3>
@@ -72,6 +77,7 @@ export default function ModelDownloads({ onInstalled }) {
         </div>
         <span className="cs-hint"><HardDrive size={12} /> {data.disk_free_gb} GB liberi</span>
       </div>
+      <p className="cs-hint">Scarica e scegli il modello nel 2D Generator: le architetture riconosciute vengono preparate automaticamente. Encoder e VAE richiesti vengono scaricati insieme.</p>
 
       {error && <div className="cs-banner warn"><AlertTriangle size={16} /><span>{error}</span></div>}
       {failed.map(j => (
@@ -81,7 +87,7 @@ export default function ModelDownloads({ onInstalled }) {
       ))}
 
       <div className="cs-download-list">
-        {data.catalog.map(item => {
+        {(data.catalog || []).map(item => {
           const job = jobByAsset[item.id];
           const blocked = !data.models_root;
           return (
@@ -90,6 +96,7 @@ export default function ModelDownloads({ onInstalled }) {
                 <div className="cs-download-title">
                   <span>{item.label}</span>
                   <span className="cs-download-kind">{KIND_LABEL[item.kind] || item.kind}</span>
+                  <span className="cs-download-kind usage">{USE_TAG[item.kind] || 'Componente'}</span>
                   {item.requires_token && (
                     <span className="cs-download-kind gated" title="Repository gated: serve un token Hugging Face">
                       <Lock size={10} /> gated
@@ -105,7 +112,7 @@ export default function ModelDownloads({ onInstalled }) {
 
               <div className="cs-download-action">
                 {item.installed ? (
-                  <span className="cs-download-done"><CheckCircle2 size={14} /> installato</span>
+                    <span className="cs-download-done"><CheckCircle2 size={14} /> Installato</span>
                 ) : job ? (
                   <div className="cs-download-progress">
                     <div className="cs-progress-bar">
@@ -140,6 +147,6 @@ export default function ModelDownloads({ onInstalled }) {
         <p className="cs-hint"><Loader size={12} className="cs-spin" /> I download proseguono anche
           cambiando scheda; il registro si aggiorna da solo al termine.</p>
       )}
-    </div>
+    </section>
   );
 }

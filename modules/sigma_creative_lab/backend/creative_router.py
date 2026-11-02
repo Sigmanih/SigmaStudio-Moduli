@@ -175,6 +175,7 @@ def handle_creative_backends_status(self):
             "capabilities": capabilities,
             "vram_free_gb": free_vram_gb(),
             "vram_total_gb": available_vram_gb(),
+            "vram_total_gb": available_vram_gb(),
             "blender": {"available": blender_bridge.available, "path": blender_bridge.blender_path},
         })
     except Exception as e:
@@ -628,13 +629,19 @@ def handle_creative_agents_list(self):
 def handle_creative_models(self):
     """GET /api/creative/models — registro modelli annotato con la disponibilità."""
     try:
+        from core.modules.sigma_creative_lab.model_setup import scan_models
+        from core.modules.sigma_creative_lab.model_registry import set_local_models
+        files = scan_models(_models_root())
+        if set_local_models(files):
+            model_router.invalidate_status()
         available = asyncio.run(model_router.available_backend_names())
         ollama_models = asyncio.run(model_router.ollama_models())
         self.send_json_response({
             "success": True,
             "models": model_catalog(available, ollama_models),
+            "installed_files": files,
             "available_backends": sorted(available),
-            "vram_free_gb": available_vram_gb(),
+            "vram_free_gb": free_vram_gb(),
             "workflows": ComfyUIAdapter.workflow_status(),
         })
     except Exception as e:
@@ -645,6 +652,41 @@ def handle_creative_models(self):
 def handle_creative_skills(self):
     from core.modules.sigma_creative_lab.creative_skills import skill_catalog
     self.send_json_response({"success": True, "skills": skill_catalog(True)})
+
+
+def handle_creative_engine_start(self):
+    """Avvia il motore installato e lo collega solo dopo una risposta ComfyUI valida."""
+    async def prepare():
+        from core.integrations import app_manager
+        url = await model_router.probe_backend('comfyui')
+        if not url:
+            result = await asyncio.to_thread(app_manager.launch, 'comfyui')
+            if not result.get('success'):
+                raise ValueError(result.get('error') or 'ComfyUI non installato')
+            deadline = asyncio.get_running_loop().time() + 50
+            while asyncio.get_running_loop().time() < deadline:
+                await asyncio.sleep(2)
+                url = await model_router.probe_backend('comfyui')
+                if url:
+                    break
+        if not url:
+            raise ValueError('ComfyUI sta ancora avviandosi. Attendi e premi di nuovo Avvia motore.')
+        backends = {**model_router.get_config().get('backends', {})}
+        backends['comfyui'] = {**backends.get('comfyui', {}), 'enabled': True, 'url': url}
+        from core.store import JsonStore
+        from core import paths
+        def remember(config):
+            config.setdefault('creative', {}).setdefault('backends', {}).setdefault('comfyui', {}).update(
+                {'enabled': True, 'url': url})
+            return config
+        JsonStore(paths.config_file(), default={}).update(remember)
+        model_router.update_config({'backends': backends})
+        await model_router.refresh_comfy_inventory()
+        return url
+    try:
+        self.send_json_response({'success': True, 'url': asyncio.run(prepare())})
+    except Exception as exc:
+        _fail(self, exc, 'avvio motore Creative')
 
 
 def handle_creative_discover(self):

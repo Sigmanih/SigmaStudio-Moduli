@@ -245,6 +245,14 @@ class ModelRouter:
         else:
             set_comfy_inventory(None)
 
+        # Anche gli agenti senza pagina aperta devono vedere i pesi appena scaricati.
+        from core.modules.sigma_creative_lab.model_downloader import discover_models_root
+        from core.modules.sigma_creative_lab.model_setup import scan_models
+        from core.modules.sigma_creative_lab.model_registry import set_local_models
+        cfg = self.backends.get('comfyui', {})
+        root = discover_models_root(comfy_url=cfg.get('url', ''), configured=cfg.get('models_dir', ''))
+        set_local_models(scan_models(root))
+
         self._names_cache = names
         self._names_at = time.monotonic()
         self._names_fp = fingerprint
@@ -344,6 +352,7 @@ class ModelRouter:
         if not model:
             return params
         params = dict(params)
+        params = {**model.parameters, **params}
         params.setdefault("model_id", model.id)
         if model.workflow:
             params.setdefault("workflow", model.workflow)

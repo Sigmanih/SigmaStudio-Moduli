@@ -8,12 +8,13 @@ export function imageModels(models = []) {
 }
 
 export function selectImageModel(draft, model, profile = {}) {
+  profile = profile || {};
   const defaults = {
     'flux.1-schnell': [4, 1], 'flux.1-dev': [28, 1], 'qwen-image': [20, 2],
     sdxl: [30, 7], 'sd3.5-large': [28, 4],
   };
   const [steps, cfg_scale] = defaults[model.model_id] || [profile.defaults?.steps ?? 30, profile.defaults?.cfg_scale ?? 7];
-  return { ...draft, model, steps, cfg_scale, sampler: profile.defaults?.sampler || '', scheduler: profile.defaults?.scheduler || '' };
+  return { ...draft, model, steps, cfg_scale, width: profile.defaults?.width ?? draft.width, height: profile.defaults?.height ?? draft.height, sampler: profile.defaults?.sampler || '', scheduler: profile.defaults?.scheduler || '' };
 }
 
 export function selectionIssue(draft, models, inventory) {
@@ -30,7 +31,9 @@ export function selectionIssue(draft, models, inventory) {
     return '';
   }
   if (selected) {
-    if (!selected.available) return 'Questo modello non è ancora configurato. Apri Modelli e motori per prepararlo.';
+    if (!selected.available) return selected.setup_message || (!selected.workflow_available
+      ? 'Per questa architettura serve un workflow compatibile. Apri Modelli e motori.'
+      : 'Il motore richiesto non è attivo oppure mancano i file del modello. Apri Modelli e motori.');
     if (draft.backend && !(selected.available_via || []).includes(draft.backend)) return 'Il modello non è disponibile sul motore scelto. Imposta il motore su Automatico.';
   } else if (!candidates.some(m => m.available && (!draft.backend || (m.available_via || []).includes(draft.backend)))) {
     return 'Nessun modello immagine disponibile. Collega un motore o installa un modello.';

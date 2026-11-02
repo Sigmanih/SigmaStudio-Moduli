@@ -35,6 +35,9 @@ class ModelSpec:
     ckpt_key: str = ""                # chiave in creative.backends.comfyui.checkpoints
     remote_ids: dict = field(default_factory=dict)   # backend -> id remoto
     notes: str = ""
+    parameters: dict = field(default_factory=dict)
+    filename: str = ""
+    setup_issues: tuple = ()
 
     @property
     def checkpoint_key(self) -> str:
@@ -291,6 +294,16 @@ def get_model(model_id: str) -> ModelSpec | None:
     return next((m for m in all_models() if m.id == model_id), None)
 
 
+_LOCAL_MODELS = []
+
+
+def set_local_models(records):
+    global _LOCAL_MODELS
+    changed = records != _LOCAL_MODELS
+    _LOCAL_MODELS = records
+    return changed
+
+
 def all_models() -> tuple[ModelSpec, ...]:
     """Un profilo utente e' un workflow eseguibile, non un nuovo elenco cablato."""
     from core.modules.sigma_creative_lab.workflow_registry import registry
@@ -308,6 +321,19 @@ def all_models() -> tuple[ModelSpec, ...]:
             vram_gb=float(vram),
             notes=entry.description,
         ))
+    for entry in _LOCAL_MODELS:
+        if not entry['workflow']:
+            continue
+        parameters = dict(entry['parameters'])
+        runtime_names = {name.replace('\\', '/'): name for key in ('checkpoints', 'unets')
+                         for name in (_COMFY_INVENTORY or {}).get(key, [])}
+        filename = parameters.get('ckpt', '')
+        parameters['ckpt'] = runtime_names.get(filename, filename)
+        custom.append(ModelSpec(id=entry['id'], label=entry['label'], family=entry['family'],
+                                tasks=tuple(entry['tasks']), backends=('comfyui',),
+                                vram_gb=8 if entry['family'] in ('sdxl', 'flux2-klein-4b') else 12 if entry['family'].startswith('flux') else 4,
+                                workflow=entry['workflow'], parameters=parameters,
+                                filename=entry['filename'], setup_issues=tuple(entry['issues'])))
     return (*MODELS, *custom)
 
 
@@ -438,6 +464,9 @@ def _comfy_can_load(model: ModelSpec, checkpoint: str = "") -> bool:
     FLUX. Selezionarlo comunque significherebbe fallire e ripiegare, sprecando
     un round-trip e confondendo l'utente con un errore evitabile.
     """
+    if model.setup_issues:
+        return False
+    checkpoint = checkpoint or model.parameters.get('ckpt', '')
     if _COMFY_INVENTORY is None:
         return True
     if checkpoint:
@@ -497,6 +526,7 @@ def catalog(available_backends: set = frozenset(), ollama_models: set | None = N
     """Catalogo serializzabile per la UI, annotato con la disponibilità corrente."""
     vram = available_vram_gb()
     from core.modules.sigma_creative_lab.workflow_registry import registry
+    from core.modules.sigma_creative_lab.model_setup import usage_tags
     models = all_models()
     workflow_missing = {m.id: _comfy_workflow_missing(m) for m in models}
     out = []
@@ -509,8 +539,14 @@ def catalog(available_backends: set = frozenset(), ollama_models: set | None = N
         if "ollama" in usable and not _ollama_installed(model, ollama_models):
             usable.remove("ollama")
         out.append({
+            "tags": [*usage_tags(model.tasks), *([model.family.upper()] if model.family else [])],
+            "installed": bool(model.filename),
+            "configured": bool(model.filename) and not model.setup_issues,
+            "setup_message": '; '.join(model.setup_issues) if model.setup_issues else (
+                'Motore spento: avvia ComfyUI' if model.filename and 'comfyui' not in available_backends else (
+                    'Il motore deve aggiornare l’elenco dei file' if model.filename and workflow_missing[model.id] else '')),
             "workflow_available": not model.workflow or registry.get(model.workflow) is not None,
-            "defaults": dict(registry.get(model.workflow).defaults) if model.workflow and registry.get(model.workflow) else {},
+            "defaults": {**(dict(registry.get(model.workflow).defaults) if model.workflow and registry.get(model.workflow) else {}), **model.parameters},
             "workflow_missing": workflow_missing[model.id],
             **model.to_dict(),
             "tasks": list(model.tasks),

@@ -349,6 +349,8 @@ def builtin_manifests() -> list[WorkflowManifest]:
                      "clip_t5": "t5xxl_fp8_e4m3fn.safetensors", "vae": "ae.safetensors"}
 
     specs = [
+        ("flux2_txt2img", "FLUX.2 Klein Text to Image", "text_to_image",
+         {"checkpoint": "flux2", "vram_gb": 8}, "Latenti FLUX.2, encoder Qwen e scheduler dedicato."),
         ("sdxl_txt2img", "SDXL Text to Image", "text_to_image",
          {"checkpoint": "sdxl", "vram_gb": 8},
          "Grafo checkpoint standard: KSampler + CLIP doppio prompt."),
@@ -380,7 +382,7 @@ def builtin_manifests() -> list[WorkflowManifest]:
         sample = {k: f"{{{{{k}}}}}" for k in
                   ("prompt", "negative_prompt", "width", "height", "steps",
                    "cfg_scale", "seed", "sampler", "scheduler", "ckpt",
-                   "input_image", "mask_image", "upscale_model", "strength")}
+                     "input_image", "mask_image", "upscale_model", "strength", "text_encoder", "vae")}
         try:
             graph = builder({**sample, "ckpt": "{{ckpt}}"})
         except Exception as e:
@@ -389,6 +391,8 @@ def builtin_manifests() -> list[WorkflowManifest]:
 
         used = sorted(set(PLACEHOLDER.findall(json.dumps(graph))))
         base = flux_defaults if wf_id in ("flux_txt2img", "qwen_txt2img") else common
+        if wf_id == 'flux2_txt2img':
+            base = {**common, 'steps': 4, 'cfg_scale': 1, 'text_encoder': 'qwen_3_4b.safetensors', 'vae': 'flux2-vae.safetensors'}
         manifests.append(WorkflowManifest(
             id=wf_id, name=name, capability=capability, backend="comfyui",
             inputs={k: f"{{{{{k}}}}}" for k in used},

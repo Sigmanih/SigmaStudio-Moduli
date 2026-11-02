@@ -181,6 +181,36 @@ def _sigla_overlays(width: int, height: int, work: Path, cta_language: str,
     return logo_path, button_path
 
 
+def _join_sigla_video(source: Path, bumpers: list[Path], output: Path, info: dict) -> bool:
+    """Conserva il bitstream del film quando i segmenti possono essere concatenati."""
+    import json
+    from core.modules.sigma_creative_lab.video.production import _run, ffmpeg_bin
+    from core.modules.sigma_creative_lab.video.postprocess import video_encoder_args
+    document = json.loads(_run([ffmpeg_bin('ffprobe'), '-v', 'error', '-select_streams', 'v:0',
+                               '-show_entries', 'stream=codec_name,pix_fmt,r_frame_rate,time_base',
+                               '-of', 'json', str(source)]).stdout)
+    video = next(iter(document.get('streams', [])), {})
+    if (video.get('codec_name') != 'h264' or video.get('pix_fmt') != 'yuv420p'
+            or video.get('r_frame_rate') != '24/1'):
+        return False
+    denominator = int(video.get('time_base', '1/12288').split('/')[-1])
+    normalized = []
+    for index, bumper in enumerate(bumpers):
+        target = output.parent / f'bumper_copy_{index}.mp4'
+        _run([ffmpeg_bin(), '-hide_banner', '-v', 'error', '-y', '-i', str(bumper),
+              '-vf', f"scale={info['width']}:{info['height']}:flags=lanczos,fps=24,setsar=1,format=yuv420p",
+              '-an', *video_encoder_args(18, 0), '-video_track_timescale', str(denominator), str(target)], timeout=1800)
+        normalized.append(target)
+    playlist = output.parent / 'sigla_concat.txt'
+    def line(path):
+        return "file '" + path.resolve().as_posix().replace("'", "'\\''") + "'\n"
+    playlist.write_text(''.join(line(path) for path in (normalized[0], source, normalized[1])), encoding='utf-8')
+    _run([ffmpeg_bin(), '-hide_banner', '-v', 'error', '-y', '-f', 'concat', '-safe', '0',
+          '-i', str(playlist), '-map', '0:v:0', '-an', '-c:v', 'copy',
+          '-video_track_timescale', str(denominator), str(output)], timeout=1800)
+    return True
+
+
 def add_sigla_to_master(source: Path, output: Path, asset_dir: str | Path, languages: list[str],
                         cta_language: str = "en", progress: Callable[[str, float], None] | None = None) -> dict:
     """Inserisce intro/outro animate e localizzate senza alterare il montaggio del film."""
@@ -201,14 +231,17 @@ def add_sigla_to_master(source: Path, output: Path, asset_dir: str | Path, langu
         ff = ffmpeg_bin()
         encoder = video_encoder_args(18, 0)
         logo_frame = work / "sigla_logo_frame.png"
-        _run([ff, "-hide_banner", "-v", "error", "-y", "-ss", "5.8", "-i", str(assets["intro"]),
+        logo_time = min(5.8, max(0.0, assets['intro_duration'] - 0.2))
+        _run([ff, "-hide_banner", "-v", "error", "-y", "-ss", f'{logo_time:.3f}', "-i", str(assets["intro"]),
               "-frames:v", "1", "-update", "1", str(logo_frame)], timeout=120)
+        if not logo_frame.is_file():
+            raise RuntimeError('Impossibile estrarre il marchio dal video di apertura')
         logo_mask, button = _sigla_overlays(source_info["width"], source_info["height"], work,
                                              cta_language, logo_frame)
         logo_diameter = int(min(source_info["width"] * 0.42, source_info["height"] * 0.55))
         enhanced = []
         for kind, source_bumper, overlay, start in (
-                ("intro", assets["intro"], logo_mask, 5.7),
+                ("intro", assets["intro"], logo_mask, min(5.7, max(0.0, assets['intro_duration'] - 0.8))),
                 ("outro", assets["outro"], button, max(0.0, assets["outro_duration"] - 9.0))):
             target = work / f"{kind}_enhanced.mp4"
             if progress:
@@ -239,8 +272,10 @@ def add_sigla_to_master(source: Path, output: Path, asset_dir: str | Path, langu
                  "[1:v]scale={w}:{h}:flags=lanczos,fps=24,setsar=1,setpts=PTS-STARTPTS[v1];"
                  "[2:v]scale={w}:{h}:flags=lanczos,fps=24,setsar=1,setpts=PTS-STARTPTS[v2];"
                  "[v0][v1][v2]concat=n=3:v=1:a=0[v]").format(w=source_info["width"], h=source_info["height"])
-        _run([ff, "-hide_banner", "-v", "error", "-y", "-i", str(enhanced[0]), "-i", str(source), "-i", str(enhanced[1]),
-              "-filter_complex", graph, "-map", "[v]", *encoder, str(joined_video)], timeout=7200)
+        copied_video = _join_sigla_video(source, enhanced, joined_video, source_info)
+        if not copied_video:
+            _run([ff, "-hide_banner", "-v", "error", "-y", "-i", str(enhanced[0]), "-i", str(source), "-i", str(enhanced[1]),
+                  "-filter_complex", graph, "-map", "[v]", *encoder, str(joined_video)], timeout=7200)
 
         stream_doc = _run([ffmpeg_bin("ffprobe"), "-v", "error", "-show_entries", "stream=codec_type",
                            "-of", "json", str(source)])
@@ -272,9 +307,9 @@ def add_sigla_to_master(source: Path, output: Path, asset_dir: str | Path, langu
         filters, audio_labels = [], []
         for idx, lang in enumerate(langs):
             intro_input, outro_input = audio_inputs[lang]
-            filters.extend((f"[{intro_input}:a]aresample=48000,aformat=channel_layouts=stereo,asetpts=PTS-STARTPTS[pre{idx}]",
-                            f"[1:a:{audio_streams[lang]}]aresample=48000,aformat=channel_layouts=stereo,asetpts=PTS-STARTPTS[mid{idx}]",
-                            f"[{outro_input}:a]aresample=48000,aformat=channel_layouts=stereo,asetpts=PTS-STARTPTS[post{idx}]",
+            filters.extend((f"[{intro_input}:a]aresample=48000,aformat=channel_layouts=stereo,apad,atrim=duration={assets['intro_duration']:.6f},asetpts=PTS-STARTPTS[pre{idx}]",
+                            f"[1:a:{audio_streams[lang]}]aresample=48000,aformat=channel_layouts=stereo,apad,atrim=duration={source_info['duration']:.6f},asetpts=PTS-STARTPTS[mid{idx}]",
+                            f"[{outro_input}:a]aresample=48000,aformat=channel_layouts=stereo,apad,atrim=duration={assets['outro_duration']:.6f},asetpts=PTS-STARTPTS[post{idx}]",
                             f"[pre{idx}][mid{idx}][post{idx}]concat=n=3:v=0:a=1[a{idx}]"))
             audio_labels.append(f"[a{idx}]")
         cmd += ["-filter_complex", ";".join(filters), "-map", "0:v:0"]
@@ -301,7 +336,8 @@ def add_sigla_to_master(source: Path, output: Path, asset_dir: str | Path, langu
         if progress:
             progress("Sigla completata e verificata", 1.0)
         return {"output_path": str(output), "duration": final_info["duration"], "intro_duration": assets["intro_duration"],
-                "outro_duration": assets["outro_duration"], "languages": langs, "cta_language": cta_language}
+                "outro_duration": assets["outro_duration"], "languages": langs, "cta_language": cta_language,
+                "film_video_copied": copied_video}
     finally:
         shutil.rmtree(work, ignore_errors=True)
 

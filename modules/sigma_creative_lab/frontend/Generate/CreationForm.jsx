@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Wand2, Image as ImageIcon, Smartphone, Monitor, SlidersHorizontal, RefreshCw, Cpu, Dices } from 'lucide-react';
 import ModelPicker from '../shared/ModelPicker';
+import CreativeEngineButton from '../shared/CreativeEngineButton';
 import { imageRequest, selectImageModel, selectionIssue } from './imageCreation';
 
 const FORMATS = [
@@ -41,6 +42,7 @@ export default function CreationForm({ draft, onChange, onGenerate, busy, models
         <ModelPicker task="text_to_image" models={models} inventory={inventory} value={draft.model}
           onChange={value => onChange(previous => value.model_id !== previous.model.model_id ? selectImageModel(previous, value, models.find(m => m.id === value.model_id)) : { ...previous, model: value })}
           disabled={busy || loading} showCheckpoint={advanced} />
+        {!inventory?.enabled && <CreativeEngineButton onReady={onRefresh} />}
         {(loading || error || issue) && <p className="cs-form-notice" role={error ? 'alert' : 'status'}>{loading ? 'Cerco i modelli disponibili…' : error || issue}</p>}
         <button type="button" className="cs-text-button" onClick={onManageModels}>Modelli e motori <span aria-hidden="true">→</span></button>
       </section>
