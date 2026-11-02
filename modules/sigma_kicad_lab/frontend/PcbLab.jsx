@@ -505,7 +505,7 @@ export default function PcbLab({ openTab }) {
             try {
               const event = JSON.parse(trimmed.substring(6));
               handleOrchestratorEvent(event);
-            } catch (e) {
+            } catch {
               // ignore parse errors
             }
           }

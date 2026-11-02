@@ -152,7 +152,7 @@ export default function TrainingMonitor({ onAddToast, embedded = false, jobId = 
           setSelectedJobId((running || data.jobs[0]).id);
         }
       }
-    } catch (e) {}
+    } catch {}
   }, [selectedJobId]);
 
   // Livelli di quantizzazione, modi di continuazione e dataset disponibili
@@ -205,7 +205,7 @@ export default function TrainingMonitor({ onAddToast, embedded = false, jobId = 
       const res = await fetch('/api/training/hardware');
       const data = await res.json();
       if (data.success) setHardware(data.hardware);
-    } catch (e) {}
+    } catch {}
   }, []);
 
   useEffect(() => {
@@ -235,12 +235,12 @@ export default function TrainingMonitor({ onAddToast, embedded = false, jobId = 
           });
           if (pts.length > 0) setLossPoints(pts);
         }
-      } catch (e) {}
+      } catch {}
       try {
         const res = await fetch(`/api/training/job/metrics?job_id=${selectedJobId}`);
         const data = await res.json();
         if (data.success) setMetrics(data);
-      } catch (e) {}
+      } catch {}
       // Also refresh job status
       loadJobs();
     };
@@ -292,7 +292,7 @@ export default function TrainingMonitor({ onAddToast, embedded = false, jobId = 
       } else {
         onAddToast && onAddToast(`Errore: ${data.error}`, 'error');
       }
-    } catch (e) {}
+    } catch {}
   };
 
   // Un run FWE riparte dal proprio checkpoint: per proseguire basta alzare il
@@ -320,7 +320,7 @@ export default function TrainingMonitor({ onAddToast, embedded = false, jobId = 
         body: JSON.stringify({ job_id: jobId }),
       });
       loadJobs();
-    } catch (e) {}
+    } catch {}
   };
 
   const handleDelete = async (jobId) => {
@@ -333,7 +333,7 @@ export default function TrainingMonitor({ onAddToast, embedded = false, jobId = 
       });
       setJobs(prev => prev.filter(j => j.id !== jobId));
       if (selectedJobId === jobId) setSelectedJobId(jobs[0]?.id || null);
-    } catch (e) {}
+    } catch {}
   };
 
   const handleExport = async () => {

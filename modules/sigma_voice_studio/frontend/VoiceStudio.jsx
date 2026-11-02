@@ -52,7 +52,7 @@ export default function VoiceStudio() {
         if (parsed.rate) setSpeed(parsed.rate);
         if (parsed.pitch) setPitch(parsed.pitch);
       }
-    } catch (e) {}
+    } catch {}
   };
 
   const loadSystemVoices = () => {

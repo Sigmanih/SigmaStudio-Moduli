@@ -299,7 +299,7 @@ export default function AutopilotStudio({ addToast, openTab }) {
       setTargets(j.targets || []);
       setProfiloOra(j.profile_now || null);
       setCampione(j.champion_label || '');
-    } catch (e) { /* la colonna resta su cio' che aveva */ }
+    } catch { /* la colonna resta su cio' che aveva */ }
   }, [modello]);
 
   useEffect(() => {
@@ -322,7 +322,7 @@ export default function AutopilotStudio({ addToast, openTab }) {
         if (!alive) return;
         if (m.success) setMetrics(m);
         if (l.success) setLogs(l.lines || []);
-      } catch (e) { /* riproviamo al giro dopo */ }
+      } catch { /* riproviamo al giro dopo */ }
     };
     tick();
     const timer = setInterval(tick, 5000);

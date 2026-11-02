@@ -210,9 +210,9 @@ export default function useResearchPipeline(onTasksUpdated, addToast) {
     try {
       const saved = localStorage.getItem('research_pipeline_id');
       if (saved) return saved;
-    } catch (e) {}
+    } catch {}
     const id = 'pipeline_' + new Date().toISOString().slice(0, 10).replace(/-/g, '') + '_' + Date.now().toString(36);
-    try { localStorage.setItem('research_pipeline_id', id); } catch (e) {}
+    try { localStorage.setItem('research_pipeline_id', id); } catch {}
     return id;
   });
 
@@ -706,7 +706,7 @@ export default function useResearchPipeline(onTasksUpdated, addToast) {
             if (payload === '[DONE]') { done = true; break; }
             try {
               handleSSEEvent(JSON.parse(payload));
-            } catch (e) { continue; }
+            } catch { continue; }
           }
           if (done) break;
         }
@@ -743,7 +743,7 @@ export default function useResearchPipeline(onTasksUpdated, addToast) {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ id: 'current' }),
         });
-      } catch (e) { /* ignore */ }
+      } catch { /* ignore */ }
     }
     if (abortRef.current) {
       abortRef.current.abort();

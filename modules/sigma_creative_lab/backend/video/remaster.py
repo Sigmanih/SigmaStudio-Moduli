@@ -449,12 +449,26 @@ def _valid_video(path: Path, duration: float | None = None, frames: int | None =
         return None
 
 
+PIPELINE_REVISION = 1
+
+
+def _final_recipe(output: Path, score: Path | None, preserve_audio: bool) -> dict:
+    soundtrack = None
+    if score is not None:
+        stat = score.stat()
+        if not score.is_file():
+            raise ValueError("La colonna sonora deve essere un file")
+        soundtrack = {"path": str(score.resolve()), "size": stat.st_size, "mtime_ns": stat.st_mtime_ns}
+    return {"output": str(output.resolve()), "score": soundtrack, "preserve_source_audio": bool(preserve_audio)}
+
+
 def _checkpoint_dir(work_root: Path, source: Path, output_height: int, source_info: dict) -> Path:
     """Ritrova il checkpoint del film; l'identità sorgente impedisce di mescolare produzioni."""
     source = source.resolve()
     stat = source.stat()
     metadata = {"source": str(source), "source_size": stat.st_size,
-                "source_mtime_ns": stat.st_mtime_ns, "output_height": output_height}
+                "source_mtime_ns": stat.st_mtime_ns, "output_height": output_height,
+                "pipeline_revision": PIPELINE_REVISION}
     candidates = sorted((p for p in work_root.glob("remaster_*") if p.is_dir()),
                         key=lambda p: p.stat().st_mtime, reverse=True)
     for candidate in candidates:
@@ -468,19 +482,23 @@ def _checkpoint_dir(work_root: Path, source: Path, output_height: int, source_in
                 manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
             except (OSError, ValueError):
                 continue
+            if not isinstance(manifest, dict):
+                continue
             if any(manifest.get(k) != metadata[k] for k in ("source", "source_size", "source_mtime_ns")):
                 continue
-        # Migra i checkpoint temporanei creati dalla versione precedente del restauro.
-        normalized = _valid_video(candidate / "cadence_18fps.mp4", float(source_info["duration"]))
-        cleaned = _valid_video(candidate / "clean_18fps.mp4", float(source_info["duration"]))
-        if normalized and cleaned:
-            manifest.update(metadata)
-            temp = manifest_path.with_suffix(".part")
-            temp.write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
-            temp.replace(manifest_path)
-            return candidate
-    key = uuid.uuid5(uuid.NAMESPACE_URL, f"{source}|{stat.st_size}|{stat.st_mtime_ns}|{output_height}").hex[:12]
+            if manifest.get("output_height") != output_height or manifest.get("pipeline_revision", 1) != PIPELINE_REVISION:
+                continue
+        # Ogni fase verifica i propri artefatti: anche un checkpoint parziale deve essere ritrovabile.
+        manifest.update(metadata)
+        temp = manifest_path.with_suffix(".part")
+        temp.write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
+        temp.replace(manifest_path)
+        return candidate
+    key = uuid.uuid5(uuid.NAMESPACE_URL, f"{source}|{stat.st_size}|{stat.st_mtime_ns}|{output_height}|{PIPELINE_REVISION}").hex[:12]
     target = work_root / f"remaster_{key}_{output_height}h"
+    if target.exists():
+        # Conserva i file con metadati corrotti, evitando di attribuirli alla nuova esecuzione.
+        target = target.with_name(f"{target.name}_{uuid.uuid4().hex[:8]}")
     target.mkdir(parents=True, exist_ok=True)
     manifest_path = target / "checkpoint.json"
     if not manifest_path.is_file():
@@ -504,6 +522,7 @@ def remaster_film(source: Path, output: Path, work_root: Path, score: Path | Non
     if not source.is_file():
         raise FileNotFoundError(source)
     source_info = probe(source)
+    final_recipe = _final_recipe(output, score, preserve_source_audio)
     output_size = output_dimensions(int(source_info["width"]), int(source_info["height"]), int(output_height))
     output.parent.mkdir(parents=True, exist_ok=True)
     work_root.mkdir(parents=True, exist_ok=True)
@@ -519,7 +538,7 @@ def remaster_film(source: Path, output: Path, work_root: Path, score: Path | Non
         part.replace(manifest_path)
 
     profile = cadence_profile(source)
-    if manifest.get("completed_stage") == "master_video":
+    if manifest.get("completed_stage") == "master_video" and manifest.get("final_recipe") == final_recipe:
         completed = _valid_video(output, float(source_info["duration"]), size=output_size)
         if completed:
             comparison = work_root / f"{output.stem}_prima_dopo.jpg"
@@ -642,6 +661,7 @@ def remaster_film(source: Path, output: Path, work_root: Path, score: Path | Non
         raise RuntimeError(f"dimensioni finali {out_info['width']}×{out_info['height']} diverse da {output_size[0]}×{output_size[1]}")
     if abs(float(out_info["duration"]) - float(probe(source)["duration"])) > 0.25:
         raise RuntimeError("durata finale non allineata alla sorgente")
+    manifest["final_recipe"] = final_recipe
     saved("master_video")
     comparison = _comparison(source, output, work_root / f"{output.stem}_prima_dopo.jpg",
                             float(out_info["duration"]))

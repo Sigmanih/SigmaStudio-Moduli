@@ -201,7 +201,7 @@ export default function PipelinePanel({ jobId, onSelect, onAction, addToast, ref
       const res = await fetch(`/api/training/job/lineage?job_id=${jobId}`);
       const data = await res.json();
       setChain(data.success ? data : null);
-    } catch (e) {
+    } catch {
       setChain(null);
     }
   }, [jobId]);

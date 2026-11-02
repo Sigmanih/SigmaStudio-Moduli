@@ -14,7 +14,6 @@ from __future__ import annotations
 
 import asyncio
 import difflib
-import json
 import os
 import re
 import subprocess
@@ -24,6 +23,10 @@ import uuid
 from pathlib import Path
 
 from core.logger import get_logger
+from core.job_store import JobStore
+from core.job_worker import JobCancelled, PersistentJobWorker
+from core.store import JsonStore
+from core.modules.sigma_creative_lab.backends.resources import accelerator_busy, reserve_job
 from core.modules.sigma_creative_lab.video import media_cache, timeline as T
 
 log = get_logger("creative_editor_jobs")
@@ -32,10 +35,6 @@ FPS = 24
 MAX_DIALOGUE_ATTEMPTS = 3
 #: Somiglianza minima fra la battuta del copione e cio' che Whisper sente.
 DIALOGUE_MATCH = 0.72
-
-
-class JobCancelled(RuntimeError):
-    """Interruzione richiesta dall'utente, distinta da un errore del motore."""
 
 
 def _now() -> float:
@@ -52,108 +51,81 @@ def speech_match(expected: str, heard: str) -> float:
 
 
 class EditorJobs:
-    def __init__(self, production_store, production_manager):
+    RESUMABLE = {"restore_pipeline", "remaster"}
+
+    def __init__(self, production_store, production_manager, *, state_path=None):
         self.prods = production_store
         self.manager = production_manager
         self.timelines = T.TimelineStore(production_store)
-        self.jobs: dict[str, dict] = {}
-        self.queue: list[str] = []
-        self._lock = threading.Lock()
-        self._wake = threading.Event()
-        self._thread = threading.Thread(target=self._loop, name="editor-jobs", daemon=True)
-        self._thread.start()
+        self._store = JobStore(state_path or (self.prods.root / ".editor_jobs.sqlite3"))
+        handlers = {kind: (lambda context, job, handler=handler: context._dispatch(handler, job))
+                    for kind, handler in HANDLERS.items()}
+        self._worker = PersistentJobWorker(self._store, handlers, self, blocked=self._blocked,
+                                           reserve=lambda job: reserve_job(job, CPU_KINDS), id_prefix="ej")
 
-    # --- coda ------------------------------------------------------------
+    def _dispatch(self, handler, job):
+        job["production"] = job["scope"]
+        return handler(self, job)
+
+    @staticmethod
+    def _public(job: dict) -> dict:
+        return {**job, "production": job["scope"]}
+
+    def _blocked(self, job: dict) -> str:
+        if job["kind"] not in CPU_KINDS and (self.manager.active() or accelerator_busy()):
+            return "In attesa: una produzione sta usando la GPU"
+        return ""
 
     def busy(self) -> bool:
-        with self._lock:
-            return any(j["status"] in ("queued", "running") for j in self.jobs.values())
+        return any(job["status"] in ("queued", "running") for job in self._worker.list())
+
+    def _checkpoint(self, job: dict) -> None:
+        if job["kind"] != "restore_pipeline":
+            return
+        try:
+            JsonStore(self.prods.path(job["production"]) / "restoration_pipeline_checkpoint.json").save(
+                {"job_id": job["id"], "args": job["args"], "updated": _now()})
+        except OSError:
+            # Il registro resta autorevole anche se il vecchio riepilogo non è scrivibile.
+            log.exception("Riepilogo del checkpoint non aggiornato per %s", job["id"])
 
     def submit(self, pid: str, kind: str, args: dict) -> dict:
-        if kind not in HANDLERS:
-            raise ValueError(f"operazione sconosciuta: {kind}")
         if self.prods.get(pid) is None:
             raise ValueError("produzione inesistente")
-        job = {"id": f"ej_{uuid.uuid4().hex[:8]}", "production": pid, "kind": kind, "args": args,
-               "status": "queued", "message": "In coda", "progress": 0.0, "created": _now(), "result": None,
-               "error": "", "cancel_event": threading.Event()}
-        if kind == "restore_pipeline":
-            project_dir = self.prods.path(pid)
-            config = project_dir / "restoration_pipeline_checkpoint.json"
-            part = config.with_suffix(".part")
-            part.write_text(json.dumps({"job_id": job["id"], "args": args, "updated": _now()},
-                                       ensure_ascii=False, indent=2), encoding="utf-8")
-            part.replace(config)
-        with self._lock:
-            self.jobs[job["id"]] = job
-            self.queue.append(job["id"])
-            # Si tengono gli ultimi 200 job: lo storico serve alla UI, non e' un archivio.
-            for old in list(self.jobs)[:-200]:
-                if self.jobs[old]["status"] not in ("queued", "running"):
-                    self.jobs.pop(old, None)
-        self._wake.set()
-        return {k: v for k, v in job.items() if k != "cancel_event"}
+        job = self._public(self._worker.submit(pid, kind, args))
+        self._checkpoint(job)
+        return job
 
     def list(self, pid: str | None = None) -> list[dict]:
-        with self._lock:
-            return [{k: v for k, v in j.items() if k != "cancel_event"}
-                    for j in reversed(self.jobs.values()) if pid is None or j["production"] == pid]
+        jobs = [self._public(job) for job in self._worker.list()]
+        resuming = {job.get("operation_id") or job.get("retry_of") or job["id"]
+                    for job in jobs if job["status"] in ("queued", "running")}
+        return [{**job, "can_resume": job["kind"] in self.RESUMABLE
+                 and job["status"] in ("interrupted", "error", "cancelled")
+                 and (job.get("operation_id") or job["id"]) not in resuming}
+                for job in jobs if pid is None or job["production"] == pid]
+
+    def resume(self, job_id: str) -> dict:
+        previous = self._store.get(job_id)
+        if not previous or self.prods.get(previous["scope"]) is None:
+            raise ValueError("produzione o lavoro inesistente")
+        job = self._public(self._worker.retry(job_id, self.RESUMABLE))
+        self._checkpoint(job)
+        return job
 
     def forget(self, pid: str) -> None:
-        """Dimentica i job conclusi di una produzione eliminata (la UI non deve mostrarli piu')."""
-        with self._lock:
-            for jid in [j for j, job in self.jobs.items() if job["production"] == pid
-                        and job["status"] not in ("queued", "running")]:
-                self.jobs.pop(jid, None)
+        self._store.forget(pid)
 
     def cancel(self, job_id: str) -> bool:
-        with self._lock:
-            job = self.jobs.get(job_id)
-            if not job or job["status"] not in ("queued", "running"):
-                return False
-            job["cancel_event"].set()
-            if job["status"] == "queued":
-                self.queue.remove(job_id)
-                job.update(status="cancelled", message="Annullato")
-            else:
-                job.update(message="Interruzione in corso…")
-            return True
+        return self._worker.cancel(job_id)
+
+    def close(self, timeout: float = 2) -> bool:
+        return self._worker.close(timeout)
 
     @staticmethod
     def check_cancelled(job: dict) -> None:
         if job.get("cancel_event") and job["cancel_event"].is_set():
             raise JobCancelled("Operazione annullata")
-
-    def _loop(self) -> None:
-        while True:
-            self._wake.wait(timeout=5)
-            self._wake.clear()
-            while True:
-                busy_gpu = bool(self.manager.active())
-                with self._lock:
-                    # Importare un video o creare un titolo non usa la GPU: non deve
-                    # aspettare la fine di una produzione in corso.
-                    runnable = [j for j in self.queue if not busy_gpu or self.jobs[j]["kind"] in CPU_KINDS]
-                    job = self.jobs.get(runnable[0]) if runnable else None
-                    waiting = [self.jobs[j] for j in self.queue if j not in runnable]
-                for w in waiting:
-                    w["message"] = "In attesa: una produzione sta usando la GPU"
-                if job is None:
-                    if waiting:
-                        time.sleep(10)
-                        continue
-                    break
-                with self._lock:
-                    self.queue.remove(job["id"])
-                job.update(status="running", started=_now(), message="Avvio")
-                try:
-                    job["result"] = asyncio.run(HANDLERS[job["kind"]](self, job))
-                    job.update(status="done", progress=1.0, message="Completato", finished=_now())
-                except JobCancelled as e:
-                    job.update(status="cancelled", error="", message=str(e), finished=_now())
-                except Exception as e:
-                    log.error(f"job {job['kind']} fallito: {e}")
-                    job.update(status="error", error=str(e), message="Errore", finished=_now())
 
     # --- supporto ----------------------------------------------------------
 
@@ -429,6 +401,7 @@ async def job_restore_clean(self: EditorJobs, job: dict) -> dict:
 async def job_remaster(self: EditorJobs, job: dict) -> dict:
     """Pipeline completa, non distruttiva, per restaurare una pellicola importata."""
     from core.modules.sigma_creative_lab.video.remaster import remaster_film
+    from core.modules.sigma_creative_lab.video.production import probe
     pid, args = job["production"], job["args"]
     item, shot, source, clip = _item_source(self, pid, args["item_id"])
     if shot.get("origin") != "import" and source.get("kind") != "import":
@@ -443,6 +416,25 @@ async def job_remaster(self: EditorJobs, job: dict) -> dict:
     output_height = int(args.get("output_height", 1080))
     if output_height not in (1080, 1440, 2160):
         raise ValueError("Risoluzione non supportata: scegliere 1080, 1440 o 2160 linee")
+    operation = job.get("operation_id") or job.get("retry_of") or job["id"]
+    source_stat = clip.stat()
+    restore_settings = {"output_height": output_height, "preserve_source_audio": bool(args.get("preserve_source_audio", True)),
+                        "source": str(clip.resolve()), "size": source_stat.st_size, "mtime_ns": source_stat.st_mtime_ns}
+    for cached in T.ensure_takes(shot):
+        if cached.get("restoration_operation") != operation or cached.get("restoration_settings") != restore_settings:
+            continue
+        try:
+            info = probe(Path(cached["clip_path"]))
+            if abs(int(info.get("frames") or 0) - int(cached.get("frames") or 0)) > 1 or not info.get("frames"):
+                continue
+            if [info.get("width"), info.get("height")] != cached.get("restoration_size"):
+                continue
+        except (OSError, ValueError, RuntimeError):
+            continue
+        if item.get("take_id") != cached["id"]:
+            self.timelines.apply(pid, "set_take", {"item_id": item["id"], "take_id": cached["id"]})
+        self._note(job, "Video già restaurato: riprendo le fasi successive", 1.0)
+        return {"shot": shot["id"], "take": cached["id"], "path": cached["clip_path"], "final": info, "reused": True}
     output = production_dir / "clips" / f"remaster_{shot['id']}_{output_height}h_t{take_number}.mp4"
     self._note(job, "Preparazione del restauro", 0.01)
     from core.engine.gpu_lease import leases
@@ -473,9 +465,11 @@ async def job_remaster(self: EditorJobs, job: dict) -> dict:
         leases.release(lease)
     production = self.prods.get(pid)
     shot = T.shot_by_id(production, item["shot_id"])
-    info = self.manager._probe(output)
+    info = probe(output)
     take = T.add_take(shot, str(output), frames=int(info.get("frames") or 0),
-                      prompt=source.get("prompt", ""), kind="remaster", source_take=source["id"])
+                      prompt=source.get("prompt", ""), kind="remaster", source_take=source["id"],
+                      restoration_operation=operation, restoration_settings=restore_settings,
+                      restoration_size=[info["width"], info["height"]])
     production.setdefault("settings", {})["output_height"] = output_height
     production["settings"]["preserve_source_audio"] = bool(args.get("preserve_source_audio", True))
     self.prods.save(production)
@@ -681,7 +675,8 @@ async def job_restore_pipeline(self: EditorJobs, job: dict) -> dict:
             self.timelines.apply(pid, "track", {"track_id": track["id"], "mute": True})
     stages = []
     def stage(kind: str, stage_args: dict, start: float, end: float, label: str):
-        return {"id": job["id"], "production": pid, "kind": kind, "args": stage_args,
+        return {"id": job["id"], "operation_id": job.get("operation_id") or job["id"],
+                "production": pid, "kind": kind, "args": stage_args,
                 "message": label, "progress": 0.0, "_progress_parent": job, "_progress_range": (start, end)}
 
     self._note(job, "Restauro del video", 0.0)

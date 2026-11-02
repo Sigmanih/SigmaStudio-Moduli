@@ -30,7 +30,7 @@ function formatRelativeTime(dateStr) {
     if (days === 1) return 'ieri';
     if (days < 30) return `${days}gg fa`;
     return d.toLocaleDateString('it-IT', { day: '2-digit', month: '2-digit' });
-  } catch (e) {
+  } catch {
     return dateStr;
   }
 }
@@ -162,7 +162,7 @@ export default function ModelPicker({ value, onChange, addToast, disabled, cycle
       const r = await fetch('/api/training/models/local');
       const j = await r.json();
       setLocal(j.models || []);
-    } catch (e) {}
+    } catch {}
     setLoading(false);
   }, []);
 
@@ -180,7 +180,7 @@ export default function ModelPicker({ value, onChange, addToast, disabled, cycle
         const r = await fetch(`/api/training/models/search?q=${encodeURIComponent(q)}&limit=25`);
         const j = await r.json();
         if (ticket === searchRef.current) setFound(j.models || []);
-      } catch (e) {}
+      } catch {}
       if (ticket === searchRef.current) setLoading(false);
     }, 500);
     return () => clearTimeout(timer);
@@ -196,7 +196,7 @@ export default function ModelPicker({ value, onChange, addToast, disabled, cycle
         setPull(j.pull);
         if (j.pull?.done) { addToast && addToast('✅ Modello scaricato in Ollama.', 'success'); loadLocal(); }
         if (j.pull?.error) addToast && addToast(`❌ ${j.pull.error}`, 'error', 8000);
-      } catch (e) {}
+      } catch {}
     }, 2000);
     return () => clearInterval(timer);
   }, [pull?.running, addToast, loadLocal]);

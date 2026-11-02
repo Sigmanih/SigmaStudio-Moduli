@@ -102,14 +102,14 @@ export default function MappaArgomenti({ onOpenFile }) {
     try {
       const saved = localStorage.getItem('sigma_graph_font_size');
       return saved ? parseInt(saved, 10) : 16;
-    } catch (e) {
+    } catch {
       return 16;
     }
   });
 
   const handleFontSizeChange = (newSize) => {
     setLabelFontSize(newSize);
-    try { localStorage.setItem('sigma_graph_font_size', String(newSize)); } catch (e) {}
+    try { localStorage.setItem('sigma_graph_font_size', String(newSize)); } catch {}
   };
 
   // Configurable Branch Length state (persisted in localStorage)
@@ -117,28 +117,28 @@ export default function MappaArgomenti({ onOpenFile }) {
     try {
       const saved = localStorage.getItem('sigma_graph_branch_length');
       return saved ? parseInt(saved, 10) : 240;
-    } catch (e) {
+    } catch {
       return 240;
     }
   });
 
   const handleBranchLengthChange = (newLen) => {
     setBranchLength(newLen);
-    try { localStorage.setItem('sigma_graph_branch_length', String(newLen)); } catch (e) {}
+    try { localStorage.setItem('sigma_graph_branch_length', String(newLen)); } catch {}
   };
 
   // Argomenti Visualization Theme State
   const [argomentiTheme, setArgomentiTheme] = useState(() => {
     try {
       return localStorage.getItem('sigma_argomenti_theme') || 'costellazione';
-    } catch (e) {
+    } catch {
       return 'costellazione';
     }
   });
 
   const handleThemeChange = (newTheme) => {
     setArgomentiTheme(newTheme);
-    try { localStorage.setItem('sigma_argomenti_theme', newTheme); } catch (e) {}
+    try { localStorage.setItem('sigma_argomenti_theme', newTheme); } catch {}
     window.dispatchEvent(new CustomEvent('sigma_argomenti_theme_changed', { detail: newTheme }));
   };
 
@@ -176,7 +176,7 @@ export default function MappaArgomenti({ onOpenFile }) {
         try {
           localStorage.removeItem('sigma_graph_custom_positions');
           localStorage.setItem('sigma_graph_custom_positions', JSON.stringify(positions));
-        } catch (retryErr) {}
+        } catch {}
       }
     }
   };
@@ -184,7 +184,7 @@ export default function MappaArgomenti({ onOpenFile }) {
   const handleResetLayout = () => {
     try {
       localStorage.removeItem('sigma_graph_custom_positions');
-    } catch (e) {}
+    } catch {}
     if (simulationRef.current) {
       const currentNodes = simulationRef.current.nodes();
       currentNodes.forEach(node => {
@@ -398,7 +398,7 @@ export default function MappaArgomenti({ onOpenFile }) {
             setAgentColors(colorsData.colors);
           }
         }
-      } catch (e) {}
+      } catch {}
 
       return data.topics;
     } catch (err) {
@@ -1090,7 +1090,7 @@ export default function MappaArgomenti({ onOpenFile }) {
     const saveNodePositions = (draggedRoot, descendants) => {
       try {
         let saved = null;
-        try { saved = localStorage.getItem('sigma_graph_custom_positions'); } catch (e) {}
+        try { saved = localStorage.getItem('sigma_graph_custom_positions'); } catch {}
         const positions = saved ? JSON.parse(saved) : {};
 
         const round1 = (val) => val == null ? null : Math.round(val * 10) / 10;
@@ -1126,10 +1126,10 @@ export default function MappaArgomenti({ onOpenFile }) {
             descendants.forEach(c => { compactPositions[c.id] = positions[c.id]; });
             try {
               localStorage.setItem('sigma_graph_custom_positions', JSON.stringify(compactPositions));
-            } catch (retryErr) {}
+            } catch {}
           }
         }
-      } catch (e) {
+      } catch {
         // Silently catch layout persistence error to prevent console spam
       }
     };

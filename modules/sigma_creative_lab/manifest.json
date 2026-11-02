@@ -1,7 +1,7 @@
 {
   "id": "sigma_creative_lab",
   "name": "Creative Lab 3D/2D",
-  "version": "v1.0.0",
+  "version": "v1.1.0",
   "category": "Multimodale & Grafica",
   "tabType": "creative_studio",
   "workDomain": "creative",
@@ -61,5 +61,12 @@
     ],
     "install_to": "sigma_studio/src/modules/sigma_creative_lab/"
   },
-  "kernel_modules_required": []
+  "kernel_modules_required": [],
+  "min_kernel_version": "0.9.1",
+  "kernel_api": 1,
+  "required_kernel_features": [
+    "persistent_jobs",
+    "resource_reservations",
+    "request_tracing"
+  ]
 }

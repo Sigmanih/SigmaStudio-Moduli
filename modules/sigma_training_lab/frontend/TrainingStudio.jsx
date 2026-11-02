@@ -191,7 +191,7 @@ export default function TrainingStudio({ myDatasets, selectedDatasetId, onDatase
       const res = await fetch('/api/training/jobs');
       const data = await res.json();
       if (data.success) setJobs(data.jobs || []);
-    } catch (e) {}
+    } catch {}
   }, []);
 
   useEffect(() => { refreshJobs(); }, [refreshJobs]);

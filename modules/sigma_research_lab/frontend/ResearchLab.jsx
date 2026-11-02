@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   Play, Square, RotateCcw, ChevronRight, Cpu, Target, Layers, RefreshCw,
   Database, GitCompare, Settings, Wifi, WifiOff, X, Sliders, MessageSquare, Send,
@@ -77,7 +77,7 @@ function AgentConfigPanel({ agentId, meta, config, onUpdate, onClose, testState,
           }),
         });
       }
-    } catch (e) { /* ignore */ }
+    } catch { /* ignore */ }
     setSaving(false);
     onClose();
   };
@@ -374,7 +374,7 @@ export default function ResearchLab({ onClose, onTasksUpdated, addToast }) {
           handleSelectSession(data.sessions[0].id);
         }
       }
-    } catch (e) {}
+    } catch {}
   };
 
   const fetchSessionStatus = async (sessionId) => {
@@ -388,7 +388,7 @@ export default function ResearchLab({ onClose, onTasksUpdated, addToast }) {
         const objs = data.session.micro_objectives || [];
         setProgress({ done: objs.filter(o => o.status === 'done').length, total: objs.length });
       }
-    } catch (e) {}
+    } catch {}
   };
 
   const handleSelectSession = async (sessionId) => {
@@ -471,7 +471,7 @@ export default function ResearchLab({ onClose, onTasksUpdated, addToast }) {
           for (const line of part.split('\n')) {
             if (!line.startsWith('data: ')) continue;
             const p = line.slice(6); if (p === '[DONE]') break;
-            try { handleSSEEvent(JSON.parse(p)); } catch (e) {}
+            try { handleSSEEvent(JSON.parse(p)); } catch {}
           }
         }
       }
@@ -491,7 +491,7 @@ export default function ResearchLab({ onClose, onTasksUpdated, addToast }) {
       });
       const data = await res.json();
       if (data.success) { setNextSteps(data.next_steps || []); fetchSessionStatus(activeSessionId); }
-    } catch (e) {}
+    } catch {}
     setGeneratingSteps(false);
   };
 
@@ -500,7 +500,7 @@ export default function ResearchLab({ onClose, onTasksUpdated, addToast }) {
       await fetch('/api/research/delete', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: sessionId }) });
       if (activeSessionId === sessionId) { setActiveSessionId(null); setSessionData(null); }
       fetchSessions();
-    } catch (e) {}
+    } catch {}
   };
 
   // ============================
@@ -532,7 +532,7 @@ export default function ResearchLab({ onClose, onTasksUpdated, addToast }) {
             if (!line.startsWith('data: ')) continue;
             const p = line.slice(6);
             if (p === '[DONE]') break;
-            try { handleSSEEvent(JSON.parse(p)); } catch (e) {}
+            try { handleSSEEvent(JSON.parse(p)); } catch {}
           }
         }
       }

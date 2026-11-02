@@ -167,7 +167,7 @@ export default function AutopilotPanel({ addToast, onModelloScelto, onRoundScelt
       const res = await fetch(url);
       const json = await res.json();
       if (json.success) setData(json);
-    } catch (e) {}
+    } catch {}
   }, [guardato]);
 
   useEffect(() => { load(); }, [load]);

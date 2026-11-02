@@ -38,6 +38,7 @@ from typing import Callable
 
 from core import paths
 from core.modules.sigma_creative_lab.backends.base import BackendUnavailable
+from core.modules.sigma_creative_lab.backends.resources import reserve_accelerator
 from core.logger import get_logger
 
 log = get_logger("creative_production")
@@ -254,7 +255,7 @@ class ProductionStore:
         self._lock = threading.RLock()
 
     def path(self, pid: str) -> Path:
-        if not re.fullmatch(r"[a-z0-9_]{6,64}", pid or ""):
+        if not isinstance(pid, str) or not re.fullmatch(r"[a-z0-9_]{6,64}", pid):
             raise ValueError(f"id produzione non valido: {pid!r}")
         return self.root / pid
 
@@ -2759,7 +2760,12 @@ class ProductionManager:
             raise RuntimeError(f"e' gia' in corso la produzione {self._runner.pid}: la GPU e' una sola")
         if self.store.get(pid) is None:
             raise ValueError(f"produzione inesistente: {pid}")
-        runner = ProductionRunner(self.store, pid, engine=engine, config=config, on_event=self._record)
+        reservation = reserve_accelerator(f"production:{pid}")
+        try:
+            runner = ProductionRunner(self.store, pid, engine=engine, config=config, on_event=self._record)
+        except Exception:
+            reservation.close()
+            raise
 
         def _target():
             try:
@@ -2771,10 +2777,18 @@ class ProductionManager:
                     prod["status"], prod["error"] = "failed", str(e)
                     self.store.save(prod)
                 self._record({"production": pid, "type": "production_end", "status": "failed", "message": str(e)})
+            finally:
+                reservation.close()
 
         self._runner = runner
         self._thread = threading.Thread(target=_target, name=f"production-{pid}", daemon=True)
-        self._thread.start()
+        try:
+            self._thread.start()
+        except RuntimeError:
+            reservation.close()
+            self._runner = None
+            self._thread = None
+            raise
         return {"started": pid}
 
     def cancel(self, pid: str) -> bool:

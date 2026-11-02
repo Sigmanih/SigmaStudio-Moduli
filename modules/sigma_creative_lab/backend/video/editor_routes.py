@@ -131,6 +131,8 @@ def handle_editor_job(self):
     """POST /api/creative/editor/job {id, kind, args}"""
     from core.modules.sigma_creative_lab.video.editor_jobs import editor_jobs
     data = self.read_json_body()
+    if not isinstance(data, dict):
+        return _err(self, "I parametri del lavoro devono essere un oggetto JSON")
     try:
         if data.get("kind") == "restore_pipeline":
             from core.modules.sigma_creative_lab.video.audio_export import validate_sigla_assets
@@ -180,7 +182,23 @@ def handle_editor_sigla_folders(self):
 def handle_editor_job_cancel(self):
     """POST /api/creative/editor/job/cancel {job_id}"""
     from core.modules.sigma_creative_lab.video.editor_jobs import editor_jobs
-    _ok(self, cancelled=editor_jobs().cancel(self.read_json_body().get("job_id", "")))
+    data = self.read_json_body()
+    if not isinstance(data, dict):
+        return _err(self, "I parametri del lavoro devono essere un oggetto JSON")
+    _ok(self, cancelled=editor_jobs().cancel(data.get("job_id", "")))
+
+
+def handle_editor_job_resume(self):
+    """Riprende solo operazioni con checkpoint, senza reiterare modifiche alla timeline."""
+    from core.modules.sigma_creative_lab.video.editor_jobs import editor_jobs
+    try:
+        data = self.read_json_body()
+        if not isinstance(data, dict):
+            raise ValueError("I parametri del lavoro devono essere un oggetto JSON")
+        job = editor_jobs().resume(data.get("job_id", ""))
+        _ok(self, job=job)
+    except ValueError as exc:
+        _err(self, str(exc))
 
 
 def handle_editor_voice(self):
@@ -355,6 +373,7 @@ POST_ROUTES = {
     "/api/creative/editor/rebuild": handle_editor_rebuild,
     "/api/creative/editor/job": handle_editor_job,
     "/api/creative/editor/job/cancel": handle_editor_job_cancel,
+    "/api/creative/editor/job/resume": handle_editor_job_resume,
     "/api/creative/editor/voice": handle_editor_voice,
     "/api/creative/editor/import_chunk": handle_editor_import_chunk,
     "/api/creative/editor/import": handle_editor_import,

@@ -163,7 +163,7 @@ export default function TrainingLab({ addToast: _addToast, onTasksUpdated, openT
         return data.datasets || [];
       }
       return [];
-    } catch (e) {
+    } catch {
       return [];
     }
   }, []);

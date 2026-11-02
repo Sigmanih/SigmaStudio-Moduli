@@ -186,7 +186,7 @@ export default function DatasetBrowser({ onDatasetSelect, onDatasetAdded, select
       const res = await fetch('/api/training/datasets');
       const data = await res.json();
       if (data.success) setMyDatasets(data.datasets || []);
-    } catch (e) {}
+    } catch {}
   }, []);
 
   // Load featured datasets on mount
@@ -196,7 +196,7 @@ export default function DatasetBrowser({ onDatasetSelect, onDatasetAdded, select
       const res = await fetch('/api/training/datasets/featured');
       const data = await res.json();
       if (data.success) setFeaturedCategories(data.categories || []);
-    } catch (e) {
+    } catch {
       setFeaturedCategories([]);
     } finally {
       setFeaturedLoading(false);
@@ -222,7 +222,7 @@ export default function DatasetBrowser({ onDatasetSelect, onDatasetAdded, select
       const res = await fetch(`/api/training/datasets/search?q=${encodeURIComponent(q.trim())}&limit=20`);
       const data = await res.json();
       if (data.success) setSearchResults(data.results || []);
-    } catch (e) {
+    } catch {
       setSearchResults([]);
     } finally {
       setSearching(false);
@@ -250,7 +250,7 @@ export default function DatasetBrowser({ onDatasetSelect, onDatasetAdded, select
         if (onDatasetAdded) onDatasetAdded();  // Notifica il padre di ricaricare
         setActiveTab('mine');
       }
-    } catch (e) {}
+    } catch {}
     setAddingId(null);
   };
 
@@ -326,7 +326,7 @@ export default function DatasetBrowser({ onDatasetSelect, onDatasetAdded, select
         setMyDatasets(prev => prev.filter(d => d.id !== dsId));
         if (selectedDatasetId === dsId && onDatasetSelect) onDatasetSelect(null);
       }
-    } catch (e) {}
+    } catch {}
   };
 
   const SUGGESTED = ['alpaca', 'dolly', 'openhermes', 'sharegpt', 'math', 'code', 'instruct', 'chat'];

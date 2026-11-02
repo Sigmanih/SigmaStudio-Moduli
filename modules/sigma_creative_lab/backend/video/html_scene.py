@@ -81,7 +81,7 @@ def wrap(html_body: str) -> str:
     """Pagina completa: se l'autore ha scritto solo il corpo, lo si avvolge nel contorno standard."""
     if "<html" in html_body.lower():
         return html_body.replace("<head>", "<head>" + HEAD.replace("{css}", BASE_CSS), 1)
-    return f"<!doctype html><html><head>{HEAD.replace("{css}", BASE_CSS)}</head><body>{html_body}</body></html>"
+    return f"<!doctype html><html><head>{HEAD.replace('{css}', BASE_CSS)}</head><body>{html_body}</body></html>"
 
 
 def _free_port() -> int:

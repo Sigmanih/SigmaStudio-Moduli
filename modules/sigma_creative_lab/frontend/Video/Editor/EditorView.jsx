@@ -1,12 +1,13 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Play, Pause, Undo2, Redo2, Download, Subtitles, ZoomIn, ZoomOut, SkipBack, RotateCcw, Loader2,
-  AlertTriangle, CheckCircle2, X, MessageSquare, SlidersHorizontal, Upload, Heading, Type, FilePlus2, GraduationCap,
+  X, MessageSquare, SlidersHorizontal, Upload, Heading, Type, FilePlus2, GraduationCap,
 } from 'lucide-react';
 import Player from './Player';
 import Timeline from './Timeline';
 import Inspector from './Inspector';
 import DialoguePanel from './DialoguePanel';
+import JobList from './JobList';
 import { OverlayLayer } from './Overlays';
 
 /*
@@ -15,15 +16,6 @@ import { OverlayLayer } from './Overlays';
  * la timeline aggiornata, e la UI si limita a mostrarla.
  */
 
-const JOB_LABEL = {
-  regen_range: 'Rigenera tratto', redo: 'Rifai elemento', recolor: 'Ricolora', upscale: 'Ingrandisci',
-  restore_clean: 'Pulisci pellicola', remaster: 'Restauro completo',
-  restore_read: 'Leggi i testi', restore_narrate: 'Narrazione', restore_score: 'Colonna sonora',
-  restore_pipeline: 'Pipeline di restauro',
-  restore_fetch: 'Scarica film', extend: 'Estendi', insert: 'Inserisci',
-  dialogue: 'Dialogo', voice_line: 'Battuta', music_range: 'Musica', export: 'Export', subtitles: 'Sottotitoli',
-  import: 'Importa', title: 'Titolo', scene: 'Scena didattica', lesson: 'Lezione animata', scene_redo: 'Rifai scena',
-};
 
 function LessonForm({ onCreate, onClose }) {
   const [topic, setTopic] = useState('');
@@ -157,6 +149,8 @@ export default function EditorView({ productionId, onPickProduction }) {
   const [zoom, setZoom] = useState(1);
   const [side, setSide] = useState('inspector');
   const [jobs, setJobs] = useState([]);
+  const [jobAction, setJobAction] = useState('');
+  const [jobError, setJobError] = useState('');
   const [error, setError] = useState('');
   const [uploads, setUploads] = useState([]);
   const [titleForm, setTitleForm] = useState(false);
@@ -177,7 +171,7 @@ export default function EditorView({ productionId, onPickProduction }) {
     catch (e) { setError(e.message); }
   }, [pid]);
 
-  useEffect(() => { setData(null); setMedia({}); setSelection(null); load(); }, [load]);
+  useEffect(() => { setData(null); setMedia({}); setSelection(null); setJobs([]); setJobError(''); load(); }, [load]);
 
   // Miniature, copie per lo scrubbing e forme d'onda: si chiedono una volta per elemento.
   useEffect(() => {
@@ -204,10 +198,11 @@ export default function EditorView({ productionId, onPickProduction }) {
       try {
         const d = await api(`/api/creative/editor/jobs?id=${encodeURIComponent(pid)}`);
         if (stop) return;
+        setJobError('');
         setJobs(d.jobs || []);
         const done = (d.jobs || []).filter(j => j.status === 'done').length;
         if (done !== lastDone) { lastDone = done; load(); }
-      } catch { /* il prossimo giro riprova */ }
+      } catch (e) { if (!stop) setJobError(e.message); }
     };
     poll();
     const t = setInterval(poll, 2500);
@@ -251,6 +246,21 @@ export default function EditorView({ productionId, onPickProduction }) {
       setUploads(u => u.filter(x => x.key !== key));
     }
   }, [pid, time]);
+
+  const updateJob = async (jobId, action) => {
+    if (jobAction) return;
+    setJobAction(jobId);
+    setError('');
+    try {
+      await api(`/api/creative/editor/job/${action}`, { job_id: jobId });
+      const snapshot = await api(`/api/creative/editor/jobs?id=${encodeURIComponent(pid)}`);
+      setJobs(snapshot.jobs || []);
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setJobAction('');
+    }
+  };
 
   const addText = () => {
     const t = player.current?.time() ?? time;
@@ -306,8 +316,7 @@ export default function EditorView({ productionId, onPickProduction }) {
   if (!data) return <div className="cs-prod-main"><p className="cs-hint"><Loader2 size={14} className="cs-spin-icon" /> Caricamento della timeline…</p></div>;
 
   const clipTrack = data.timeline.audio.find(t => t.kind === 'clip');
-  const active = jobs.filter(j => j.status === 'queued' || j.status === 'running');
-  const recent = jobs.filter(j => j.status === 'done' || j.status === 'error' || j.status === 'cancelled').slice(0, 4);
+
 
   return (
     <div className={`cs-ed ${dropping ? 'dropping' : ''}`}
@@ -387,23 +396,7 @@ export default function EditorView({ productionId, onPickProduction }) {
           {side === 'inspector'
             ? <Inspector pid={pid} data={data} selection={selection} time={time} onOp={op} onJob={job} onClear={() => setSelection(null)} />
             : <DialoguePanel pid={pid} data={data} time={time} onJob={job} onReload={load} />}
-          {(active.length > 0 || recent.length > 0) && (
-            <div className="cs-ed-jobs">
-              {[...active, ...recent].map(j => (
-                <div key={j.id} className={`cs-ed-job ${j.status}`}>
-                  {j.status === 'running' || j.status === 'queued' ? <Loader2 size={12} className="cs-spin-icon" />
-                    : j.status === 'done' ? <CheckCircle2 size={12} /> : <AlertTriangle size={12} />}
-                  <span>{JOB_LABEL[j.kind] || j.kind}</span>
-                  <span className="cs-prod-status" title={j.error}>{j.status === 'error' ? j.error : j.message}</span>
-                  {j.status === 'running' && <div className="cs-prod-bar"><div style={{ width: `${(j.progress || 0) * 100}%` }} /></div>}
-                  {(j.status === 'queued' || j.status === 'running') && (
-                    <button className="cs-ed-mini" title={j.status === 'running' ? 'Interrompi job attivo' : 'Rimuovi dalla coda'}
-                            onClick={() => api('/api/creative/editor/job/cancel', { job_id: j.id })}><X size={11} /></button>
-                  )}
-                </div>
-              ))}
-            </div>
-          )}
+          <JobList jobs={jobs} error={jobError} pending={Boolean(jobAction)} onAction={updateJob} />
           {error && <p className="cs-prod-error">{error}</p>}
         </div>
       </div>
