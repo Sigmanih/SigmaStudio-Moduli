@@ -334,8 +334,11 @@ def handle_editor_publication_preview(self):
         thumbnail = manifest.parent / 'miniatura.jpg'
         if thumbnail.stat().st_size > 2 * 1024 * 1024:
             raise ValueError('Miniatura troppo grande')
+        intro = manifest.parent / 'checks' / 'intro_verified.png'
+        intro_data = ('data:image/png;base64,' + base64.b64encode(intro.read_bytes()).decode('ascii')
+                      if intro.is_file() and intro.stat().st_size < 4 * 1024 * 1024 else None)
         _ok(self, identity=package.get('identity', {}), validation=package.get('validation', {}),
-            thumbnail='data:image/jpeg;base64,' + base64.b64encode(thumbnail.read_bytes()).decode('ascii'))
+            thumbnail='data:image/jpeg;base64,' + base64.b64encode(thumbnail.read_bytes()).decode('ascii'), intro=intro_data)
     except (OSError, ValueError, KeyError) as exc:
         _err(self, str(exc))
 

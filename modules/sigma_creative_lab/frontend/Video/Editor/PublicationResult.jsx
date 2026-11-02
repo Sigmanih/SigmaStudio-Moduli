@@ -22,6 +22,10 @@ export default function PublicationResult({ publication, projectId, jobId }) {
     {error && <p className="cs-prod-error" role="status">{error}</p>}
     {preview && <>
       <img className="cs-ed-publication-thumbnail" src={preview.thumbnail} alt={`Miniatura di ${preview.identity.title}`} />
+      {preview.intro && <details><summary>Fotogramma dell’intro verificata</summary>
+        <img className="cs-ed-publication-thumbnail" src={preview.intro} alt={`Intro di ${preview.identity.title} ${preview.identity.year}`} />
+      </details>}
+      <span>Durata master esportato: {Math.floor(preview.validation.duration / 3600)}:{String(Math.floor(preview.validation.duration / 60) % 60).padStart(2, '0')}:{(preview.validation.duration % 60).toFixed(3).padStart(6, '0')}. Audio separati verificati sulla stessa durata.</span>
       <span>{preview.identity.title} {preview.identity.year} · Controlli tecnici superati. Rivedi intro, testi e resa audiovisiva prima della pubblicazione.</span>
     </>}
   </div>;
