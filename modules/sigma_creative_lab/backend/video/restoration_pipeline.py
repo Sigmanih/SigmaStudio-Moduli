@@ -206,5 +206,5 @@ async def run(editor, job):
     prod = editor.prods.get(pid)
     prod.update(output_path=str(output), publication=publication)
     editor.prods.save(prod)
-    editor._note(job, 'Pronto per YouTube' if publication else 'Restauro completato', 1)
+    editor._note(job, 'Materiali completi · revisione editoriale richiesta' if publication else 'Restauro completato', 1)
     return {**result, **publication, 'output_path': str(output), 'languages': languages, 'stages': stages}

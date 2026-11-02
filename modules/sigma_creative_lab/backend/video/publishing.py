@@ -241,7 +241,7 @@ def create_package(video, directory, facts, cards, ask_text, progress=lambda mes
                            'include_sigla': bool(facts.get('include_sigla')), 'intro_duration': facts.get('intro_duration', 0)}
     package['validation'] = {**package['validation'], **validate_package(package, directory)}
     JsonStore(directory / 'youtube_package.json').save(package)
-    progress('Pacchetto YouTube completo e verificato', 1)
+    progress('Controlli tecnici superati · rivedi anteprima e materiali', 1)
     return {'package_path': str(directory / 'youtube_package.json'), 'package_dir': str(directory),
             'publication_ready': True, 'languages': languages, 'standard': STANDARD,
             'thumbnail_path': str(thumbnail), 'editorial_review_required': True}
