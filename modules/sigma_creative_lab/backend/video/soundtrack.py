@@ -102,7 +102,7 @@ async def generate_soundtrack(prod: dict, work_dir: Path, backend, progress=None
         tags = f"{base_tags}, {seg['scene']}" if cfg["instrumental"] else base_tags
         if cfg["instrumental"] and "orchestr" in tags.lower():
             tags += f", {ARRANGEMENTS[k % len(ARRANGEMENTS)]}"
-        tags += ", evolving melodic and harmonic development, contrasting musical phrases"
+        tags += ', ' + cfg.get('development', 'evolving melodic and harmonic development, contrasting musical phrases')
         seconds = seg["seconds"] + (fades[k] if k < len(fades) else 0.0)
         recipe = {"revision": SCORE_REVISION, "tags": tags, "seconds": seconds, "seed": seed0 + 101 * k,
                   "bpm": cfg["bpm"], "keyscale": cfg["keyscale"], "timesignature": cfg["timesignature"]}

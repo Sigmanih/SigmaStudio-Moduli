@@ -25,6 +25,21 @@ from core.modules.sigma_voice_studio.tts.kokoro_engine import KokoroEngine
 from core.modules.sigma_voice_studio.tts.xtts_engine import XttsEngine
 
 
+@pytest.fixture(autouse=True)
+def registra_rotte_del_modulo(monkeypatch):
+    from core.fastapi_app import FastAPIHandlerAdapter
+    from core.modules.sigma_voice_studio import handlers, tts_handler
+    # Il kernel isolato non carica automaticamente i moduli facoltativi.
+    monkeypatch.setattr(FastAPIHandlerAdapter, '_GET_HANDLERS', dict(FastAPIHandlerAdapter._GET_HANDLERS))
+    monkeypatch.setattr(FastAPIHandlerAdapter, '_POST_HANDLERS', dict(FastAPIHandlerAdapter._POST_HANDLERS))
+    monkeypatch.setattr(tts_handler, 'prewarm', lambda: None)
+    handlers.register_routes()
+
+
+def client():
+    return TestClient(app, base_url='http://127.0.0.1', client=('127.0.0.1', 50000))
+
+
 class _StubEngine(TTSEngine):
     """Engine that pretends to be installed and emits a short ramp."""
 
@@ -193,7 +208,7 @@ class TestEngineMetadata:
 
 class TestTtsEndpoints:
     def test_engines_endpoint_lists_status_and_default(self):
-        response = TestClient(app).get("/api/tts/engines")
+        response = client().get("/api/tts/engines")
         assert response.status_code == 200
         data = response.json()
         assert data["success"] is True
@@ -204,7 +219,7 @@ class TestTtsEndpoints:
         stub = _StubEngine()
         monkeypatch.setitem(registry._ENGINES, "stub", stub)
 
-        response = TestClient(app).post("/api/tts/speak", json={
+        response = client().post("/api/tts/speak", json={
             "text": "ciao mondo", "engine": "stub", "voice": "stub_voice",
         })
         assert response.status_code == 200
@@ -216,11 +231,11 @@ class TestTtsEndpoints:
             assert handle.getnframes() == 4
 
     def test_speak_rejects_empty_text(self):
-        response = TestClient(app).post("/api/tts/speak", json={"text": "  "})
+        response = client().post("/api/tts/speak", json={"text": "  "})
         assert response.status_code == 400
 
     def test_speak_refuses_the_browser_engine(self):
-        response = TestClient(app).post("/api/tts/speak", json={
+        response = client().post("/api/tts/speak", json={
             "text": "ciao", "engine": "browser",
         })
         assert response.status_code == 400
@@ -229,7 +244,7 @@ class TestTtsEndpoints:
         kokoro = registry.get_engine("kokoro")
         monkeypatch.setattr(kokoro, "is_installed", lambda: False)
 
-        response = TestClient(app).post("/api/tts/speak", json={
+        response = client().post("/api/tts/speak", json={
             "text": "ciao", "engine": "kokoro",
         })
         assert response.status_code == 503
@@ -239,7 +254,7 @@ class TestTtsEndpoints:
         stub = _StubEngine()
         monkeypatch.setitem(registry._ENGINES, "stub", stub)
 
-        TestClient(app).post("/api/tts/speak", json={
+        client().post("/api/tts/speak", json={
             "text": "a" * 5000, "engine": "stub",
         })
         assert len(stub.last_call[0]) == 1200
@@ -248,7 +263,7 @@ class TestTtsEndpoints:
         stub = _StubEngine()
         monkeypatch.setitem(registry._ENGINES, "stub", stub)
 
-        TestClient(app).post("/api/tts/speak", json={
+        client().post("/api/tts/speak", json={
             "text": "ciao", "engine": "stub", "speed": 99,
         })
         assert stub.last_call[2] == 2.0

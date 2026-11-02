@@ -1,15 +1,15 @@
 {
   "id": "sigma_voice_studio",
-  "name": "Voice Studio & Neural Speech Lab",
-  "version": "v1.0.0",
+  "name": "AudioStudio — Musica e Voci",
+  "version": "v1.1.0",
   "category": "Audio & Voce Neurale",
   "tabType": "voice_studio",
-  "sidebarLabel": "Voice Studio",
-  "sidebarIcon": "Mic",
-  "sidebarBadge": "TTS",
+  "sidebarLabel": "AudioStudio",
+  "sidebarIcon": "Music",
+  "sidebarBadge": "AUDIO",
   "sidebarBadgeColor": "rgba(255,121,198,0.15)",
   "sidebarCategory": "Studio Generativo & Agenti AI",
-  "description": "Laboratorio di sintesi vocale neurale: motore Kokoro 82M ultra-veloce, Coqui XTTS-v2 zero-shot voice cloning, personalizzazione tono/velocità, preset vocali e Voice MCP Server.",
+  "description": "Musica strumentale locale con ACE-Step, preset lo-fi, ambient, piano neoclassico e cyber ambient, anteprime scaricabili, sintesi vocale e libreria delle voci.",
   "author": "Sigma Core Team",
   "repository": "https://github.com/Sigmanih/SigmaStudio-Moduli",
   "branch": "main",
@@ -27,6 +27,11 @@
   "color": "#ff79c6",
   "requirements": "requirements.txt",
   "changelog": [
+    {
+      "version": "v1.1.0",
+      "date": "2026-11-02",
+      "notes": "Trasforma Voice Studio in AudioStudio con quattro generi musicali, anteprime e sessioni lunghe, coda persistente e verifica degli audio."
+    },
     {
       "version": "v1.0.0",
       "date": "2026-08-15",
@@ -46,5 +51,8 @@
     ],
     "install_to": "sigma_studio/src/modules/sigma_voice_studio/"
   },
-  "kernel_modules_required": []
+  "kernel_modules_required": [],
+  "min_kernel_version": "0.9.5",
+  "kernel_api": 1,
+  "required_kernel_features": ["persistent_jobs", "resource_reservations"]
 }

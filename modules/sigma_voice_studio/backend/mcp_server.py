@@ -14,12 +14,29 @@ class VoiceMCPServer(BaseMCPServer):
     def __init__(self):
         super().__init__(
             name="Voice MCP",
-            version="1.0.0",
-            description="Sintesi vocale neurale, gestione voci e clonazione vocale"
+            version="1.1.0",
+            description="AudioStudio: musica strumentale, sintesi vocale, gestione e clonazione delle voci"
         )
         self._init_tools()
 
     def _init_tools(self):
+        self.register_tool(
+            name='list_music_presets', description='Elenca generi musicali e disponibilità del motore locale di AudioStudio.',
+            input_schema={'type': 'object', 'properties': {}}, handler=self._handle_music_presets,
+            safety=SAFE, category='music')
+        self.register_tool(
+            name='generate_study_music', description='Accoda una base strumentale locale; restituisce il job da seguire con music_jobs. Due minuti sono una anteprima. Non pubblica online.',
+            input_schema={'type': 'object', 'properties': {
+                'genre': {'type': 'string', 'enum': ['lofi_study', 'deep_focus', 'neoclassical', 'cyber_ambient']},
+                'duration': {'type': 'integer', 'enum': [120, 300, 900, 1800], 'default': 120},
+                'prompt': {'type': 'string', 'maxLength': 1200},
+                'seed': {'type': 'integer', 'minimum': 0, 'maximum': 2147483647},
+                'bpm': {'type': 'integer', 'minimum': 40, 'maximum': 140}}, 'required': ['genre']},
+            handler=self._handle_generate_music, safety=SAFE, category='music')
+        self.register_tool(
+            name='music_jobs', description='Legge lo stato delle composizioni e i percorsi WAV/MP3 prodotti da AudioStudio.',
+            input_schema={'type': 'object', 'properties': {}}, handler=self._handle_music_jobs,
+            safety=SAFE, category='music')
         self.register_tool(
             name="synthesize_speech",
             description="Synthesize input text into WAV audio using Kokoro or XTTS neural engine.",
@@ -74,3 +91,18 @@ class VoiceMCPServer(BaseMCPServer):
 
     def _handle_list_voices(self, args: dict) -> dict:
         return {"success": True, "engines": list_engines()}
+
+    def _handle_music_presets(self, args):
+        from .music import PRESETS, status
+        return {'success': True, 'presets': list(PRESETS), **status()}
+
+    def _handle_generate_music(self, args):
+        from .music import music_service
+        try:
+            return {'success': True, 'job': music_service().submit(args)}
+        except (ValueError, RuntimeError) as exc:
+            return {'success': False, 'error': str(exc)}
+
+    def _handle_music_jobs(self, args):
+        from .music import music_service
+        return {'success': True, 'jobs': music_service().list()}

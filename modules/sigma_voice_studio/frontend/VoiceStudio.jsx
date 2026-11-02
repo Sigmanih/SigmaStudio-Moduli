@@ -27,7 +27,7 @@ export default function VoiceStudio() {
   const [speed, setSpeed] = useState(1.1);
   const [pitch, setPitch] = useState(1.0);
   const [volume, setVolume] = useState(1.0);
-  const [text, setText] = useState('Ciao! Questo è il Voice Studio di Sigma. Qui puoi personalizzare, testare e costruire la voce ideale per i tuoi assistenti AI.');
+  const [text, setText] = useState('Ciao! Questo è AudioStudio di Sigma. Qui puoi personalizzare, testare e costruire la voce ideale per i tuoi assistenti AI.');
 
   const [audioUrl, setAudioUrl] = useState(null);
   const [isPlaying, setIsPlaying] = useState(false);
@@ -189,7 +189,7 @@ export default function VoiceStudio() {
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', width: '100%', overflow: 'hidden' }}>
       <TabHeader
         icon={Mic}
-        title="Voice Studio"
+        title="Voci e narrazione"
         highlight="SINTESI VOCALE"
         description="Configuratore e sintetizzatore vocale neurale multi-engine (Kokoro, Piper, Browser Speech)"
         actions={
