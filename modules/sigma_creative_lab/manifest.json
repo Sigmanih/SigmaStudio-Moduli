@@ -42,6 +42,11 @@
   ],
   "changelog": [
     {
+      "version": "v1.2.0",
+      "date": "2026-11-02",
+      "notes": "Riorganizza Creative in tre aree, aggiungi profili modello e skill operative, valida i workflow e conserva le scelte del generatore."
+    },
+    {
       "version": "v1.0.0",
       "date": "2026-08-15",
       "notes": "Initial release — extracted from Sigma Studio kernel. Full creative pipeline: T2I, 3D, video, PBR materials, node editor."
@@ -62,7 +67,7 @@
     "install_to": "sigma_studio/src/modules/sigma_creative_lab/"
   },
   "kernel_modules_required": [],
-  "min_kernel_version": "0.9.1",
+  "min_kernel_version": "0.9.2",
   "kernel_api": 1,
   "required_kernel_features": [
     "persistent_jobs",
