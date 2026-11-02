@@ -1,22 +1,16 @@
-import React, { useState, useEffect, useCallback, useMemo, Suspense, lazy } from 'react';
-import {
-  Wand2, Edit3, Box, Hexagon, Layers, Workflow, Film, Cpu,
-  Database, X, Upload, Search, Download, Trash2, CheckCircle2,
-  Sparkles, Sliders, LayoutGrid, List, Play, Scissors, ChevronRight,
-  RefreshCw, Eye, Palette
-} from 'lucide-react';
+import React, { useState, useEffect, useCallback, Suspense, lazy } from 'react';
+import { Wand2, Edit3, Box, Hexagon, Layers, Workflow, Cpu, X, RefreshCw, Palette, Library } from 'lucide-react';
 import { useApp } from '../../contexts/AppContext';
-import TechSpaceCanvas from '../common/TechSpaceCanvas';
 import TabHeader from '../../components/common/TabHeader';
 import GeneratePanel from './Generate/GeneratePanel';
 import EditCanvas from './Edit/EditCanvas';
 import MeshLab from './MeshLab/MeshLab';
 import MaterialsPanel from './Materials/MaterialsPanel';
-import VideoPanel from './Video/VideoPanel';
 import ModelsPanel from './Models/ModelsPanel';
 import CreativeNodeEditor from './NodeEditor/CreativeNodeEditor';
-import BackendStatus from './shared/BackendStatus';
-import ProgressOverlay from './shared/ProgressOverlay';
+import AssetLibrary from './AssetLibrary';
+import { IMAGE_DRAFT, draftFromAsset, selectImageModel } from './Generate/imageCreation';
+import '../../styles/03-modules/creative-workspace.css';
 import { useCreativeApi } from './useCreativeApi';
 import { useCreativeModels } from './useCreativeModels';
 
@@ -25,65 +19,49 @@ const Viewport3D = lazy(() => import('./Viewport3D/Viewport3D'));
 
 const VIEWS = [
   { id: 'generate', label: '2D Generator', icon: Wand2, badge: 'SDXL' },
-  { id: 'edit', label: 'Ritocco & Edit', icon: Edit3, badge: 'INPAINT' },
-  { id: '3d', label: '3D Viewport', icon: Box, badge: 'THREE.JS' },
+  { id: 'edit', label: 'Ritocco', icon: Edit3, badge: 'INPAINT' },
+  { id: '3d', label: 'Studio 3D', icon: Box, badge: 'THREE.JS' },
   { id: 'mesh', label: 'Mesh Lab', icon: Hexagon, badge: 'BLENDER' },
   { id: 'materials', label: 'Materiali PBR', icon: Layers, badge: 'TEXTURE' },
-  { id: 'video', label: 'Video Studio', icon: Film, badge: 'MOTION' },
   { id: 'pipeline', label: 'Pipeline Nodi', icon: Workflow, badge: 'COMFY' },
   { id: 'models', label: 'Modelli AI', icon: Cpu, badge: 'DIFFUSION' },
 ];
 
-const ASSET_FILTERS = [
-  { id: 'all', label: 'Tutti' },
-  { id: 'image', label: 'Immagini' },
-  { id: 'model_3d', label: '3D' },
-  { id: 'video', label: 'Video' },
-  { id: 'material', label: 'Materiali' },
-];
-
 export default function CreativeStudio() {
   const { theme } = useApp();
-  const isLight = theme === 'light';
 
   const [activeView, setActiveView] = useState('generate');
   const [assets, setAssets] = useState([]);
   const [selectedAsset, setSelectedAsset] = useState(null);
-  const [assetSearch, setAssetSearch] = useState('');
-  const [assetFilter, setAssetFilter] = useState('all');
+  const [libraryOpen, setLibraryOpen] = useState(false);
+  const [imageDraft, setImageDraft] = useState(IMAGE_DRAFT);
+  const [pipelineDraft, setPipelineDraft] = useState({ nodes: [], connections: [] });
+  const [studioError, setStudioError] = useState('');
 
   const [backends, setBackends] = useState([]);
   const [capabilities, setCapabilities] = useState({});
   const [stats, setStats] = useState({ total: 0 });
 
   const { runTask, busy, error, clearError } = useCreativeApi();
-  const { models, inventory, refresh: refreshModels } = useCreativeModels();
+  const { models, inventory, loading: modelsLoading, error: modelsError, meta, refresh: refreshModels } = useCreativeModels();
   const uploadInputRef = React.useRef(null);
-
-  // Theme styling tokens
-  const bg = isLight ? '#fcfaf6' : '#0b0d13';
-  const cardBg = isLight ? '#fffdf9' : '#11141d';
-  const cardBorder = isLight ? '1px solid rgba(190, 160, 110, 0.3)' : '1px solid rgba(255, 255, 255, 0.08)';
-  const innerCardBg = isLight ? '#f8f5ee' : 'rgba(255, 255, 255, 0.035)';
-  const innerCardBorder = isLight ? '1px solid rgba(190, 160, 110, 0.22)' : '1px solid rgba(255, 255, 255, 0.06)';
-  const titleColor = isLight ? '#111827' : '#ffffff';
-  const subtitleColor = isLight ? '#4b5563' : '#a0a6bc';
 
   const fetchAssets = useCallback(() => (
     fetch('/api/creative/assets?limit=200')
-      .then(r => r.json())
-      .then(data => { if (data.success && Array.isArray(data.assets)) setAssets(data.assets); })
-      .catch(() => {})
+      .then(async r => { const data = await r.json(); if (!r.ok || !data.success) throw new Error(data.error || 'Impossibile leggere la libreria Creative.'); return data; })
+      .then(data => { if (Array.isArray(data.assets)) setAssets(data.assets); })
+      .catch(e => setStudioError(e.message))
   ), []);
 
   const fetchCreativeData = useCallback(() => {
+    setStudioError('');
     fetchAssets();
     fetch('/api/creative/backends/status').then(r => r.json()).then(data => {
       if (data.success) {
         setBackends(data.backends || []);
         setCapabilities(data.capabilities || {});
       }
-    }).catch(() => {});
+    }).catch(() => setStudioError('Impossibile verificare i motori Creative. Premi Aggiorna Creative per riprovare.'));
     fetch('/api/creative/stats').then(r => r.json()).then(data => {
       if (data.success) setStats(data.stats || { total: 0 });
     }).catch(() => {});
@@ -154,12 +132,6 @@ export default function CreativeStudio() {
       .catch(() => {})
   ), [runTask, registerAssets]);
 
-  const handleVideo = useCallback((task_type, params = {}) => (
-    runTask('/api/creative/video', { task_type, params }, { label: `Video: ${task_type}` })
-      .then(data => registerAssets(data.asset))
-      .catch(() => {})
-  ), [runTask, registerAssets]);
-
   const handleSegment = useCallback((asset_id, prompt = '') => (
     runTask('/api/creative/segment', { asset_id, params: { prompt } }, { label: 'Segmentazione' })
       .then(data => registerAssets(data.asset))
@@ -167,7 +139,9 @@ export default function CreativeStudio() {
   ), [runTask, registerAssets]);
 
   const handleUpload = useCallback((file) => {
+    if (!file?.type?.startsWith('image/')) { setStudioError('Scegli un file immagine. I video si importano nel modulo Film e manga.'); return; }
     const reader = new FileReader();
+    reader.onerror = () => setStudioError('Il file non è leggibile. Prova a importarlo nuovamente.');
     reader.onload = () => {
       runTask('/api/creative/upload', { name: file.name, image: reader.result }, { label: 'Upload Asset' })
         .then(data => registerAssets(data.asset))
@@ -181,21 +155,14 @@ export default function CreativeStudio() {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ asset_id }),
-    }).then(() => {
+    }).then(async response => {
+      const data = await response.json();
+      if (!response.ok || !data.success) throw new Error(data.error || 'Eliminazione non riuscita');
       setAssets(prev => prev.filter(a => a.id !== asset_id));
       setSelectedAsset(prev => (prev?.id === asset_id ? null : prev));
       fetchCreativeData();
-    }).catch(() => {});
+    }).catch(e => setStudioError(e.message));
   }, [fetchCreativeData]);
-
-  // Filtered assets
-  const filteredAssets = useMemo(() => {
-    return assets.filter(a => {
-      const matchType = assetFilter === 'all' || a.type === assetFilter || (assetFilter === '3d' && (a.type === 'mesh' || a.type === 'model_3d'));
-      const matchSearch = !assetSearch.trim() || a.name?.toLowerCase().includes(assetSearch.toLowerCase().trim());
-      return matchType && matchSearch;
-    });
-  }, [assets, assetFilter, assetSearch]);
 
   // Render main canvas for active view
   const renderCanvas = () => {
@@ -204,13 +171,18 @@ export default function CreativeStudio() {
         return (
           <GeneratePanel
             onGenerate={handleGenerate}
-            onUpload={handleUpload}
+            onUpload={() => uploadInputRef.current?.click()}
             isGenerating={!!busy}
             backends={backends}
             models={models}
             inventory={inventory}
             recentAssets={assets.filter(a => a.type === 'image' || a.type === 'render')}
             onSelectAsset={setSelectedAsset}
+            selectedAsset={selectedAsset} draft={imageDraft} onDraftChange={setImageDraft}
+            loading={modelsLoading} modelError={modelsError} onRefreshModels={refreshModels}
+            onManageModels={() => setActiveView('models')}
+            onEditAsset={asset => { setSelectedAsset(asset); setActiveView('edit'); }}
+            onReuseAsset={asset => setImageDraft(previous => draftFromAsset(asset, previous))}
           />
         );
       case 'edit':
@@ -220,6 +192,7 @@ export default function CreativeStudio() {
             busy={!!busy}
             capabilities={capabilities}
             onEdit={handleEdit}
+            onChooseAsset={() => setLibraryOpen(true)}
             onUpscale={handleUpscale}
             onSegment={handleSegment}
           />
@@ -233,6 +206,7 @@ export default function CreativeStudio() {
               canGenerate3D={(capabilities.image_to_3d || []).length > 0}
               blenderAvailable={(capabilities.render || []).length > 0}
               onGenerate3D={handle3D}
+              onChooseAsset={() => setLibraryOpen(true)}
               onRender={handleRender}
             />
           </Suspense>
@@ -244,6 +218,7 @@ export default function CreativeStudio() {
             busy={!!busy}
             blenderAvailable={(capabilities.render || []).length > 0}
             onMeshOp={handleMesh}
+            onChooseAsset={() => setLibraryOpen(true)}
           />
         );
       case 'materials':
@@ -256,376 +231,41 @@ export default function CreativeStudio() {
             onMaterial={handleMaterial}
           />
         );
-      case 'video':
-        return (
-          <VideoPanel
-            asset={selectedAsset}
-            assets={assets}
-            busy={!!busy}
-            canVideo={((capabilities.text_to_video || []).length + (capabilities.image_to_video || []).length) > 0}
-            onVideo={handleVideo}
-          />
-        );
       case 'pipeline':
-        return <CreativeNodeEditor assets={assets} onAssetsProduced={registerAssets} />;
+        return <CreativeNodeEditor assets={assets} onAssetsProduced={registerAssets} draft={pipelineDraft} onDraftChange={setPipelineDraft} />;
       case 'models':
-        return <ModelsPanel models={models} inventory={inventory} onRefresh={refreshModels} />;
+        return <ModelsPanel models={models} inventory={inventory} meta={meta} loading={modelsLoading} error={modelsError} onRefresh={refreshAll} onOpenPipeline={() => setActiveView('pipeline')} onOpenSkill={id => setActiveView(id === 'creative-images' ? 'generate' : id === 'creative-3d-materials' ? '3d' : 'pipeline')} onUseModel={model => { setImageDraft(previous => selectImageModel(previous, { model_id: model.id }, model)); setActiveView('generate'); }} />;
       default:
         return null;
     }
   };
 
-  return (
-    <div className="creative-studio cs-fade-in" style={{
-      display: 'flex',
-      flexDirection: 'column',
-      height: '100%',
-      width: '100%',
-      background: bg,
-      color: titleColor,
-      fontFamily: 'inherit',
-      overflow: 'hidden',
-      position: 'relative'
-    }}>
-      <TechSpaceCanvas isLight={isLight} />
-
-      {/* Intestazione Universale Kernel Sigma Studio con View Switcher */}
-      <TabHeader
-        icon={Palette}
-        title="Creative Lab"
-        highlight="3D & 2D STUDIO"
-        tabs={VIEWS.map(v => ({
-          id: v.id,
-          label: v.label,
-          icon: v.icon,
-          active: activeView === v.id,
-          onClick: () => setActiveView(v.id)
-        }))}
-        description={`${stats.total ?? assets.length} asset generati · Studio generativo 2D/3D con FLUX, SDXL e Blender`}
-        actions={
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <BackendStatus backends={backends} />
-            <button
-              onClick={fetchCreativeData}
-              title="Ricarica asset e stato backends"
-              style={{
-                background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.12)',
-                borderRadius: '6px', padding: '4px 10px', color: 'inherit', cursor: 'pointer',
-                display: 'flex', alignItems: 'center', gap: '5px', fontSize: '0.72rem', fontWeight: 600
-              }}
-            >
-              <RefreshCw size={12} />
-            </button>
-          </div>
-        }
-      />
-
-      {error && (
-        <div style={{
-          padding: '8px 16px',
-          background: 'rgba(239, 68, 68, 0.15)',
-          borderBottom: '1px solid #ef4444',
-          color: '#ef4444',
-          fontSize: '0.78rem',
-          fontWeight: 700,
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          zIndex: 10
-        }}>
-          <span>{error}</span>
-          <button onClick={clearError} style={{ background: 'none', border: 'none', color: '#ef4444', cursor: 'pointer' }}>
-            <X size={14} />
-          </button>
-        </div>
-      )}
-
-      {/* TWO-COLUMN STUDIO WORKBENCH */}
-      <div style={{
-        display: 'flex',
-        flex: 1,
-        height: 'calc(100% - 65px)',
-        overflow: 'hidden',
-        position: 'relative'
-      }}>
-        {/* COLUMN 1: LEFT CONTROL & ASSET HUB */}
-        <aside style={{
-          width: '330px',
-          minWidth: '290px',
-          maxWidth: '360px',
-          flexShrink: 0,
-          background: cardBg,
-          borderRight: cardBorder,
-          display: 'flex',
-          flexDirection: 'column',
-          height: '100%',
-          overflow: 'hidden',
-          zIndex: 5
-        }}>
-          {/* Asset Hub Header & Upload */}
-          <div style={{ padding: '12px 14px', borderBottom: innerCardBorder }}>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '10px' }}>
-              <span style={{ fontSize: '0.82rem', fontWeight: 800, color: titleColor }}>
-                📦 Libreria Asset ({filteredAssets.length})
-              </span>
-              <button
-                onClick={() => uploadInputRef.current?.click()}
-                style={{
-                  padding: '4px 10px',
-                  borderRadius: '8px',
-                  background: 'rgba(0, 210, 255, 0.15)',
-                  border: '1px solid rgba(0, 210, 255, 0.3)',
-                  color: '#00d2ff',
-                  fontSize: '0.7rem',
-                  fontWeight: 700,
-                  cursor: 'pointer',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '4px'
-                }}
-              >
-                <Upload size={12} /> Carica
-              </button>
-              <input
-                ref={uploadInputRef}
-                type="file"
-                accept="image/*"
-                hidden
-                onChange={e => { const f = e.target.files?.[0]; if (f) handleUpload(f); e.target.value = ''; }}
-              />
-            </div>
-
-            {/* Search Input */}
-            <div style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: '6px',
-              padding: '5px 10px',
-              borderRadius: '8px',
-              background: innerCardBg,
-              border: innerCardBorder,
-              marginBottom: '8px'
-            }}>
-              <Search size={12} color={subtitleColor} />
-              <input
-                type="text"
-                placeholder="Cerca per nome..."
-                value={assetSearch}
-                onChange={e => setAssetSearch(e.target.value)}
-                style={{
-                  background: 'transparent',
-                  border: 'none',
-                  color: titleColor,
-                  fontSize: '0.74rem',
-                  outline: 'none',
-                  width: '100%'
-                }}
-              />
-            </div>
-
-            {/* Type Filter Pills */}
-            <div style={{ display: 'flex', gap: '4px', overflowX: 'auto', paddingBottom: '2px' }}>
-              {ASSET_FILTERS.map(f => (
-                <button
-                  key={f.id}
-                  onClick={() => setAssetFilter(f.id)}
-                  style={{
-                    padding: '3px 8px',
-                    borderRadius: '6px',
-                    fontSize: '0.66rem',
-                    fontWeight: 700,
-                    border: 'none',
-                    background: assetFilter === f.id ? '#00d2ff' : 'transparent',
-                    color: assetFilter === f.id ? '#000000' : subtitleColor,
-                    cursor: 'pointer',
-                    whiteSpace: 'nowrap'
-                  }}
-                >
-                  {f.label}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          {/* Scrollable Asset List */}
-          <div style={{
-            flex: 1,
-            overflowY: 'auto',
-            padding: '10px 12px',
-            display: 'grid',
-            gridTemplateColumns: 'repeat(2, 1fr)',
-            gap: '8px',
-            alignContent: 'flex-start'
-          }}>
-            {filteredAssets.length === 0 ? (
-              <div style={{ gridColumn: '1 / -1', padding: '24px 12px', textAlign: 'center', color: subtitleColor, fontSize: '0.74rem' }}>
-                Nessun asset presente. Genera o carica una nuova opera!
-              </div>
-            ) : (
-              filteredAssets.map(a => {
-                const isSelected = selectedAsset?.id === a.id;
-                return (
-                  <div
-                    key={a.id}
-                    onClick={() => setSelectedAsset(a)}
-                    onDoubleClick={() => {
-                      setSelectedAsset(a);
-                      setActiveView(a.type === 'model_3d' || a.type === 'mesh' ? '3d' : 'edit');
-                    }}
-                    style={{
-                      borderRadius: '10px',
-                      overflow: 'hidden',
-                      background: innerCardBg,
-                      border: isSelected ? '2px solid #00d2ff' : innerCardBorder,
-                      cursor: 'pointer',
-                      display: 'flex',
-                      flexDirection: 'column',
-                      position: 'relative',
-                      boxShadow: isSelected ? '0 0 12px rgba(0, 210, 255, 0.25)' : 'none',
-                      transition: 'all 0.15s ease'
-                    }}
-                  >
-                    <div style={{ width: '100%', height: '80px', background: 'rgba(0,0,0,0.25)', overflow: 'hidden', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                      {a.url ? (
-                        <img src={a.url} alt={a.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-                      ) : (
-                        <Box size={22} color={subtitleColor} />
-                      )}
-                    </div>
-                    <div style={{ padding: '6px 8px' }}>
-                      <div style={{ fontSize: '0.7rem', fontWeight: 700, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                        {a.name || 'Senza titolo'}
-                      </div>
-                      <div style={{ fontSize: '0.62rem', color: subtitleColor, display: 'flex', justifyContent: 'space-between', marginTop: '2px' }}>
-                        <span style={{ textTransform: 'uppercase' }}>{a.type || 'image'}</span>
-                        {a.dimensions && <span>{a.dimensions.width}×{a.dimensions.height}</span>}
-                      </div>
-                    </div>
-                  </div>
-                );
-              })
-            )}
-          </div>
-
-          {/* Selected Asset Quick Inspector (Bottom Card) */}
-          {selectedAsset && (
-            <div style={{
-              padding: '12px 14px',
-              borderTop: cardBorder,
-              background: innerCardBg,
-              display: 'flex',
-              flexDirection: 'column',
-              gap: '8px'
-            }}>
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                <span style={{ fontSize: '0.74rem', fontWeight: 800, color: titleColor }}>
-                  🔍 Azioni su Asset
-                </span>
-                <span style={{ fontSize: '0.65rem', color: '#00d2ff', fontWeight: 700 }}>
-                  {selectedAsset.name?.slice(0, 18) || 'Asset selezionato'}
-                </span>
-              </div>
-
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '6px' }}>
-                <button
-                  onClick={() => handleUpscale(selectedAsset.id, 2)}
-                  style={{
-                    padding: '5px 8px',
-                    borderRadius: '6px',
-                    background: cardBg,
-                    border: innerCardBorder,
-                    color: titleColor,
-                    fontSize: '0.68rem',
-                    fontWeight: 700,
-                    cursor: 'pointer',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '4px'
-                  }}
-                >
-                  <Sparkles size={11} color="#00d2ff" /> Upscale 2x
-                </button>
-
-                <button
-                  onClick={() => {
-                    setActiveView('3d');
-                    handle3D('image_to_3d', { source_asset_id: selectedAsset.id });
-                  }}
-                  style={{
-                    padding: '5px 8px',
-                    borderRadius: '6px',
-                    background: cardBg,
-                    border: innerCardBorder,
-                    color: titleColor,
-                    fontSize: '0.68rem',
-                    fontWeight: 700,
-                    cursor: 'pointer',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '4px'
-                  }}
-                >
-                  <Box size={11} color="#bc8cff" /> Genera 3D
-                </button>
-
-                <button
-                  onClick={() => {
-                    setActiveView('video');
-                    handleVideo('image_to_video', { source_asset_id: selectedAsset.id });
-                  }}
-                  style={{
-                    padding: '5px 8px',
-                    borderRadius: '6px',
-                    background: cardBg,
-                    border: innerCardBorder,
-                    color: titleColor,
-                    fontSize: '0.68rem',
-                    fontWeight: 700,
-                    cursor: 'pointer',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '4px'
-                  }}
-                >
-                  <Film size={11} color="#ea580c" /> Anima Video
-                </button>
-
-                <button
-                  onClick={() => handleDelete(selectedAsset.id)}
-                  style={{
-                    padding: '5px 8px',
-                    borderRadius: '6px',
-                    background: 'rgba(239, 68, 68, 0.1)',
-                    border: '1px solid rgba(239, 68, 68, 0.25)',
-                    color: '#ef4444',
-                    fontSize: '0.68rem',
-                    fontWeight: 700,
-                    cursor: 'pointer',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '4px'
-                  }}
-                >
-                  <Trash2 size={11} /> Elimina
-                </button>
-              </div>
-            </div>
-          )}
-        </aside>
-
-        {/* COLUMN 2: MAIN INTERACTIVE STUDIO WORKBENCH */}
-        <main style={{
-          flex: 1,
-          height: '100%',
-          overflowY: 'auto',
-          display: 'flex',
-          flexDirection: 'column',
-          position: 'relative'
-        }}>
-          {renderCanvas()}
-          {busy && <ProgressOverlay label={busy.label} progress={busy.progress} status={busy.message} />}
-        </main>
-      </div>
+  const refreshAll = useCallback(() => { fetchCreativeData(); return refreshModels(); }, [fetchCreativeData, refreshModels]);
+  const openAsset = asset => {
+    setSelectedAsset(asset);
+    if (['image', 'render'].includes(asset.type)) setActiveView('edit');
+    else if (['mesh', 'model_3d'].includes(asset.type)) setActiveView('3d');
+    else if (asset.type === 'material') setActiveView('materials');
+    else setStudioError('I video si aprono dal modulo autonomo Film e manga.');
+  };
+  return <div className="creative-studio cs-workspace" data-theme={theme} data-agent-component="CreativeStudio" data-agent-id="creative-studio">
+    <TabHeader icon={Palette} title="Creative" description={`${stats.total ?? assets.length} creazioni nella tua libreria`}
+      tabs={[
+        { id: 'generate', label: 'Immagini', icon: Wand2, views: ['generate', 'edit'] },
+        { id: '3d', label: '3D e materiali', icon: Box, views: ['3d', 'mesh', 'materials'] },
+        { id: 'models', label: 'Modelli e skill', icon: Cpu, views: ['models', 'pipeline'] },
+      ].map(v => ({ id: v.id, label: v.label, icon: v.icon, active: v.views.includes(activeView), onClick: () => setActiveView(v.id) }))}
+      actions={<div className="cs-workspace-actions">
+        <button className="cs-secondary-button" aria-expanded={libraryOpen} onClick={() => setLibraryOpen(v => !v)}><Library size={15} /> Libreria</button>
+        <button className="cs-icon-button" aria-label="Aggiorna Creative" onClick={refreshAll}><RefreshCw size={16} /></button>
+      </div>} />
+    <nav className="cs-context-tools" aria-label="Operazioni creative">{VIEWS.filter(v => ['generate', 'edit'].includes(activeView) ? ['generate', 'edit'].includes(v.id) : ['3d', 'mesh', 'materials'].includes(activeView) ? ['3d', 'mesh', 'materials'].includes(v.id) : ['models', 'pipeline'].includes(v.id)).map(v => <button key={v.id} className="cs-choice" aria-pressed={activeView === v.id} onClick={() => setActiveView(v.id)}><v.icon size={15} />{v.label}</button>)}</nav>
+    {(error || studioError) && <div className="cs-studio-error" role="alert"><span>{error || studioError}</span><button className="cs-icon-button" aria-label="Chiudi messaggio" onClick={() => { clearError(); setStudioError(''); }}><X size={16} /></button></div>}
+    {busy && <div className="cs-task-status" role="status" aria-live="polite"><span className="cs-status-dot" /><strong>{busy.label}</strong><span>{busy.message || 'Attendo il risultato dal modello…'}</span></div>}
+    <input ref={uploadInputRef} type="file" accept="image/*" hidden onChange={e => { const file = e.target.files?.[0]; if (file) handleUpload(file); e.target.value = ''; }} />
+    <div className="cs-workbench">
+      {libraryOpen && <AssetLibrary assets={assets} selectedAsset={selectedAsset} busy={!!busy} onSelect={setSelectedAsset} onOpen={openAsset} onUpload={() => uploadInputRef.current?.click()} onDelete={handleDelete} onClose={() => setLibraryOpen(false)} />}
+      <main className="cs-workspace-main" aria-label={VIEWS.find(v => v.id === activeView)?.label || 'Creative'}>{renderCanvas()}</main>
     </div>
-  );
+  </div>;
 }

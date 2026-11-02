@@ -31,6 +31,7 @@ export default function ModelInventory({ onRefresh }) {
 
   const load = useCallback(() => {
     setBusy(true);
+    setError(null);
     return fetch('/api/creative/models/inventory')
       .then(r => r.json())
       .then(d => (d.success ? setData(d) : setError(d.error)))
@@ -40,7 +41,7 @@ export default function ModelInventory({ onRefresh }) {
 
   useEffect(() => { load(); }, [load]);
 
-  if (error) return <div className="cs-banner warn"><AlertTriangle size={15} /><span>{error}</span></div>;
+  if (error) return <div className="cs-banner warn" role="alert"><AlertTriangle size={15} /><span>{error}</span><button className="cs-secondary-button" onClick={load}>Riprova</button></div>;
   if (!data) return <p className="cs-hint">Lettura inventario...</p>;
 
   const categories = Object.entries(data.categories).filter(([, c]) => c.models.length);

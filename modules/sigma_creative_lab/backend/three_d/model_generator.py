@@ -51,12 +51,17 @@ class ModelGenerator3D:
         backend è raggiungibile *e* sa eseguire la capability (per ComfyUI questo
         significa avere il workflow custom installato).
         """
+        task.backend = task.params.pop("backend", None)
+        explicit = bool(task.backend or task.params.get("model_id"))
         model, backend = await self.model_router.select(task)
         if model and backend:
             adapter = self._adapter_for_backend(backend, capability)
             if adapter is not None:
                 task.params = self.model_router.apply_model(task.params, model, backend)
                 return model, backend, adapter
+
+        if explicit:
+            raise ValueError("Il modello o il motore 3D scelto non e' disponibile: correggi il profilo prima di riprovare")
 
         # Il primo candidato non è utilizzabile: scendi la lista dei backend attivi.
         for name, cfg in self.model_router.get_config().get("backends", {}).items():

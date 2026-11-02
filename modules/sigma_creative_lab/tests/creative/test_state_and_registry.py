@@ -2,7 +2,7 @@ import json
 
 import pytest
 
-from core.creative import model_state
+from core.modules.sigma_creative_lab import model_state
 from core.modules.sigma_creative_lab.backends import get_backend
 from core.modules.sigma_creative_lab.backends.base import BackendJob
 from core.modules.sigma_creative_lab.backends.comfyui_backend import ComfyUIBackend
@@ -172,11 +172,11 @@ def test_status_segnala_cosa_manca(registry):
 
 
 def test_status_avvisa_sulla_vram_senza_bloccare(registry):
-    installed = {"checkpoint": {"files": [{"filename": "qwen_image_fp8.safetensors"}]}}
+    installed = {"checkpoint": {"files": [{"filename": "flux1-dev-fp8.safetensors"}]}}
     entries = {e["id"]: e for e in registry.status(
-        installed, {"qwen": "qwen_image_fp8.safetensors"}, vram_gb=8.0)}
-    assert entries["qwen_txt2img"]["ready"] is True         # i pesi ci sono
-    assert entries["qwen_txt2img"]["notes"]                 # ma la VRAM non basta
+        installed, {"flux": "flux1-dev-fp8.safetensors"}, vram_gb=8.0)}
+    assert entries["flux_txt2img"]["ready"] is True         # i pesi ci sono
+    assert entries["flux_txt2img"]["notes"]                 # ma la VRAM non basta
 
 
 def test_resolve_preserva_i_tipi_json(registry):

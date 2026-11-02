@@ -23,7 +23,7 @@ def register_routes(app=None) -> None:
         handle_creative_downloads, handle_creative_download_start, handle_creative_download_cancel,
         handle_creative_model_search, handle_creative_model_categories,
         handle_creative_model_inventory, handle_creative_workflows,
-        handle_creative_workflow_save, handle_creative_workflow_delete,
+        handle_creative_workflow_save, handle_creative_workflow_delete, handle_creative_profile_save, handle_creative_skills, handle_creative_profile_components,
     )
 
     get_routes = {
@@ -37,6 +37,8 @@ def register_routes(app=None) -> None:
         '/api/creative/agents': handle_creative_agents_list,
         '/api/creative/pipeline/nodes': handle_creative_pipeline_nodes,
         '/api/creative/models': handle_creative_models,
+        '/api/creative/skills': handle_creative_skills,
+        '/api/creative/models/profiles/components': handle_creative_profile_components,
         '/api/creative/backends/discover': handle_creative_discover,
         '/api/creative/downloads': handle_creative_downloads,
         '/api/creative/models/search': handle_creative_model_search,
@@ -66,6 +68,7 @@ def register_routes(app=None) -> None:
         '/api/creative/downloads/cancel': handle_creative_download_cancel,
         '/api/creative/workflows/save': handle_creative_workflow_save,
         '/api/creative/workflows/delete': handle_creative_workflow_delete,
+        '/api/creative/models/profiles/save': handle_creative_profile_save,
     }
 
     # Produzioni video lunghe: stesse convenzioni, rotte in un file proprio.

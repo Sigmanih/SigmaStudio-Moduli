@@ -2,53 +2,26 @@ import React, { useState } from 'react';
 import { Box, Play, Download, AlertTriangle, Loader, Boxes } from 'lucide-react';
 import { useThreeViewer } from './useThreeViewer';
 import SceneControls from './SceneControls';
+import CreativeEmptyState from '../shared/CreativeEmptyState';
 
-export default function Viewport3D({ asset, busy, canGenerate3D, blenderAvailable, onGenerate3D, onRender }) {
+export default function Viewport3D({ asset, busy, canGenerate3D, blenderAvailable, onGenerate3D, onRender, onChooseAsset }) {
+  const modelUrl = asset?.model_url || asset?.file_urls?.model || null;
+  if (!asset) return <CreativeEmptyState icon={Box} title="Il tuo spazio 3D" description="Scegli un modello dalla libreria oppure un’immagine da trasformare in 3D." onChoose={onChooseAsset} />;
+  if (!modelUrl) return <section className="cs-creative-empty" data-agent-component="ModelSource" data-agent-id="creative-3d-source">
+    <Boxes size={42} /><h2>{asset.name || 'Elemento selezionato'}</h2><p>Questo elemento non contiene un modello 3D.</p>
+    {['image', 'render'].includes(asset.type) && <><button className="cs-secondary-button" disabled={busy || !canGenerate3D} onClick={() => onGenerate3D('image_to_3d', { asset_id: asset.id })}>Crea un modello da questa immagine</button>{!canGenerate3D && <p className="cs-hint">Nessun motore 3D disponibile. Controlla Modelli e skill.</p>}</>}
+    <button className="cs-text-button" onClick={onChooseAsset}>Scegli un altro elemento</button>
+  </section>;
+  return <LoadedViewport key={asset.id} asset={asset} modelUrl={modelUrl} busy={busy} blenderAvailable={blenderAvailable} onRender={onRender} />;
+}
+
+function LoadedViewport({ asset, modelUrl, busy, blenderAvailable, onRender }) {
   const [wireframe, setWireframe] = useState(false);
   const [environment, setEnvironment] = useState('Studio');
 
-  const modelUrl = asset?.model_url || null;
   const { containerRef, status, error, stats, environments } = useThreeViewer({
     url: modelUrl, wireframe, environment,
   });
-
-  if (!asset) {
-    return (
-      <div className="cs-canvas-wrapper">
-        <Box size={48} style={{ opacity: 0.2 }} />
-        <p>Seleziona un asset per la vista 3D</p>
-      </div>
-    );
-  }
-
-  // Un'immagine selezionata è il punto di partenza della ricostruzione 3D.
-  if (!modelUrl) {
-    return (
-      <div className="cs-canvas-wrapper cs-3d-empty">
-        <Boxes size={48} style={{ opacity: 0.25 }} />
-        <p>«{asset.name}» non contiene geometria 3D</p>
-        {asset.type === 'image' ? (
-          <>
-            <button
-              className="cs-generate-btn"
-              disabled={busy || !canGenerate3D}
-              onClick={() => onGenerate3D('image_to_3d', { asset_id: asset.id })}
-            >
-              <Box size={18} /> Ricostruisci in 3D da questa immagine
-            </button>
-            {!canGenerate3D && (
-              <p className="cs-hint">
-                <AlertTriangle size={13} /> Nessun backend 3D attivo: abilita Stability o fal.ai
-                con la relativa API key in Impostazioni → Creative.
-              </p>
-            )}
-          </>
-        ) : (
-          <p className="cs-hint">Genera o importa un modello 3D per usarlo qui.</p>
-        )}
-      </div>
-    );
-  }
 
   return (
     <div className="cs-3d-container">

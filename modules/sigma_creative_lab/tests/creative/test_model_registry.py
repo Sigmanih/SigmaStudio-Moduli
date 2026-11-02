@@ -3,7 +3,7 @@ import json
 
 import pytest
 
-from core.creative import model_registry as reg
+from core.modules.sigma_creative_lab import model_registry as reg
 from core.modules.sigma_creative_lab.generators.adapters import comfy_workflows as cw
 from core.modules.sigma_creative_lab.model_router import CreativeTask, ModelRouter
 
@@ -287,9 +287,9 @@ def test_senza_sampler_si_usa_il_default_del_backend():
 
 def test_vram_e_capacita_non_memoria_libera(monkeypatch):
     """Usare la VRAM libera farebbe smettere di scegliere un backend che funziona."""
-    fake = {"gpus": [{"vram_total_gb": 16.0, "vram_free_gb": 1.2},
-                     {"vram_total_gb": 8.0, "vram_free_gb": 7.9}]}
-    monkeypatch.setattr("core.training.gpu.get_accelerator_report", lambda refresh=False: fake)
+    fake = {"gpus": [{"total_vram_gb": 16.0, "free_vram_gb": 1.2},
+                     {"total_vram_gb": 8.0, "free_vram_gb": 7.9}]}
+    monkeypatch.setattr("core.engine.hardware_probe.UniversalHardwareProbe.probe_accelerators", lambda: fake["gpus"])
     assert reg.available_vram_gb() == 16.0
     assert reg.free_vram_gb() == 7.9
 

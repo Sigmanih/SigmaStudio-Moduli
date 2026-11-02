@@ -89,7 +89,7 @@ export default function MaterialsPanel({ asset, assets = [], busy, blenderAvaila
           </select>
           <button
             className="cs-tool-btn"
-            disabled={busy || !blenderAvailable || !meshId || !isMaterial}
+            disabled={busy || !blenderAvailable || !meshes.some(m => m.id === meshId) || !isMaterial}
             title={isMaterial ? '' : 'Seleziona prima un materiale nel vault'}
             onClick={() => onMaterial('apply_to_mesh', { mesh_asset_id: meshId, material_asset_id: asset.id })}
           >

@@ -28,7 +28,9 @@ export function useThreeViewer({ url, wireframe, environment = 'Studio' }) {
     const container = containerRef.current;
     if (!container) return undefined;
 
-    const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+    let renderer;
+    try { renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true }); }
+    catch { setError('WebGL non disponibile nel browser. Il modello resta scaricabile.'); setStatus('error'); return undefined; }
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     renderer.setSize(container.clientWidth, container.clientHeight);
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
@@ -50,29 +52,42 @@ export function useThreeViewer({ url, wireframe, environment = 'Studio' }) {
     const grid = new THREE.GridHelper(10, 20, 0x2a2a3a, 0x1a1a24);
     scene.add(key, fill, ambient, grid);
 
-    let frame;
-    const animate = () => {
-      frame = requestAnimationFrame(animate);
+    let frame = null;
+    const render = () => {
+      frame = null;
       controls.update();
       renderer.render(scene, camera);
     };
-    animate();
+    // La scena ferma non deve occupare la GPU: i controlli richiedono nuovi
+    // fotogrammi solo durante l'interazione e il relativo smorzamento.
+    const invalidate = () => { if (frame === null) frame = requestAnimationFrame(render); };
+    controls.addEventListener('change', invalidate);
+    invalidate();
 
     const onResize = () => {
       if (!container.clientWidth || !container.clientHeight) return;
       camera.aspect = container.clientWidth / container.clientHeight;
       camera.updateProjectionMatrix();
       renderer.setSize(container.clientWidth, container.clientHeight);
+      invalidate();
     };
     const observer = new ResizeObserver(onResize);
     observer.observe(container);
 
-    stateRef.current = { renderer, scene, camera, controls, key, fill, grid, model: null };
+    stateRef.current = { renderer, scene, camera, controls, key, fill, grid, model: null, invalidate };
 
     return () => {
-      cancelAnimationFrame(frame);
+      if (frame !== null) cancelAnimationFrame(frame);
       observer.disconnect();
+      controls.removeEventListener('change', invalidate);
       controls.dispose();
+      scene.traverse(o => {
+        o.geometry?.dispose?.();
+        (Array.isArray(o.material) ? o.material : [o.material]).filter(Boolean).forEach(m => {
+          Object.values(m).filter(v => v?.isTexture).forEach(texture => texture.dispose());
+          m.dispose?.();
+        });
+      });
       renderer.dispose();
       container.removeChild(renderer.domElement);
       stateRef.current = null;
@@ -133,6 +148,7 @@ export function useThreeViewer({ url, wireframe, environment = 'Studio' }) {
         camera.position.set(2, 1.4, 2.6);
         controls.target.set(0, 0, 0);
         controls.update();
+        stateRef.current.invalidate();
 
         setStats({
           vertices,
@@ -162,6 +178,7 @@ export function useThreeViewer({ url, wireframe, environment = 'Studio' }) {
       if (!o.isMesh) return;
       (Array.isArray(o.material) ? o.material : [o.material]).forEach(m => { if (m) m.wireframe = !!wireframe; });
     });
+    state.invalidate();
   }, [wireframe, status]);
 
   useEffect(() => {
@@ -172,6 +189,8 @@ export function useThreeViewer({ url, wireframe, environment = 'Studio' }) {
     state.key.intensity = env.keyI;
     state.fill.color.setHex(env.fill);
     state.fill.intensity = env.fillI;
+    state.scene.background = new THREE.Color(env.bg);
+    state.invalidate();
   }, [environment]);
 
   return { containerRef, status, error, stats, environments: Object.keys(ENVIRONMENTS) };

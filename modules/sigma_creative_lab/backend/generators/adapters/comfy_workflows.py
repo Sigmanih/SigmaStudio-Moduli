@@ -149,11 +149,9 @@ def _esrgan_upscale(p: dict) -> dict:
 
 BUILTIN = {
     "sdxl_txt2img": _sdxl_txt2img,
-    "sd3_txt2img": _sdxl_txt2img,      # SD3.5 usa lo stesso grafo checkpoint-based
     "sdxl_img2img": _sdxl_img2img,
     "sdxl_inpaint": _sdxl_inpaint,
     "flux_txt2img": _flux_txt2img,
-    "qwen_txt2img": _flux_txt2img,     # stessa topologia dual-encoder
     "esrgan_upscale": _esrgan_upscale,
 }
 
@@ -161,6 +159,7 @@ BUILTIN = {
 # Kontext...): non esistono built-in perché i nomi dei nodi dipendono
 # dall'estensione installata. Vanno forniti come JSON esportato da ComfyUI.
 CUSTOM_ONLY = (
+    "sd3_txt2img", "qwen_txt2img",
     "qwen_edit", "flux_kontext", "supir_upscale", "sam2_segment",
     "hunyuan3d_image_to_3d", "trellis_image_to_3d", "instantmesh_image_to_3d",
     "triposr_image_to_3d", "wan_image_to_video", "ltx_image_to_video",

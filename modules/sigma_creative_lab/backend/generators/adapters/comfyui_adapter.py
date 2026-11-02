@@ -58,18 +58,23 @@ class ComfyUIAdapter:
             raise WorkflowNotAvailable(f"Nessun workflow associato alla capability '{capability}'")
 
         family = params.get("family", "sdxl")
-        ckpt = params.get("ckpt") or self.checkpoints.get(family, DEFAULT_CHECKPOINTS["sdxl"])
+        entry = workflow_registry.get(workflow_id)
+        defaults = entry.defaults if entry else {}
+        ckpt = params.get("ckpt") or defaults.get("ckpt") or self.checkpoints.get(family, DEFAULT_CHECKPOINTS["sdxl"])
 
         values = {
-            **params,
+            **defaults, **params,
             "ckpt": ckpt,
-            "upscale_model": params.get("upscale_model", self.checkpoints.get("upscaler", "")),
+            "upscale_model": params.get("upscale_model") or defaults.get("upscale_model") or self.checkpoints.get("upscaler", ""),
             **extra,
         }
         return workflow_registry.resolve(workflow_id, values), ckpt
 
     async def run_workflow(self, graph: dict, ckpt: str = "", progress_cb=None) -> bytes:
         """Esegue il grafo tenendo traccia di cosa il backend sta caricando."""
+        check = await self.backend.validate_workflow(graph)
+        if not check["ok"]:
+            raise ValueError("Workflow non pronto: " + "; ".join(check["problems"]))
         runtime_tracker.mark_submitted(self.backend.id, [ckpt])
         try:
             data, _filename = await self.backend.run({"workflow": graph}, progress_cb=progress_cb)

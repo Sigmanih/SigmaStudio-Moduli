@@ -1,4 +1,5 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { readCreativeResponse } from './creativeResponse';
 
 /**
  * Client per le API creative.
@@ -10,59 +11,34 @@ import { useCallback, useState } from 'react';
 export function useCreativeApi() {
   const [busy, setBusy] = useState(null);   // { label, progress, message }
   const [error, setError] = useState(null);
+  const active = useRef(null);
+  useEffect(() => () => active.current?.abort(), []);
 
   const runTask = useCallback(async (url, body, { label = 'Elaborazione', onEvent } = {}) => {
-    setBusy({ label, progress: 5, message: 'Avvio...' });
+    if (active.current) throw new Error('Attendi il termine dell’operazione in corso.');
+    const controller = new AbortController();
+    active.current = controller;
+    setBusy({ label, message: 'Avvio…' });
     setError(null);
     try {
       const response = await fetch(url, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', Accept: 'text/event-stream, application/json' },
+        signal: controller.signal,
         body: JSON.stringify(body),
       });
-      if (!response.ok && !response.headers.get('content-type')?.includes('event-stream')) {
-        let detail = `HTTP ${response.status}`;
-        try { detail = (await response.json()).error || detail; } catch { /* body non JSON */ }
-        throw new Error(detail);
-      }
-
-      if (response.headers.get('content-type')?.includes('application/json')) {
-        const data = await response.json();
-        if (data.success === false) throw new Error(data.error || 'Operazione fallita');
-        return data;
-      }
-
-      const reader = response.body.getReader();
-      const decoder = new TextDecoder();
-      let buffer = '';
-      let last = null;
-      let failure = null;
-
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split('\n');
-        buffer = lines.pop() || '';
-        for (const line of lines) {
-          if (!line.startsWith('data: ') || line === 'data: [DONE]') continue;
-          let evt;
-          try { evt = JSON.parse(line.slice(6)); } catch { continue; }
-          onEvent?.(evt);
-          if (evt.error) failure = evt.error;
-          if (evt.progress !== undefined || evt.message) {
-            setBusy(b => ({ ...(b || { label }), progress: evt.progress ?? b?.progress, message: evt.message || b?.message }));
-          }
-          if (evt.asset || evt.results) last = evt;
-        }
-      }
-
-      if (failure) throw new Error(failure);
-      return last || {};
+      return await readCreativeResponse(response, event => {
+        onEvent?.(event);
+        if (event.progress !== undefined || event.message) setBusy(previous => ({
+          ...(previous || { label }), progress: event.progress ?? previous?.progress,
+          message: event.message || previous?.message,
+        }));
+      });
     } catch (err) {
-      setError(err.message);
+      if (err.name !== 'AbortError') setError(err.message);
       throw err;
     } finally {
+      active.current = null;
       setBusy(null);
     }
   }, []);

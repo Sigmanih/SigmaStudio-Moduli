@@ -242,7 +242,8 @@ class WorkflowRegistry:
             "workflow": graph,
         }
         path = self.directory / f"{workflow_id}.json"
-        path.write_text(json.dumps(document, indent=2, ensure_ascii=False), encoding="utf-8")
+        from core.store import JsonStore
+        JsonStore(str(path), {}).save(document)
         log.info(f"Workflow '{workflow_id}' salvato in {path}")
 
         self.load(force=True)

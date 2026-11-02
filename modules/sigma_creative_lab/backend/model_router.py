@@ -3,7 +3,7 @@ import time
 import aiohttp
 
 from core.logger import get_logger
-from core.modules.sigma_creative_lab.model_registry import select_model, set_comfy_inventory
+from core.modules.sigma_creative_lab.model_registry import select_model, set_comfy_inventory, catalog
 
 log = get_logger("creative_model_router")
 
@@ -27,10 +27,11 @@ def _native_status(cfg: dict) -> tuple[bool, str]:
         return False, ""
 
 class CreativeTask:
-    def __init__(self, task_type: str, params: dict, priority: str = 'balanced'):
+    def __init__(self, task_type: str, params: dict, priority: str = 'balanced', backend: str = None):
         self.task_type = task_type
         self.params = params
         self.priority = priority
+        self.backend = backend
 
 class BackendStatus:
     def __init__(self, name: str, available: bool, capabilities: list, url: str, detected: bool = None):
@@ -87,7 +88,10 @@ class ModelRouter:
         try:
             async with aiohttp.ClientSession() as session:
                 async with session.get(f"{url}/system_stats", timeout=2) as resp:
-                    return resp.status == 200
+                    if resp.status != 200:
+                        return False
+                    data = await resp.json()
+                    return isinstance(data, dict) and isinstance(data.get("system"), dict) and "devices" in data
         except Exception:
             return False
 
@@ -101,7 +105,7 @@ class ModelRouter:
 
     # Porte su cui girano le installazioni desktop/standalone più comuni.
     PROBE_URLS = {
-        "comfyui": ("http://127.0.0.1:8188", "http://localhost:8000"),
+        "comfyui": ("http://127.0.0.1:8188", "http://127.0.0.1:8288"),
         "sd_webui": ("http://127.0.0.1:7860",),
     }
 
@@ -213,6 +217,12 @@ class ModelRouter:
                 continue
             for cap in status.capabilities:
                 result.setdefault(cap, []).append(status.name)
+        for model in catalog(await self.available_backend_names()):
+            for cap in model['tasks']:
+                for backend in model['available_via']:
+                    providers = result.setdefault(cap, [])
+                    if backend not in providers:
+                        providers.append(backend)
         return result
 
     async def available_backend_names(self) -> set:
@@ -288,12 +298,15 @@ class ModelRouter:
         """
         available = await self.available_backend_names()
         params = task.params or {}
+        if task.backend:
+            available = set(available) & {task.backend}
         model, backend = select_model(
             task.task_type,
             available_backends=available,
             priority=task.priority,
             prefer=tuple(params.get("prefer", ())),
             forced_model=params.get("model_id", "") or "",
+            checkpoint=params.get("ckpt", "") or "",
         )
         if model:
             return model, backend

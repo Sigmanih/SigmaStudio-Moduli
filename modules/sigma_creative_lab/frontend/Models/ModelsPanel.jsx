@@ -1,9 +1,11 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { Cpu, CheckCircle2, XCircle, AlertTriangle, HardDrive, Zap, Star, Copy } from 'lucide-react';
 import ModelDownloads from './ModelDownloads';
 import ModelBrowser from './ModelBrowser';
 import ModelInventory from './ModelInventory';
 import WorkflowPanel from './WorkflowPanel';
+import ModelProfiles from './ModelProfiles';
+import CreativeSkills from './CreativeSkills';
 
 const TASK_LABELS = {
   text_to_image: 'Text→Image', img_to_img: 'Image→Image', inpaint: 'Inpaint', outpaint: 'Outpaint',
@@ -34,21 +36,16 @@ function Meter({ value, icon: Icon, title }) {
   );
 }
 
-export default function ModelsPanel({ models = [], inventory = null, onRefresh }) {
-  const [meta, setMeta] = useState(null);
-  const [onlyAvailable, setOnlyAvailable] = useState(false);
+export default function ModelsPanel({ models = [], inventory = null, meta = null, loading = false, error = '', onRefresh, onUseModel, onOpenPipeline, onOpenSkill }) {
+  const [onlyAvailable, setOnlyAvailable] = useState(true);
   const [enabling, setEnabling] = useState(false);
-
-  useEffect(() => {
-    fetch('/api/creative/models').then(r => r.json())
-      .then(d => { if (d.success) setMeta(d); })
-      .catch(() => {});
-  }, [models]);
+  const [section, setSection] = useState('catalog');
+  const [actionError, setActionError] = useState('');
 
   const grouped = useMemo(() => GROUPS.map(g => ({
     ...g,
     models: models
-      .filter(m => m.tasks.some(t => g.tasks.includes(t)))
+      .filter(m => m.tasks?.some(t => g.tasks.includes(t)))
       .filter(m => !onlyAvailable || m.available)
       .sort((a, b) => (b.available - a.available) || (b.quality - a.quality)),
   })).filter(g => g.models.length), [models, onlyAvailable]);
@@ -61,24 +58,21 @@ export default function ModelsPanel({ models = [], inventory = null, onRefresh }
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ backends: { comfyui: { enabled: true, url: inventory.url } } }),
     })
-      .then(() => onRefresh?.())
+      .then(async r => { const d = await r.json(); if (!r.ok || !d.success) throw new Error(d.error || 'Collegamento non riuscito'); return onRefresh?.(); })
+      .catch(e => setActionError(e.message))
       .finally(() => setEnabling(false));
   };
-
-  if (!models.length) {
-    return <div className="cs-canvas-wrapper"><p>Caricamento registro modelli...</p></div>;
-  }
 
   const data = meta || { models, available_backends: [], workflows: {} };
 
   return (
-    <div className="cs-models-container">
+    <div className="cs-models-container" data-agent-component="ModelsPanel" data-agent-id="creative-models">
       <div className="cs-models-header">
         <div>
-          <h2><Cpu size={20} /> Registro modelli</h2>
+          <h2><Cpu size={20} /> Modelli e motori</h2>
           <p className="cs-hint">
-            Sigma sceglie automaticamente il modello per ogni task in base a backend attivi,
-            capacità VRAM e priorità. Qui vedi cosa è realmente eseguibile su questa macchina.
+            Scegli i modelli da usare, aggiungine altri o controlla i file locali.
+            Per creare un’immagine puoi scegliere direttamente in 2D Generator.
           </p>
         </div>
         <div className="cs-models-stats">
@@ -92,6 +86,15 @@ export default function ModelsPanel({ models = [], inventory = null, onRefresh }
         </div>
       </div>
 
+      <nav className="cs-model-sections" aria-label="Gestione modelli">{[['catalog', 'Modelli disponibili'], ['install', 'Aggiungi modelli'], ['profiles', 'Profili e skill']].map(([id, label]) => <button type="button" key={id} className="cs-choice" aria-pressed={section === id} onClick={() => setSection(id)}>{label}</button>)}</nav>
+      {section === 'profiles' && <><ModelProfiles inventory={inventory} onWorkflow={() => setSection('workflows')} onSaved={async profile => { await onRefresh?.(); if (profile.capability === 'text_to_image') onUseModel?.(profile); }} /><div className="cs-profile-actions"><button className="cs-secondary-button" onClick={onOpenPipeline}><Cpu size={15} /> Editor delle automazioni creative</button><button className="cs-secondary-button" onClick={() => setSection('inventory')}>Inventario dei file locali</button></div></>}
+      {['inventory', 'workflows'].includes(section) && <button className="cs-text-button" onClick={() => setSection('profiles')}>← Torna ai profili</button>}
+      {section === 'profiles' && <CreativeSkills onOpen={onOpenSkill} />}
+      {(error || actionError) && <p className="cs-form-notice" role="alert">{error || actionError}</p>}
+      {section === 'catalog' && loading && <p role="status">Aggiornamento dei modelli…</p>}
+      {section === 'catalog' && !loading && !grouped.length && <p className="cs-hint">Nessun modello disponibile per questo filtro. Disattiva «solo disponibili» oppure apri Installa modelli.</p>}
+      {section === 'install' && <><ModelDownloads onInstalled={onRefresh} /><ModelBrowser onInstalled={onRefresh} /></>}
+
       {inventory?.reachable && !inventory.enabled && (
         <div className="cs-banner ok">
           <CheckCircle2 size={16} />
@@ -102,15 +105,15 @@ export default function ModelsPanel({ models = [], inventory = null, onRefresh }
         </div>
       )}
 
-      <div className="cs-mesh-card">
+      {section === 'inventory' && <div className="cs-mesh-card">
         <ModelInventory onRefresh={onRefresh} />
-      </div>
+      </div>}
 
-      <div className="cs-mesh-card">
+      {section === 'workflows' && <div className="cs-mesh-card">
         <WorkflowPanel onChanged={onRefresh} />
-      </div>
+      </div>}
 
-      {grouped.map(group => (
+      {section === 'catalog' && grouped.map(group => (
         <section key={group.id} className="cs-model-group">
           <h3>{group.label}</h3>
           <div className="cs-model-grid">
@@ -143,6 +146,7 @@ export default function ModelsPanel({ models = [], inventory = null, onRefresh }
                 {m.notes && <p className="cs-model-notes">{m.notes}</p>}
 
                 <footer>
+                  {m.tasks.includes('text_to_image') && onUseModel && <button className="cs-secondary-button" onClick={() => onUseModel(m)}>Usa in 2D Generator</button>}
                   <span>{m.available_via.length ? `via ${m.available_via.join(', ')}` : `richiede ${m.backends.join(' o ')}`}</span>
                   {m.workflow && (
                     <button

@@ -13,6 +13,7 @@ agenti lo vedono automaticamente.
 """
 
 from dataclasses import dataclass, field, asdict
+import math
 
 from core.logger import get_logger
 
@@ -283,11 +284,31 @@ REMOTE_BACKENDS = frozenset({"fal_ai", "stability", "replicate", "pollinations"}
 
 
 def models_for_task(task: str) -> list[ModelSpec]:
-    return [m for m in MODELS if task in m.tasks]
+    return [m for m in all_models() if task in m.tasks]
 
 
 def get_model(model_id: str) -> ModelSpec | None:
-    return MODELS_BY_ID.get(model_id)
+    return next((m for m in all_models() if m.id == model_id), None)
+
+
+def all_models() -> tuple[ModelSpec, ...]:
+    """Un profilo utente e' un workflow eseguibile, non un nuovo elenco cablato."""
+    from core.modules.sigma_creative_lab.workflow_registry import registry
+    custom = []
+    for entry in registry.load().values():
+        if entry.source != "user" or entry.backend != "comfyui":
+            continue
+        vram = entry.requirements.get("vram_gb") or 0
+        if isinstance(vram, bool) or not isinstance(vram, (int, float)) or not math.isfinite(vram) or vram < 0:
+            log.warning("Requisito VRAM non valido per il workflow %s", entry.id)
+            vram = 0
+        custom.append(ModelSpec(
+            id=f"workflow:{entry.id}", label=entry.name, family="custom",
+            tasks=(entry.capability,), backends=("comfyui",), workflow=entry.id,
+            vram_gb=float(vram),
+            notes=entry.description,
+        ))
+    return (*MODELS, *custom)
 
 
 def available_vram_gb() -> float:
@@ -298,10 +319,9 @@ def available_vram_gb() -> float:
     smettere di sceglierlo. La capacità della scheda è il vincolo reale.
     """
     try:
-        from core.training import gpu as gpu_layer
-        report = gpu_layer.get_accelerator_report(refresh=False)
-        gpus = report.get("gpus") or []
-        return max((g.get("vram_total_gb") or 0.0) for g in gpus) if gpus else 0.0
+        from core.engine.hardware_probe import UniversalHardwareProbe
+        gpus = UniversalHardwareProbe.probe_accelerators()
+        return max((g.get("total_vram_gb") or 0.0) for g in gpus) if gpus else 0.0
     except Exception as e:
         log.debug(f"VRAM non rilevabile: {e}")
         return 0.0
@@ -310,10 +330,9 @@ def available_vram_gb() -> float:
 def free_vram_gb() -> float:
     """VRAM libera adesso — solo per la UI, non per le decisioni di routing."""
     try:
-        from core.training import gpu as gpu_layer
-        report = gpu_layer.get_accelerator_report(refresh=True)
-        gpus = report.get("gpus") or []
-        return max((g.get("vram_free_gb") or 0.0) for g in gpus) if gpus else 0.0
+        from core.engine.hardware_probe import UniversalHardwareProbe
+        gpus = UniversalHardwareProbe.probe_accelerators()
+        return max((g.get("free_vram_gb") or 0.0) for g in gpus) if gpus else 0.0
     except Exception:
         return 0.0
 
@@ -355,17 +374,24 @@ def score_model(model: ModelSpec, backend: str, priority: str, vram_gb: float,
 
 def select_model(task: str, available_backends: set, priority: str = "balanced",
                  vram_gb: float | None = None, prefer: tuple = (),
-                 forced_model: str = "") -> tuple[ModelSpec, str] | tuple[None, None]:
+                 forced_model: str = "", checkpoint: str = "") -> tuple[ModelSpec, str] | tuple[None, None]:
     """Sceglie (modello, backend) per il task fra ciò che è realmente disponibile."""
     vram_gb = available_vram_gb() if vram_gb is None else vram_gb
 
     candidates = []
-    pool = [MODELS_BY_ID[forced_model]] if forced_model in MODELS_BY_ID else models_for_task(task)
+    forced = get_model(forced_model) if forced_model else None
+    if forced_model and (forced is None or task not in forced.tasks):
+        return None, None
+    pool = [forced] if forced else models_for_task(task)
     for model in pool:
         for backend in model.backends:
             if backend not in available_backends:
                 continue
-            if backend == "comfyui" and _comfy_workflow_missing(model):
+            if backend == "local" and model.id == "trellis" and not _trellis_available():
+                continue
+            if checkpoint and backend != "comfyui":
+                continue
+            if backend == "comfyui" and _comfy_workflow_missing(model, checkpoint):
                 continue   # nodi custom non installati: sceglierlo sarebbe un errore certo
             candidates.append((score_model(model, backend, priority, vram_gb, prefer), model, backend))
 
@@ -395,7 +421,16 @@ def set_comfy_inventory(inventory: dict | None) -> None:
     _COMFY_INVENTORY = inventory
 
 
-def _comfy_can_load(model: ModelSpec) -> bool:
+def _trellis_available() -> bool:
+    try:
+        from core.modules.sigma_creative_lab.three_d.locale.trellis_locale import disponibile
+        return disponibile()[0]
+    except (ImportError, OSError, RuntimeError) as exc:
+        log.debug("Runtime TRELLIS non disponibile: %s", exc)
+        return False
+
+
+def _comfy_can_load(model: ModelSpec, checkpoint: str = "") -> bool:
     """True se ComfyUI ha su disco il file di pesi che questo modello caricherebbe.
 
     Un ComfyUI appena installato risponde ai ping ma non ha pesi, e avere *un*
@@ -405,6 +440,8 @@ def _comfy_can_load(model: ModelSpec) -> bool:
     """
     if _COMFY_INVENTORY is None:
         return True
+    if checkpoint:
+        return checkpoint in set(_COMFY_INVENTORY.get("checkpoints") or ()) | set(_COMFY_INVENTORY.get("unets") or ())
 
     # Gli upscaler vivono in una cartella propria: senza modelli lì, nessun
     # workflow di upscale può partire.
@@ -428,7 +465,7 @@ def _comfy_can_load(model: ModelSpec) -> bool:
     return bool(wanted) and wanted in loadable
 
 
-def _comfy_workflow_missing(model: ModelSpec) -> bool:
+def _comfy_workflow_missing(model: ModelSpec, checkpoint: str = "") -> bool:
     """True se il modello su ComfyUI richiede un workflow custom non ancora fornito.
 
     Senza questo controllo la UI mostrerebbe come disponibili modelli che poi
@@ -444,7 +481,7 @@ def _comfy_workflow_missing(model: ModelSpec) -> bool:
     if registry.get(model.workflow) is None:
         return True
     # Il workflow c'è ma mancano i pesi: per ComfyUI equivale a non averlo.
-    return not _comfy_can_load(model)
+    return not _comfy_can_load(model, checkpoint)
 
 
 def _ollama_installed(model: ModelSpec, installed: set | None) -> bool:
@@ -459,15 +496,21 @@ def _ollama_installed(model: ModelSpec, installed: set | None) -> bool:
 def catalog(available_backends: set = frozenset(), ollama_models: set | None = None) -> list[dict]:
     """Catalogo serializzabile per la UI, annotato con la disponibilità corrente."""
     vram = available_vram_gb()
-    workflow_missing = {m.id: _comfy_workflow_missing(m) for m in MODELS}
+    from core.modules.sigma_creative_lab.workflow_registry import registry
+    models = all_models()
+    workflow_missing = {m.id: _comfy_workflow_missing(m) for m in models}
     out = []
-    for model in MODELS:
+    for model in models:
         usable = sorted(set(model.backends) & set(available_backends))
+        if model.id == "trellis" and "local" in usable and not _trellis_available():
+            usable.remove("local")
         if workflow_missing[model.id] and "comfyui" in usable:
             usable.remove("comfyui")
         if "ollama" in usable and not _ollama_installed(model, ollama_models):
             usable.remove("ollama")
         out.append({
+            "workflow_available": not model.workflow or registry.get(model.workflow) is not None,
+            "defaults": dict(registry.get(model.workflow).defaults) if model.workflow and registry.get(model.workflow) else {},
             "workflow_missing": workflow_missing[model.id],
             **model.to_dict(),
             "tasks": list(model.tasks),

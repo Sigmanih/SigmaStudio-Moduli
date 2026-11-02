@@ -50,7 +50,7 @@ export default function WorkflowPanel({ onChanged }) {
         setForm(null);
         load();
         onChanged?.();
-      });
+      }).catch(e => setNotice({ type: 'error', text: e.message }));
   };
 
   const remove = (id) => {
@@ -63,10 +63,10 @@ export default function WorkflowPanel({ onChanged }) {
         setNotice(d.success ? { type: 'ok', text: `Rimosso '${id}'` } : { type: 'error', text: d.error });
         load();
         onChanged?.();
-      });
+      }).catch(e => setNotice({ type: 'error', text: e.message }));
   };
 
-  if (!data) return <p className="cs-hint">Lettura registro workflow...</p>;
+  if (!data) return notice ? <div role="alert"><p>{notice.text}</p><button className="cs-secondary-button" onClick={load}>Riprova</button></div> : <p className="cs-hint">Lettura registro workflow...</p>;
 
   const ready = data.workflows.filter(w => w.ready).length;
 

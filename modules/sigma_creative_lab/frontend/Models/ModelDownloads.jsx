@@ -35,7 +35,7 @@ export default function ModelDownloads({ onInstalled }) {
 
   useEffect(() => {
     load();
-    timer.current = setInterval(load, 1500);
+    timer.current = setInterval(load, 5000);
     return () => clearInterval(timer.current);
   }, [load]);
 
@@ -43,17 +43,17 @@ export default function ModelDownloads({ onInstalled }) {
     fetch('/api/creative/downloads/start', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ asset_id: assetId }),
-    }).then(r => r.json()).then(d => { if (!d.success) setError(d.error); load(); });
+    }).then(r => r.json()).then(d => { if (!d.success) setError(d.error); load(); }).catch(e => setError(e.message));
   };
 
   const cancel = (jobId) => {
     fetch('/api/creative/downloads/cancel', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ job_id: jobId }),
-    }).then(() => load());
+    }).then(() => load()).catch(e => setError(e.message));
   };
 
-  if (!data) return <p className="cs-hint">Lettura catalogo download...</p>;
+  if (!data) return error ? <div role="alert"><p>{error}</p><button className="cs-secondary-button" onClick={load}>Riprova</button></div> : <p className="cs-hint">Lettura catalogo download...</p>;
 
   const jobByAsset = Object.fromEntries((data.jobs || [])
     .filter(j => ['queued', 'downloading'].includes(j.status))

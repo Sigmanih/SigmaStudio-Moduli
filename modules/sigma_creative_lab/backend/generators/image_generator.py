@@ -32,10 +32,11 @@ class ImageGenerator:
             return FalAIAdapter(api_key=cfg.get("api_key", ""))
         elif backend_name == "stability":
             return StabilityAdapter(api_key=cfg.get("api_key", ""))
-        else:
+        elif backend_name == FALLBACK_BACKEND:
             return PollinationsAdapter()
+        raise ValueError(f"Motore immagine non supportato: {backend_name}")
 
-    async def _call_with_fallback(self, backend: str, method: str, *args) -> tuple[bytes, str]:
+    async def _call_with_fallback(self, backend: str, method: str, *args, allow_fallback: bool = True) -> tuple[bytes, str]:
         """Invoca l'adapter del backend scelto; se fallisce ripiega sul default.
 
         Ritorna (bytes, backend_effettivamente_usato) così che il metadata
@@ -47,10 +48,12 @@ class ImageGenerator:
             try:
                 return await fn(*args), backend
             except Exception as e:
-                if backend == FALLBACK_BACKEND:
+                if backend == FALLBACK_BACKEND or not allow_fallback:
                     raise
                 log.warning(f"Backend '{backend}' fallito su {method} ({e}); fallback su {FALLBACK_BACKEND}")
         else:
+            if not allow_fallback:
+                raise RuntimeError(f"Il motore {backend} non supporta questa operazione")
             log.warning(f"Backend '{backend}' non implementa {method}; fallback su {FALLBACK_BACKEND}")
 
         fallback = self._get_adapter(FALLBACK_BACKEND)
@@ -65,11 +68,12 @@ class ImageGenerator:
         Con `backend` forzato dalla UI si rispetta la scelta dell'utente ma si
         continua a selezionare il modello migliore *dentro* quel backend.
         """
+        task.backend = backend
+        task.allow_fallback = not (backend or task.params.get("model_id") or task.params.get("ckpt"))
         model, selected = await self.router.select(task)
-        if backend:
-            selected = backend
-            if model and backend not in model.backends:
-                model = None
+        if not task.allow_fallback and not selected:
+            raise ValueError("Il modello o il motore scelto non e' disponibile per questa operazione. "
+                             "Controlla i modelli installati oppure scegli Automatico.")
         task.params = self.router.apply_model(task.params, model, selected or backend)
         return model, (selected or backend or FALLBACK_BACKEND)
 
@@ -109,13 +113,13 @@ class ImageGenerator:
         spec, selected_backend = await self._plan(task, backend)
         log.info(f"Esecuzione text_to_image con {selected_backend}" + (f" / {spec.id}" if spec else ""))
         image_bytes, used_backend = await self._call_with_fallback(
-            selected_backend, "text_to_image", prompt, task.params
+            selected_backend, "text_to_image", prompt, task.params, allow_fallback=task.allow_fallback
         )
 
         return self._save_image_asset(
             image_bytes,
             name=f"txt2img_{str(prompt)[:20].strip()}",
-            metadata={"generator": used_backend, "model": spec.id if spec else None,
+            metadata={"generator": used_backend, "model": spec.id if spec and used_backend == selected_backend else None,
                       "operation": "text_to_image", "params": task.params}
         )
 
@@ -127,13 +131,13 @@ class ImageGenerator:
         spec, selected_backend = await self._plan(task, backend)
         log.info(f"Esecuzione img_to_img con {selected_backend}" + (f" / {spec.id}" if spec else ""))
         new_image_bytes, used_backend = await self._call_with_fallback(
-            selected_backend, "img_to_image", image_bytes, prompt, task.params
+            selected_backend, "img_to_image", image_bytes, prompt, task.params, allow_fallback=task.allow_fallback
         )
 
         return self._save_image_asset(
             new_image_bytes,
             name=f"img2img_{str(prompt)[:20].strip()}",
-            metadata={"generator": used_backend, "model": spec.id if spec else None,
+            metadata={"generator": used_backend, "model": spec.id if spec and used_backend == selected_backend else None,
                       "operation": "img_to_img", "params": task.params},
             source_assets=[source_asset_id]
         )
@@ -159,13 +163,13 @@ class ImageGenerator:
 
         log.info(f"Instruct edit di {source_asset_id} con {selected_backend} / {spec.id if spec else '?'}")
         new_bytes, used_backend = await self._call_with_fallback(
-            selected_backend, "instruct_edit", image_bytes, instruction, task.params
+            selected_backend, "instruct_edit", image_bytes, instruction, task.params, allow_fallback=task.allow_fallback
         )
 
         return self._save_image_asset(
             new_bytes,
             name=f"{source_asset.name}_edit",
-            metadata={"generator": used_backend, "model": spec.id if spec else None,
+            metadata={"generator": used_backend, "model": spec.id if spec and used_backend == selected_backend else None,
                       "operation": "instruct_edit", "instruction": instruction, "params": task.params},
             source_assets=[source_asset_id]
         )
@@ -191,13 +195,13 @@ class ImageGenerator:
         spec, selected_backend = await self._plan(task, backend)
         task.params.pop("prefer", None)
         new_image_bytes, used_backend = await self._call_with_fallback(
-            selected_backend, "upscale", image_bytes, task.params
+            selected_backend, "upscale", image_bytes, task.params, allow_fallback=task.allow_fallback
         )
 
         return self._save_image_asset(
             new_image_bytes,
             name=f"upscale_{source_asset.name}",
-            metadata={"generator": used_backend, "model": spec.id if spec else None,
+            metadata={"generator": used_backend, "model": spec.id if spec and used_backend == selected_backend else None,
                       "operation": "upscale", "restore": bool(restore), "params": task.params},
             source_assets=[asset_id]
         )

@@ -3,26 +3,30 @@ import {
   Brush, Eraser, Scissors, Square, Sliders, Image as ImageIcon,
   SplitSquareHorizontal, Sun, Sparkles, RotateCcw, MessageSquare, Layers, Wand2
 } from 'lucide-react';
+import CreativeEmptyState from '../shared/CreativeEmptyState';
 
 const DIRECTIONS = ['all', 'top', 'bottom', 'left', 'right'];
 
-export default function EditCanvas({ asset, busy, capabilities = {}, onEdit, onUpscale, onSegment }) {
+export default function EditCanvas({ asset, busy, capabilities = {}, onEdit, onUpscale, onSegment, onChooseAsset }) {
   const [tool, setTool] = useState('brush');
   const [brushSize, setBrushSize] = useState(40);
   const [prompt, setPrompt] = useState('');
   const [direction, setDirection] = useState('all');
   const [pixels, setPixels] = useState(128);
   const [lightDir, setLightDir] = useState('front');
+  const [notice, setNotice] = useState('');
   const canvasRef = useRef(null);
   const maskRef = useRef(null);
   const drawing = useRef(false);
 
   useEffect(() => {
-    if (!asset?.url || !canvasRef.current) return;
+    if (!asset?.url || !['image', 'render'].includes(asset.type) || !canvasRef.current) return;
+    let cancelled = false;
     const img = new Image();
     img.crossOrigin = 'anonymous';
     img.src = asset.url;
     img.onload = () => {
+      if (cancelled) return;
       const canvas = canvasRef.current;
       const mask = maskRef.current;
       if (!canvas || !mask) return;
@@ -33,6 +37,8 @@ export default function EditCanvas({ asset, busy, capabilities = {}, onEdit, onU
       mask.height = img.height;
       mask.getContext('2d').clearRect(0, 0, img.width, img.height);
     };
+    img.onerror = () => { if (!cancelled) setNotice('Impossibile aprire questa immagine. Scegli un altro file dalla libreria.'); };
+    return () => { cancelled = true; };
   }, [asset]);
 
   const pointAt = (e) => {
@@ -43,7 +49,17 @@ export default function EditCanvas({ asset, busy, capabilities = {}, onEdit, onU
     };
   };
 
-  const startDrawing = (e) => { drawing.current = true; draw(e); };
+  const startDrawing = (e) => {
+    const mask = maskRef.current;
+    if (!mask) return;
+    const { x, y } = pointAt(e);
+    const ctx = mask.getContext('2d');
+    ctx.beginPath();
+    ctx.moveTo(x, y);
+    mask.setPointerCapture(e.pointerId);
+    drawing.current = true;
+    draw(e);
+  };
   const stopDrawing = () => {
     drawing.current = false;
     maskRef.current?.getContext('2d').beginPath();
@@ -80,18 +96,14 @@ export default function EditCanvas({ asset, busy, capabilities = {}, onEdit, onU
   const maskData = () => maskRef.current?.toDataURL('image/png');
 
   const runMaskedEdit = (task_type) => {
-    if (!hasMask()) return alert('Disegna prima la maschera sull’area da modificare.');
-    if (!prompt.trim()) return alert('Scrivi cosa deve comparire nell’area mascherata.');
+    if (!hasMask()) return setNotice('Disegna prima la maschera sull’area da modificare.');
+    if (!prompt.trim()) return setNotice('Scrivi cosa deve comparire nell’area mascherata.');
+    setNotice('');
     onEdit(task_type, asset.id, { mask_data: maskData(), prompt });
   };
 
-  if (!asset) {
-    return (
-      <div className="cs-canvas-wrapper">
-        <ImageIcon size={48} style={{ opacity: 0.2 }} />
-        <p>Seleziona un asset immagine per modificarlo</p>
-      </div>
-    );
+  if (!asset || !['image', 'render'].includes(asset.type)) {
+    return <CreativeEmptyState icon={ImageIcon} title="Scegli un’immagine da ritoccare" description="Apri la libreria per scegliere un’immagine oppure creane una in 2D Generator." onChoose={onChooseAsset} />;
   }
 
   const disabled = busy || !asset.url;
@@ -99,35 +111,39 @@ export default function EditCanvas({ asset, busy, capabilities = {}, onEdit, onU
 
   return (
     <div className="cs-edit-canvas-container">
+      {notice && <p className="cs-form-notice" role="alert">{notice}</p>}
       <div className="cs-edit-toolbar">
         <button className={`cs-tool-btn ${tool === 'brush' ? 'active' : ''}`} onClick={() => setTool('brush')} title="Pennello maschera"><Brush size={16} /> Maschera</button>
         <button className={`cs-tool-btn ${tool === 'eraser' ? 'active' : ''}`} onClick={() => setTool('eraser')} title="Gomma"><Eraser size={16} /> Gomma</button>
         <button className="cs-tool-btn" onClick={clearMask} title="Azzera maschera"><RotateCcw size={16} /></button>
 
         <div className="cs-toolbar-sep" />
-        <span style={{ fontSize: '0.8rem', color: 'var(--text-dim)' }}>Size</span>
-        <input type="range" min="2" max="200" value={brushSize} onChange={e => setBrushSize(Number(e.target.value))} style={{ width: '80px', accentColor: 'var(--primary)' }} />
+        <label htmlFor="creative-brush-size">Dimensione</label>
+        <input id="creative-brush-size" type="range" min="2" max="200" value={brushSize} onChange={e => setBrushSize(Number(e.target.value))} />
 
         <div className="cs-toolbar-sep" />
         <input
           className="cs-inline-input"
+          aria-label="Descrizione della modifica"
           placeholder="Prompt per l'area mascherata / lo stile..."
           value={prompt}
           onChange={e => setPrompt(e.target.value)} />
       </div>
 
+      <details className="cs-edit-options" open>
+      <summary>Strumenti di ritocco</summary>
       <div className="cs-edit-actions">
-        <button className="cs-tool-btn" disabled={disabled} onClick={() => runMaskedEdit('inpaint')}><Square size={16} /> Inpaint</button>
+        <button className="cs-tool-btn" disabled={disabled} onClick={() => runMaskedEdit('inpaint')}><Square size={16} /> Riempi maschera</button>
         <button className="cs-tool-btn" disabled={disabled} onClick={() => runMaskedEdit('replace_object')}><Sparkles size={16} /> Sostituisci</button>
 
         <div className="cs-action-group">
-          <select className="cs-select" value={direction} onChange={e => setDirection(e.target.value)}>
-            {DIRECTIONS.map(d => <option key={d} value={d}>{d}</option>)}
+          <select className="cs-select" aria-label="Direzione di estensione" value={direction} onChange={e => setDirection(e.target.value)}>
+            {DIRECTIONS.map(d => <option key={d} value={d}>{{ all: 'Tutti i lati', top: 'Alto', bottom: 'Basso', left: 'Sinistra', right: 'Destra' }[d]}</option>)}
           </select>
           <input className="cs-num-input" type="number" min="16" max="1024" step="16" value={pixels} onChange={e => setPixels(Number(e.target.value))} />
           <button className="cs-tool-btn" disabled={disabled}
                   onClick={() => onEdit('outpaint', asset.id, { direction, pixels, prompt })}>
-            <SplitSquareHorizontal size={16} /> Outpaint
+            <SplitSquareHorizontal size={16} /> Estendi immagine
           </button>
         </div>
 
@@ -146,11 +162,11 @@ export default function EditCanvas({ asset, busy, capabilities = {}, onEdit, onU
                   ? 'Modifica guidata dal linguaggio (FLUX Kontext / Qwen-Image-Edit)'
                   : 'Richiede ComfyUI con Kontext/Qwen-Image-Edit oppure fal.ai'}
                 onClick={() => onEdit('instruct_edit', asset.id, { instruction: prompt })}>
-          <MessageSquare size={16} /> Instruct edit
+          <MessageSquare size={16} /> Modifica guidata
         </button>
         <button className="cs-tool-btn" disabled={disabled || !prompt.trim()}
                 onClick={() => onEdit('style_transfer', asset.id, { style_prompt: prompt, strength: 0.7 })}>
-          <Sliders size={16} /> Style transfer
+          <Sliders size={16} /> Cambia stile
         </button>
 
         <div className="cs-action-group">
@@ -159,12 +175,13 @@ export default function EditCanvas({ asset, busy, capabilities = {}, onEdit, onU
           </select>
           <button className="cs-tool-btn" disabled={disabled}
                   onClick={() => onEdit('relight', asset.id, { light_direction: lightDir, intensity: 1.2 })}>
-            <Sun size={16} /> Relight
+            <Sun size={16} /> Cambia luce
           </button>
         </div>
 
-        <button className="cs-tool-btn" disabled={disabled} onClick={() => onUpscale(asset.id, 2)}>2x Upscale</button>
+        <button className="cs-tool-btn" disabled={disabled} onClick={() => onUpscale(asset.id, 2)}>Ingrandisci 2×</button>
       </div>
+      </details>
 
       <div className="cs-canvas-wrapper">
         <canvas ref={canvasRef} className="cs-main-canvas" />
@@ -173,9 +190,10 @@ export default function EditCanvas({ asset, busy, capabilities = {}, onEdit, onU
           className="cs-mask-canvas"
           onPointerDown={startDrawing}
           onPointerUp={stopDrawing}
+          onPointerCancel={stopDrawing}
           onPointerLeave={stopDrawing}
           onPointerMove={draw}
-          style={{ cursor: 'crosshair', touchAction: 'none' }} />
+          />
       </div>
     </div>
   );

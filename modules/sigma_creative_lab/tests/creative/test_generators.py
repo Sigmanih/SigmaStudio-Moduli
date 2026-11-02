@@ -56,15 +56,9 @@ def test_image_to_image_richiede_un_file_sorgente(graph, generator):
         asyncio.run(generator.image_to_image(orphan.asset_id, "prompt"))
 
 
-def test_fallback_su_backend_che_non_implementa_l_operazione(graph, router, generator):
-    class SoloTesto:
-        async def text_to_image(self, prompt, params):
-            from tests.creative.conftest import make_png
-            return make_png()
-
-    generator._get_adapter = lambda name: SoloTesto() if name == "rotto" else _pollinations()
-    asset = asyncio.run(generator.text_to_image("x", width=64, height=64, backend="rotto"))
-    assert asset.metadata["generator"] == "rotto"
+def test_backend_esplicito_non_configurato_non_viene_sostituito(graph, router, generator):
+    with pytest.raises(ValueError, match="non e' disponibile"):
+        asyncio.run(generator.text_to_image("x", width=64, height=64, backend="rotto"))
 
 
 def _pollinations():

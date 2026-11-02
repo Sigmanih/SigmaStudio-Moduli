@@ -98,6 +98,8 @@ class CreativeMCPServer(BaseMCPServer):
                     "cfg_scale": {"type": "number", "default": 7.0},
                     "seed": {"type": "integer", "description": "-1 per casuale", "default": -1},
                     "model_id": {"type": "string", "description": "Forza un modello del registro (es. 'flux.1-dev')"},
+                    "backend": {"type": "string", "description": "Motore esplicitamente scelto, senza ripiego implicito"},
+                    "ckpt": {"type": "string", "description": "File locale esposto dal runtime; preferire un profilo verificato"},
                     "priority": {"type": "string", "enum": ["quality", "balanced", "speed"], "default": "balanced"},
                 },
                 "required": ["prompt"],
@@ -318,6 +320,12 @@ class CreativeMCPServer(BaseMCPServer):
             log.warning(f"[CreativeMCPServer] Registrazione tool video non riuscita: {exc}")
 
     def _init_resources(self):
+        from core.modules.sigma_creative_lab.creative_skills import SKILLS, skill_catalog
+        self.register_resource(uri="creative://skills", name="Skill Creative", description="Contratti e istruzioni delle skill creative",
+                               mime_type="application/json", handler=lambda: {"success": True, "skills": skill_catalog(True)})
+        for skill in SKILLS:
+            self.register_resource(uri=f"creative://skills/{skill['id']}", name=skill["label"], description=skill["description"],
+                                   mime_type="application/json", handler=lambda skill_id=skill["id"]: next(entry for entry in skill_catalog(True) if entry["id"] == skill_id))
         self.register_resource(
             uri="creative://assets",
             name="Creative Asset Vault",
@@ -485,8 +493,9 @@ class CreativeMCPServer(BaseMCPServer):
 
     def _handle_capabilities(self):
         try:
+            from core.modules.sigma_creative_lab.creative_skills import skill_catalog
             cs = self._cs
-            from core.modules.sigma_creative_lab.model_registry import available_vram_gb, catalog
+            from core.modules.sigma_creative_lab.model_registry import available_vram_gb, free_vram_gb, catalog
             backends = _run(cs.model_router.available_backend_names())
             ollama = _run(cs.model_router.ollama_models())
             models = catalog(backends, ollama)
@@ -495,11 +504,13 @@ class CreativeMCPServer(BaseMCPServer):
             return {
                 "success": True,
                 "backends": sorted(backends),
-                "vram_free_gb": available_vram_gb(),
+                "vram_free_gb": free_vram_gb(),
+                "vram_total_gb": available_vram_gb(),
                 "supported_tasks": tasks,
                 "models": [{"id": m["id"], "label": m["label"], "tasks": m["tasks"],
                             "via": m["available_via"]} for m in usable],
                 "pipeline_node_types": cs.pipeline_engine.node_types,
+                "skills": skill_catalog(),
                 "blender": cs.blender_bridge.available,
             }
         except Exception as e:

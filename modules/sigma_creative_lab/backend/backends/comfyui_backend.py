@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+import math
 import uuid
 
 import aiohttp
@@ -120,6 +121,67 @@ class ComfyUIBackend(GenerationBackend):
             "schedulers": self._options(ksampler, "scheduler"),
             "controlnets": self._options(controlnet, "control_net_name"),
         }
+
+    async def validate_workflow(self, graph: dict, deferred_inputs: frozenset = frozenset(), expected_output: str = "") -> dict:
+        """Controlla il contratto dei nodi senza accodare inferenze o caricare pesi."""
+        if not isinstance(graph, dict) or not graph or len(graph) > 512:
+            return {"ok": False, "problems": ["Workflow vuoto o troppo grande (massimo 512 nodi)"]}
+        if any(not isinstance(node, dict) or not isinstance(node.get("class_type"), str) or
+               not isinstance(node.get("inputs"), dict) for node in graph.values()):
+            return {"ok": False, "problems": ["Usa un workflow esportato in formato API ComfyUI"]}
+        names = sorted({node["class_type"] for node in graph.values()})
+        semaphore = asyncio.Semaphore(6)
+        async def describe(name):
+            async with semaphore:
+                return name, await self._object_info(name)
+        definitions = dict(await asyncio.gather(*(describe(name) for name in names)))
+        problems = []
+        for node_id, node in graph.items():
+            spec = definitions[node["class_type"]]
+            if not spec:
+                problems.append(f"Nodo non installato: {node['class_type']}")
+                continue
+            inputs = node["inputs"]
+            required = (spec.get("input") or {}).get("required") or {}
+            for field in required:
+                if field not in inputs:
+                    problems.append(f"{node['class_type']}: manca {field}")
+            for field, value in inputs.items():
+                if (str(node_id), field) in deferred_inputs:
+                    continue
+                field_spec = required.get(field) or ((spec.get("input") or {}).get("optional") or {}).get(field) or []
+                # I collegamenti sono riferimenti a un nodo, non nomi di file.
+                if isinstance(value, list) and len(value) == 2 and isinstance(value[0], str) and isinstance(value[1], int) and not isinstance(value[1], bool):
+                    if value[0] not in graph or value[1] < 0:
+                        problems.append(f"{node_id}.{field}: collegamento non valido")
+                    elif value[0] in graph:
+                        outputs = definitions[graph[value[0]]["class_type"]].get("output")
+                        if isinstance(outputs, list) and value[1] >= len(outputs):
+                            problems.append(f"{node_id}.{field}: uscita del nodo inesistente")
+                        elif isinstance(outputs, list) and field_spec:
+                            known = {"MODEL", "CLIP", "VAE", "IMAGE", "LATENT", "CONDITIONING", "MASK", "AUDIO"}
+                            wanted, provided = field_spec[0], outputs[value[1]]
+                            if isinstance(wanted, str) and isinstance(provided, str) and wanted in known and provided in known and wanted != provided:
+                                problems.append(f"{node_id}.{field}: tipo {provided} incompatibile con {wanted}")
+                    continue
+                options = self._options(spec, field)
+                enumeration = bool(field_spec and (isinstance(field_spec[0], list) or field_spec[0] == "COMBO"))
+                if enumeration and isinstance(value, str) and value not in options:
+                    problems.append(f"{node['class_type']}.{field}: file o opzione non disponibile: {value}")
+                elif isinstance(value, str) and "{{" in value:
+                    problems.append(f"{node_id}.{field}: parametro non risolto")
+                if field_spec and field_spec[0] in ("INT", "FLOAT"):
+                    try:
+                        number = float(value)
+                        bounds = field_spec[1] if len(field_spec) > 1 and isinstance(field_spec[1], dict) else {}
+                        if isinstance(value, bool) or not math.isfinite(number) or (field_spec[0] == "INT" and not number.is_integer()) or number < bounds.get("min", -math.inf) or number > bounds.get("max", math.inf):
+                            raise ValueError("fuori intervallo")
+                    except (ValueError, TypeError, OverflowError):
+                        problems.append(f"{node_id}.{field}: numero non valido o fuori intervallo")
+        if expected_output and not any(spec.get("output_node") and any(isinstance(value, list) and value and value[0] == expected_output
+                for value in ((spec.get("input") or {}).get("required") or {}).values()) for spec in definitions.values()):
+            problems.append(f"Il workflow non contiene un'uscita compatibile con {expected_output}")
+        return {"ok": not problems, "problems": problems[:30], "checked_nodes": len(graph)}
 
     # ------------------------------------------------------------------
     # Esecuzione

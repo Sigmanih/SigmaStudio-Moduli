@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { ZoomIn, ZoomOut, Maximize, Play, Trash2, Square, AlertTriangle, Loader } from 'lucide-react';
 import NodePalette from './NodePalette';
+import { readCreativeResponse } from '../creativeResponse';
 import NodeInspector from './NodeInspector';
 import { PIPELINE_TEMPLATES, newNodeId } from './pipelineTemplates';
 
@@ -26,10 +27,12 @@ const cablePath = (a, b) => {
   return `M ${a.x} ${a.y} C ${a.x + dx} ${a.y}, ${b.x - dx} ${b.y}, ${b.x} ${b.y}`;
 };
 
-export default function CreativeNodeEditor({ assets = [], onAssetsProduced }) {
+export default function CreativeNodeEditor({ assets = [], onAssetsProduced, draft, onDraftChange }) {
   const [catalog, setCatalog] = useState([]);
-  const [nodes, setNodes] = useState([]);
-  const [connections, setConnections] = useState([]);
+  const nodes = draft?.nodes || [];
+  const connections = draft?.connections || [];
+  const setNodes = useCallback(update => onDraftChange(previous => ({ ...previous, nodes: typeof update === 'function' ? update(previous.nodes) : update })), [onDraftChange]);
+  const setConnections = useCallback(update => onDraftChange(previous => ({ ...previous, connections: typeof update === 'function' ? update(previous.connections) : update })), [onDraftChange]);
   const [selectedId, setSelectedId] = useState(null);
   const [view, setView] = useState({ x: 0, y: 0, zoom: 1 });
   const [linking, setLinking] = useState(null);   // {from, fromPort, cursor:{x,y}}
@@ -47,7 +50,7 @@ export default function CreativeNodeEditor({ assets = [], onAssetsProduced }) {
   useEffect(() => {
     fetch('/api/creative/pipeline/nodes')
       .then(r => r.json())
-      .then(data => { if (data.success) setCatalog(data.catalog || []); })
+      .then(data => { if (!data.success) throw new Error(data.error || 'Catalogo nodi non disponibile'); setCatalog(data.catalog || []); })
       .catch(() => setError('Catalogo nodi non raggiungibile'));
     return () => abortRef.current?.abort();
   }, []);
@@ -210,7 +213,7 @@ export default function CreativeNodeEditor({ assets = [], onAssetsProduced }) {
     try {
       const response = await fetch('/api/creative/pipeline/execute', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', Accept: 'text/event-stream, application/json' },
         body: JSON.stringify({ pipeline_def }),
         signal: controller.signal,
       });
@@ -230,28 +233,9 @@ export default function CreativeNodeEditor({ assets = [], onAssetsProduced }) {
         if (Array.isArray(evt.results)) produced.push(...evt.results);
       };
 
-      if (response.headers.get('content-type')?.includes('application/json')) {
-        const data = await response.json();
-        if (!data.success) throw new Error(data.error || 'Pipeline fallita');
-        (data.results || []).forEach(r => produced.push(r));
-      } else {
-        const reader = response.body.getReader();
-        const decoder = new TextDecoder();
-        let buffer = '';
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
-          buffer += decoder.decode(value, { stream: true });
-          const lines = buffer.split('\n');
-          buffer = lines.pop() || '';
-          for (const line of lines) {
-            if (!line.startsWith('data: ') || line === 'data: [DONE]') continue;
-            try { handleEvent(JSON.parse(line.slice(6))); } catch { /* frame parziale */ }
-          }
-        }
-      }
+      await readCreativeResponse(response, handleEvent);
 
-      if (produced.length) onAssetsProduced?.(produced);
+      if (produced.length) onAssetsProduced?.([...new Map(produced.filter(a => a?.id || a?.asset_id).map(a => [a.id || a.asset_id, a])).values()]);
     } catch (err) {
       if (err.name !== 'AbortError') setError(err.message);
     } finally {
@@ -364,7 +348,7 @@ export default function CreativeNodeEditor({ assets = [], onAssetsProduced }) {
         <button className="cs-zoom-btn" onClick={() => { setNodes([]); setConnections([]); setNodeStatus({}); }} title="Svuota il canvas"><Trash2 size={16} /></button>
         {running ? (
           <button className="cs-generate-btn cs-run-btn" onClick={() => abortRef.current?.abort()}>
-            <Square size={14} /> Interrompi
+            <Square size={14} /> Interrompi attesa
           </button>
         ) : (
           <button className="cs-generate-btn cs-run-btn" onClick={runPipeline} disabled={!nodes.length}>

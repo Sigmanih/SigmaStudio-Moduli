@@ -18,7 +18,7 @@ from core.modules.sigma_creative_lab.pipeline.creative_pipeline_engine import Cr
 from core.modules.sigma_creative_lab.video.video_generator import VideoGenerator
 from core.modules.sigma_creative_lab.agents.creative_agents import CREATIVE_AGENTS, register_creative_agents
 from core.modules.sigma_creative_lab.agents.vision_agent import VisionAgent
-from core.modules.sigma_creative_lab.model_registry import catalog as model_catalog, available_vram_gb
+from core.modules.sigma_creative_lab.model_registry import catalog as model_catalog, available_vram_gb, free_vram_gb
 from core.modules.sigma_creative_lab.generators.adapters.comfyui_adapter import ComfyUIAdapter
 from core.modules.sigma_creative_lab import  model_hub
 from core.modules.sigma_creative_lab.backends import get_backend
@@ -173,7 +173,8 @@ def handle_creative_backends_status(self):
             "success": True,
             "backends": [s.to_dict() for s in statuses],
             "capabilities": capabilities,
-            "vram_free_gb": available_vram_gb(),
+            "vram_free_gb": free_vram_gb(),
+            "vram_total_gb": available_vram_gb(),
             "blender": {"available": blender_bridge.available, "path": blender_bridge.blender_path},
         })
     except Exception as e:
@@ -641,6 +642,11 @@ def handle_creative_models(self):
         self.send_json_response({"success": False, "error": str(e)}, 500)
 
 
+def handle_creative_skills(self):
+    from core.modules.sigma_creative_lab.creative_skills import skill_catalog
+    self.send_json_response({"success": True, "skills": skill_catalog(True)})
+
+
 def handle_creative_discover(self):
     """GET /api/creative/backends/discover — inventario reale dei backend locali.
 
@@ -651,12 +657,12 @@ def handle_creative_discover(self):
         cfg = model_router.get_config().get("backends", {}).get("comfyui", {})
         url = cfg.get("url") or ""
         detected = asyncio.run(model_router.probe_backend("comfyui"))
-        target = url if (cfg.get("enabled") and url) else detected
+        target = detected
 
         if not target:
             return self.send_json_response({
                 "success": True, "comfyui": {"reachable": False},
-                "message": "ComfyUI non raggiungibile su 127.0.0.1:8188. Avvia ComfyUI Desktop e riprova.",
+                "message": "ComfyUI non raggiungibile. Avvia il motore locale e premi Aggiorna.",
             })
 
         inventory = asyncio.run(ComfyUIAdapter(base_url=target, config=cfg).discover())
@@ -664,7 +670,7 @@ def handle_creative_discover(self):
             "success": True,
             "comfyui": {
                 "reachable": True, "url": target,
-                "enabled": bool(cfg.get("enabled")),
+                "enabled": bool(cfg.get("enabled")) and target.rstrip('/') == (url or 'http://127.0.0.1:8188').rstrip('/'),
                 **inventory,
             },
             "workflows": ComfyUIAdapter.workflow_status(),
@@ -769,6 +775,35 @@ def handle_creative_workflow_save(self):
         self.send_json_response({"success": True, "workflow": saved.to_dict()})
     except Exception as e:
         _fail(self, e, "salvataggio workflow", 400)
+
+
+def handle_creative_profile_save(self):
+    """Verifica o registra un profilo prima di renderlo selezionabile dagli agenti."""
+    from core.modules.sigma_creative_lab.model_profiles import prepare_profile, validate_profile
+    try:
+        data = self.read_json_body()
+        profile = prepare_profile(data, workflow_registry)
+        check = asyncio.run(validate_profile(profile, _comfy_backend()))
+        if not check["ok"]:
+            return self.send_json_response({"success": False, "error": "; ".join(check["problems"]), "check": check}, 400)
+        if data.get("validate_only"):
+            return self.send_json_response({"success": True, "check": check, "profile": profile.to_dict()})
+        saved = workflow_registry.save(profile.to_dict(), profile.workflow)
+        self.send_json_response({"success": True, "check": check, "profile": saved.to_dict(), "model_id": f"workflow:{saved.id}"})
+    except Exception as e:
+        _fail(self, e, "profilo modello", 400)
+
+
+def handle_creative_profile_components(self):
+    from core.modules.sigma_creative_lab.model_profiles import profile_components
+    try:
+        query = parse_qs(urlparse(self.path).query)
+        workflow = workflow_registry.get(query.get("id", [""])[0])
+        if not workflow:
+            raise ValueError("Workflow non presente")
+        self.send_json_response({"success": True, **asyncio.run(profile_components(workflow, _comfy_backend()))})
+    except Exception as e:
+        _fail(self, e, "componenti del modello", 400)
 
 
 def handle_creative_workflow_delete(self):

@@ -34,8 +34,8 @@ export default function ModelBrowser({ onInstalled }) {
 
   const loadMeta = useCallback(() => (
     fetch('/api/creative/models/categories').then(r => r.json())
-      .then(d => { if (d.success) setMeta(d); })
-      .catch(() => {})
+      .then(d => { if (!d.success || !Array.isArray(d.categories)) throw new Error(d.error || 'Impossibile leggere le categorie'); setMeta(d); })
+      .catch(e => setNotice({ type: 'error', text: e.message }))
   ), []);
 
   useEffect(() => { loadMeta(); }, [loadMeta]);
@@ -53,7 +53,7 @@ export default function ModelBrowser({ onInstalled }) {
       }
     }).catch(() => {});
     if (jobs.length && !poll.current) poll.current = setInterval(tick, 1500);
-    return () => { if (poll.current && !jobs.length) { clearInterval(poll.current); poll.current = null; } };
+    return () => { if (poll.current) { clearInterval(poll.current); poll.current = null; } };
   }, [jobs.length, loadMeta, onInstalled]);
 
   const runSearch = (e) => {
@@ -96,7 +96,7 @@ export default function ModelBrowser({ onInstalled }) {
 
   const toggleSource = (id) => setSources(s => (s.includes(id) ? s.filter(x => x !== id) : [...s, id]));
 
-  if (!meta) return <p className="cs-hint">Caricamento categorie...</p>;
+  if (!meta) return notice ? <div role="alert"><p>{notice.text}</p><button className="cs-secondary-button" onClick={loadMeta}>Riprova</button></div> : <p className="cs-hint">Caricamento categorie...</p>;
 
   const activeCategory = meta.categories.find(c => c.id === category);
   const installedHere = meta.installed?.[category]?.files || [];
@@ -109,10 +109,10 @@ export default function ModelBrowser({ onInstalled }) {
           <p className="cs-hint">
             <FolderOpen size={12} />
             {meta.models_root || 'cartella ComfyUI non trovata'}
-            {activeCategory && ` → ${activeCategory.folder}/`}
+            {activeCategory?.folder && ` → ${activeCategory.folder}/`}
           </p>
         </div>
-        <span className="cs-hint"><HardDrive size={12} /> {meta.disk_free_gb} GB liberi</span>
+        {Number.isFinite(meta.disk_free_gb) && <span className="cs-hint"><HardDrive size={12} /> {meta.disk_free_gb} GB liberi</span>}
       </div>
 
       <div className="cs-category-tabs">
@@ -144,8 +144,8 @@ export default function ModelBrowser({ onInstalled }) {
           <button
             key={s.id} type="button"
             className={`cs-pill ${sources.includes(s.id) ? 'active' : ''}`}
-            disabled={s.id === 'civitai' && !activeCategory?.sources.includes('civitai')}
-            title={s.id === 'civitai' && !activeCategory?.sources.includes('civitai')
+            disabled={s.id === 'civitai' && !activeCategory?.sources?.includes('civitai')}
+            title={s.id === 'civitai' && !activeCategory?.sources?.includes('civitai')
               ? 'Civitai non classifica questa categoria' : ''}
             onClick={() => toggleSource(s.id)}
           >

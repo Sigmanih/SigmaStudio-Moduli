@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { Hexagon, Scissors, Eraser, Move, AlertTriangle, Waves, Download } from 'lucide-react';
+import CreativeEmptyState from '../shared/CreativeEmptyState';
 
 const UNWRAP_METHODS = [
   { id: 'smart_project', label: 'Smart Project' },
@@ -9,32 +10,31 @@ const UNWRAP_METHODS = [
 
 const EXPORT_FORMATS = ['glb', 'fbx', 'obj', 'stl'];
 
-export default function MeshLab({ asset, busy, blenderAvailable, onMeshOp }) {
+export default function MeshLab({ asset, busy, blenderAvailable, onMeshOp, onChooseAsset }) {
   const [ratio, setRatio] = useState(50);
   const [unwrapMethod, setUnwrapMethod] = useState('smart_project');
   const [iterations, setIterations] = useState(2);
   const [voxelSize, setVoxelSize] = useState(0.05);
   const [format, setFormat] = useState('glb');
   const [info, setInfo] = useState(null);
+  const [error, setError] = useState('');
 
   const isMesh = asset && (asset.type === 'mesh' || asset.type === 'model_3d');
 
   useEffect(() => {
     setInfo(null);
+    setError('');
     if (!isMesh) return;
-    fetch(`/api/creative/mesh/info?id=${encodeURIComponent(asset.id)}`)
+    const controller = new AbortController();
+    fetch(`/api/creative/mesh/info?id=${encodeURIComponent(asset.id)}`, { signal: controller.signal })
       .then(r => r.json())
-      .then(data => { if (data.success) setInfo(data.info); })
-      .catch(() => {});
+      .then(data => { if (!data.success) throw new Error(data.error || 'Impossibile leggere la mesh'); setInfo(data.info); })
+      .catch(e => { if (!controller.signal.aborted) setError(e.message); });
+    return () => controller.abort();
   }, [asset, isMesh]);
 
   if (!isMesh) {
-    return (
-      <div className="cs-canvas-wrapper">
-        <Hexagon size={48} style={{ opacity: 0.2 }} />
-        <p>Seleziona una mesh per il Mesh Lab</p>
-      </div>
-    );
+    return <CreativeEmptyState icon={Hexagon} title="Rifinisci un modello 3D" description="Scegli una mesh dalla libreria per ridurre i poligoni, correggere la geometria o esportarla." onChoose={onChooseAsset} />;
   }
 
   const disabled = busy || !blenderAvailable;
@@ -42,6 +42,7 @@ export default function MeshLab({ asset, busy, blenderAvailable, onMeshOp }) {
 
   return (
     <div className="cs-mesh-container">
+      {error && <p className="cs-form-notice" role="alert">{error}</p>}
       {!blenderAvailable && (
         <div className="cs-banner warn">
           <AlertTriangle size={16} />
