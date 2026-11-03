@@ -11,6 +11,11 @@ async function api(path, body) {
 }
 
 const clock = seconds => `${Math.floor(seconds/60)}:${String(Math.floor(seconds%60)).padStart(2,'0')}`;
+const SCENES={anime_study:'Una persona adulta studia alla scrivania in una stanza anime, pioggia alla finestra, movimenti minimi e camera fissa.',
+  anime_workout:'Un atleta adulto in una palestra anime, pausa tra le serie, respiro naturale, luci calde e camera fissa.',
+  anime_reading:'Una persona adulta legge in una biblioteca anime, luce morbida e camera fissa.',
+  forest:'Foresta tranquilla con piccoli animali, luce soffusa e movimento naturale delle foglie.',
+  space:'Spazio procedurale con stelle, nebulose e un movimento lento e ciclico.'};
 
 export default function AudioEditor({ sourceJob, onOpened }) {
   const { openTab } = useApp();
@@ -39,6 +44,9 @@ export default function AudioEditor({ sourceJob, onOpened }) {
   },[sourceJob]);
   useEffect(()=>{setForm(clip?{...clip}:{});},[selected,project?.revision]);
   useEffect(()=>{if(project){setBpm(project.recipe.bpm||72);setKey(project.recipe.key||'C major');}},[project?.id,project?.revision]);
+  useEffect(()=>{if(project){setVideoPrompt(project.video_prompt||SCENES[project.visual_theme]||'Descrivi la scena da abbinare alla musica.');
+    setVideoStyle(project.video_style||'anime');setVideoMode(project.video_mode||'loop');}},
+    [project?.id,project?.video_prompt,project?.video_style,project?.video_mode]);
   const upload=async file=>{
     if(!file||!project)return;setPending(true);setError('');setPlaying(false);
     try{

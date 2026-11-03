@@ -119,6 +119,8 @@ def test_handoff_copia_mix_e_durata_scene(workspace,monkeypatch):
     snapshot=Path(prod['soundtrack_path'])
     assert snapshot.read_bytes()==Path(project['export']['path']).read_bytes()
     assert snapshot!=Path(project['export']['path'])
+    assert editor.load(project['id'])['video_prompt']=='Una foresta tranquilla'
+    assert editor.load(project['id'])['revision']==project['revision']
     Path(project['export']['path']).write_bytes(b'nuova versione')
     assert production.probe(snapshot)['duration']==pytest.approx(1)
     editor.edit(project['id'],1,'update',{'clip_id':project['clips'][0]['id'],'gain':-3})

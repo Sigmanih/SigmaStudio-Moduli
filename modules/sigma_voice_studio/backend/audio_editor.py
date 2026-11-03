@@ -123,7 +123,8 @@ def create(service, source_job, title='', request_id=None):
             return load(pid)
         project = {'id': pid, 'title': str(title or result['title'])[:100],
                    'revision': 1, 'clips': [], 'history': [], 'recipe': recipe,
-                   'visual_theme': result.get('visual_theme', 'space'), 'export': None,'source_job':source_job}
+                   'visual_theme': result.get('visual_theme', 'space'), 'video_prompt':result.get('scene',''),
+                   'export': None,'source_job':source_job}
         if previous:
             add_clip(project, result['wav'], result['title'])
         save(project)
@@ -340,5 +341,8 @@ def video_project(pid, prompt, mode='loop', style='anime'):
     prod['audio_project'] = {'id':pid,'revision':project['revision'],'mode':mode,'mix':{**export,'path':str(snapshot)}}
     manager.store.save(prod)
     with _lock:
-        remember_project(project,prod['id'])
+        current=load(pid)
+        current.update(video_prompt=prompt,video_style=style,video_mode=mode)
+        save(current)
+        remember_project(current,prod['id'])
     return {'production_id':prod['id'], 'url':'/?tab=video_studio', 'title':prod['title']}
