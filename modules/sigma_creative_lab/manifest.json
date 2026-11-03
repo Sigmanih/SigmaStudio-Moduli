@@ -1,7 +1,7 @@
 {
   "id": "sigma_creative_lab",
   "name": "Creative Lab 3D/2D",
-  "version": "v1.6.0",
+  "version": "v1.7.0",
   "category": "Multimodale & Grafica",
   "tabType": "creative_studio",
   "workDomain": "creative",
@@ -41,6 +41,7 @@
     "sd_webui"
   ],
   "changelog": [
+    {"version":"v1.7.0","date":"2026-11-03","notes":"Raccorda i confini delle scene ripetute nei video musicali con una breve dissolvenza ciclica."},
     {"version":"v1.6.0","date":"2026-11-03","notes":"Collega AudioStudio alle produzioni video, conserva il mix approvato e allinea il montaggio alla durata della musica con scena ripetuta o sequenza."},
     {"version": "v1.5.0", "date": "2026-11-02", "notes": "Genera sigle con identità del film e confronto visivo del titolo, verifica tutte le durate e i materiali YouTube e mostra la miniatura nel risultato."},
     {

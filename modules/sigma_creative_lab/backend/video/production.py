@@ -2727,6 +2727,20 @@ class ProductionRunner:
                      quality=int(s.get('final_quality',18)), settings=s,
                      progress=lambda message:self._emit(type='assemble',message=message))
             from .postprocess import video_encoder_args
+            if prod['audio_project'].get('mode')=='loop':
+                loop = dry.with_name(dry.stem + '_loop.mp4')
+                span = float(probe(dry)['duration'])
+                if span <= .1:
+                    raise ValueError('La scena è troppo corta per creare un video ciclico')
+                fade = min(.5,span/4)
+                # L'inizio viene spostato dopo la dissolvenza: anche il confine del ciclo resta raccordato.
+                graph = (f'[0:v]fps=24,settb=AVTB,split[full][head];'
+                         f'[head]trim=duration={fade},setpts=PTS-STARTPTS[h];'
+                         f'[full][h]xfade=transition=fade:duration={fade}:offset={span-fade},'
+                         f'trim=start={fade},setpts=PTS-STARTPTS[v]')
+                _run([ffmpeg_bin(),'-v','error','-y','-filter_complex_threads','2','-i',str(dry),
+                      '-filter_complex',graph,'-map','[v]','-an',*video_encoder_args(int(s.get('final_quality',18)),0),str(loop)],600)
+                dry = loop
             repeat = ['-stream_loop','-1'] if prod['audio_project'].get('mode')=='loop' else []
             _run([ffmpeg_bin(), '-v','error','-y',*repeat,'-i',str(dry),'-i',str(music),'-map','0:v:0','-map','1:a:0',
                   '-vf',f'tpad=stop_mode=clone:stop_duration={duration},fps=24','-t',str(duration),

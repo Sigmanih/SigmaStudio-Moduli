@@ -4,6 +4,7 @@ import MusicTab from '../../components/Music/MusicTab';
 import TabHeader from '../../components/common/TabHeader';
 import VoiceStudio from './VoiceStudio';
 import AudioEditor from './AudioEditor';
+import { useApp } from '../../contexts/AppContext';
 import '../../styles/03-modules/audio-studio.css';
 
 async function api(path, body) {
@@ -15,7 +16,16 @@ async function api(path, body) {
   return value;
 }
 
+const VIDEO_STATUS={draft:'Bozza',rendering:'Generazione in corso',assembling:'Montaggio in corso',done:'Pronto',
+  failed:'Errore',partial:'Incompleto',cancelled:'Fermato',rendered:'Clip pronte'};
+
 function MusicStudio({ onEdit }) {
+  const { openTab } = useApp();
+  const openVideo = id => {
+    window.sessionStorage.setItem('sigmaAudioVideoProduction',id);
+    openTab({name:'Video Studio'},'video_studio');
+    window.dispatchEvent(new CustomEvent('sigma_video_open_production',{detail:id}));
+  };
   const [engine, setEngine] = useState(null);
   const [jobs, setJobs] = useState([]);
   const [genre, setGenre] = useState('lofi_study');
@@ -95,6 +105,13 @@ function MusicStudio({ onEdit }) {
         <audio controls preload="metadata" src={job.result.mp3_url} aria-label={`Ascolta ${job.result.title}`} />
         <div className="as-form-row"><a href={job.result.wav_url} download><Download size={14} /> WAV</a>
           <a href={job.result.mp3_url} download><Download size={14} /> MP3</a></div>
+        {job.video && <div className="as-linked-video">
+          <strong>Video associato · {VIDEO_STATUS[job.video.status]||job.video.status}</strong>
+          <span>{job.video.title}</span>
+          {job.video.url && <><video controls preload="none" poster={job.video.poster_url||undefined} src={job.video.url} aria-label={`Video di ${job.result.title}`}/>
+            <a href={job.video.url} download><Download size={14}/> Scarica video MP4</a></>}
+          <button className="as-secondary" onClick={()=>openVideo(job.video.production_id)}>Apri in Video Studio</button>
+        </div>}
         <button className="as-secondary" onClick={()=>onEdit(job.id)}>Modifica nell’editor</button>
         <details><summary>Modifica questa base</summary>
         <label>Come vuoi cambiarla?<textarea value={feedback[job.id] || ''} maxLength={800}

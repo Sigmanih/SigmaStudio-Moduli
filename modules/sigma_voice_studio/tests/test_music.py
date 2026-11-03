@@ -11,7 +11,7 @@ from core.job_worker import JobCancelled
 from core.modules.sigma_voice_studio import music
 
 
-@pytest.mark.parametrize('genre', ['lofi_study', 'deep_focus', 'neoclassical', 'cyber_ambient'])
+@pytest.mark.parametrize('genre', ['lofi_study', 'deep_focus', 'neoclassical', 'cyber_ambient', 'gym_energy'])
 def test_presets_studio_hanno_ricetta_e_tema_visivo(genre):
     value = music.normalize({'genre': genre, 'seed': 42})
     assert value['duration'] == 120

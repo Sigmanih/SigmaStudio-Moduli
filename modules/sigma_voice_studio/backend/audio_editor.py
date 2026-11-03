@@ -39,6 +39,22 @@ def save(value):
     JsonStore(directory(value['id']) / 'project.json').save(value)
 
 
+def library_links():
+    return JsonStore(root()/'library_links.json',default={}).load()
+
+
+def remember_project(project, production_id=None):
+    source=project.get('source_job')
+    if not source:
+        return
+    links=library_links()
+    entry={**links.get(source,{}),'project_id':project['id']}
+    if production_id:
+        entry['production_id']=production_id
+    links[source]=entry
+    JsonStore(root()/'library_links.json').save(links)
+
+
 def listing():
     if not root().exists():
         return []
@@ -99,15 +115,19 @@ def create(service, source_job, title='', request_id=None):
     recipe = {**(result.get('recipe') or {})}
     recipe.setdefault('key',(BY_ID.get(recipe.get('genre')) or {}).get('key','C major'))
     with _lock:
+        linked=library_links().get(source_job,{}) if source_job else {}
+        if not title and linked.get('project_id') and (directory(linked['project_id'])/'project.json').is_file():
+            return load(linked['project_id'])
         pid='audio_' + (hashlib.sha256((request_id+str(source_job)).encode()).hexdigest()[:16] if request_id else uuid.uuid4().hex[:16])
         if (directory(pid)/'project.json').is_file():
             return load(pid)
         project = {'id': pid, 'title': str(title or result['title'])[:100],
                    'revision': 1, 'clips': [], 'history': [], 'recipe': recipe,
-                   'visual_theme': result.get('visual_theme', 'space'), 'export': None}
+                   'visual_theme': result.get('visual_theme', 'space'), 'export': None,'source_job':source_job}
         if previous:
             add_clip(project, result['wav'], result['title'])
         save(project)
+        remember_project(project)
     return project
 
 
@@ -292,8 +312,9 @@ async def layer_job(service, job):
     return {'audio_project': project['id'], 'clip': clip['id'],'quality':quality}
 
 
-def video_project(pid, prompt, mode='loop'):
+def video_project(pid, prompt, mode='loop', style='anime'):
     from core.modules.sigma_creative_lab.video.production import manager, new_shot, probe
+    from core.modules.sigma_creative_lab.video.genres import GENRES
     project = load(pid)
     export = project.get('export')
     if not export or export['revision'] != project['revision'] or not Path(export['path']).is_file():
@@ -303,6 +324,8 @@ def video_project(pid, prompt, mode='loop'):
         raise ValueError('Descrivi la scena video da abbinare alla musica')
     if mode not in ('loop','sequence'):
         raise ValueError('Modalità video non supportata')
+    if style not in ('anime','realistic','illustration','cartoon3d'):
+        raise ValueError('Stile video non supportato')
     duration = number(export['duration'],.05,3600)
     if abs(float(probe(Path(export['path']))['audio_duration'])-duration)>.1:
         raise ValueError('La durata del mix è cambiata: esportalo nuovamente')
@@ -310,10 +333,12 @@ def video_project(pid, prompt, mode='loop'):
     shots = [new_shot(prompt + '. Static camera, subtle natural movement, no speech, no music.',
                       duration_s=min(8, duration-index*8), scene='Video musicale') for index in range(count)]
     prod = manager.store.create(project['title'] + ' · Video', settings={'video_model':'ltx25','max_clip_seconds':10}, shots=shots,
-                                bible={'style':prompt}, soundtrack={'enabled':True,'external_mix':True})
+                                bible={'style':GENRES[style]['style'],'genre':style}, soundtrack={'enabled':True,'external_mix':True})
     snapshot=manager.store.path(prod['id'])/'music'/'audio_studio_mix.wav'
     snapshot.parent.mkdir(exist_ok=True);shutil.copy2(export['path'],snapshot)
     prod['soundtrack_path']=str(snapshot)
     prod['audio_project'] = {'id':pid,'revision':project['revision'],'mode':mode,'mix':{**export,'path':str(snapshot)}}
     manager.store.save(prod)
+    with _lock:
+        remember_project(project,prod['id'])
     return {'production_id':prod['id'], 'url':'/?tab=video_studio', 'title':prod['title']}

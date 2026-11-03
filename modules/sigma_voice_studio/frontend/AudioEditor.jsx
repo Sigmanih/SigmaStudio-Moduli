@@ -21,6 +21,7 @@ export default function AudioEditor({ sourceJob, onOpened }) {
   const [prompt,setPrompt] = useState(''), [start,setStart] = useState(0), [seconds,setSeconds] = useState(30);
   const [videoPrompt,setVideoPrompt] = useState('Una persona adulta studia alla scrivania in una stanza anime, pioggia alla finestra, movimenti minimi e camera fissa.');
   const [videoMode,setVideoMode]=useState('loop');
+  const [videoStyle,setVideoStyle]=useState('anime');
   const [job,setJob] = useState(null), [sources,setSources] = useState([]), [source,setSource] = useState('');
   const [newTitle,setNewTitle]=useState('Nuovo progetto audio'),[bpm,setBpm]=useState(72),[key,setKey]=useState('C major');
   const [createToken]=useState(()=>window.crypto.randomUUID().replaceAll('-',''));
@@ -138,8 +139,9 @@ export default function AudioEditor({ sourceJob, onOpened }) {
         <p className="as-note">Il modello genera un livello musicale nuovo: può includere altri suoni. Le tracce già presenti non vengono separate o sovrascritte.</p>
       </div><div><h3><Film size={16}/> Dalla musica al video</h3><p>Esporta il mix, descrivi la scena e continua in Video Studio con la colonna sonora collegata.</p>
         <textarea aria-label="Scena video per la musica" maxLength={2000} value={videoPrompt} onChange={event=>setVideoPrompt(event.target.value)}/>
+        <label>Stile visivo<select value={videoStyle} onChange={event=>setVideoStyle(event.target.value)}><option value="anime">Anime</option><option value="realistic">Realistico</option><option value="illustration">Illustrato</option><option value="cartoon3d">Cartone 3D</option></select></label>
         <label>Struttura del video<select value={videoMode} onChange={event=>setVideoMode(event.target.value)}><option value="loop">Una scena breve ripetuta sulla musica</option><option value="sequence">Scene successive lungo tutto il brano</option></select></label>
-        <button disabled={pending||!project.export||!videoPrompt.trim()} onClick={async()=>{const value=await action({action:'video',id:project.id,prompt:videoPrompt,mode:videoMode});if(value?.video){window.sessionStorage.setItem('sigmaAudioVideoProduction',value.video.production_id);openTab({name:'Video Studio'},'video_studio');window.dispatchEvent(new CustomEvent('sigma_video_open_production',{detail:value.video.production_id}));}}}>Prepara il video da questa musica</button>
+        <button disabled={pending||!project.export||!videoPrompt.trim()} onClick={async()=>{const value=await action({action:'video',id:project.id,prompt:videoPrompt,mode:videoMode,style:videoStyle});if(value?.video){window.sessionStorage.setItem('sigmaAudioVideoProduction',value.video.production_id);openTab({name:'Video Studio'},'video_studio');window.dispatchEvent(new CustomEvent('sigma_video_open_production',{detail:value.video.production_id}));}}}>Prepara il video da questa musica</button>
       </div></section>
     </>}
   </div>;

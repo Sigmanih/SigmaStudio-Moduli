@@ -252,3 +252,43 @@ def test_durata_produzione_usa_il_mix_anziche_la_sola_scena(workspace,monkeypatc
     assert prod['shots'][0]['duration_s']==8
     assert prod['settings']['max_clip_seconds']==10
     assert production.summary(prod)['duration_s']==9
+
+
+def test_libreria_riprende_progetto_collegato_senza_duplicarlo(workspace):
+    source=tone(workspace/'brano.wav')
+    service=SimpleNamespace(worker=SimpleNamespace(store=SimpleNamespace(get=lambda _: {
+        'status':'done','result':{'title':'Musica','wav':str(source),'recipe':{'genre':'lofi_study','bpm':72}}})))
+    project=editor.create(service,'music_originale','Sessione completa')
+    reopened=editor.create(service,'music_originale')
+    assert project['id']==reopened['id']
+    assert editor.library_links()['music_originale']['project_id']==project['id']
+
+
+def test_libreria_mostra_video_generato(workspace,monkeypatch):
+    from core.modules.sigma_voice_studio.music import MusicService
+    project=editor.create(None,None,'Titolo')
+    project['source_job']='music_originale'
+    editor.remember_project(project,'produzione_test')
+    monkeypatch.setattr(production,'manager',SimpleNamespace(store=SimpleNamespace(get=lambda _: {
+        'id':'produzione_test','title':'Video associato','status':'done','output_path':str(workspace/'video.mp4')})))
+    service=object.__new__(MusicService)
+    service.worker=SimpleNamespace(list=lambda:[{'id':'music_originale','status':'done'}])
+    value=service.list()[0]
+    assert value['audio_project']==project['id']
+    assert value['video']['status']=='done'
+    assert value['video']['url'].endswith('video.mp4')
+
+
+@pytest.mark.parametrize('style',['anime','realistic','illustration','cartoon3d'])
+def test_stile_scelto_dall_utente_configura_il_modello_video(workspace,monkeypatch,style):
+    from core.modules.sigma_creative_lab.video.genres import GENRES
+    project,_=project_with_audio(workspace)
+    project['export']=editor.mix(project);editor.save(project)
+    store=production.ProductionStore(workspace/'productions')
+    monkeypatch.setattr(production,'manager',SimpleNamespace(store=store))
+    result=editor.video_project(project['id'],'Scena tranquilla',style=style)
+    prod=store.get(result['production_id'])
+    assert prod['bible']['genre']==style
+    assert prod['bible']['style']==GENRES[style]['style']
+    with pytest.raises(ValueError,match='Stile'):
+        editor.video_project(project['id'],'Scena',style='inesistente')

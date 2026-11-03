@@ -3,7 +3,7 @@
 Modulo per la sintesi vocale neurale e voice cloning integrato in Sigma Studio. Include motori Kokoro 82M e XTTS-v2.
 
 La sezione Musica compone basi strumentali locali attraverso ACE-Step 1.5 turbo di Creative Lab/ComfyUI.
-Sono disponibili Lo-Fi Study Beats, Deep Focus Ambient, Neoclassical Piano e Cyber Ambient / Coding Music,
+Sono disponibili Lo-Fi Study Beats, Deep Focus Ambient, Neoclassical Piano, Cyber Ambient / Coding Music e Palestra / Workout Energy,
 con anteprime di due minuti e sessioni di 5, 15 o 30 minuti, BPM e seed personalizzabili.
 
 Le composizioni hanno una coda persistente con annullamento e ripresa, segmenti verificati e dissolvenze.
@@ -35,3 +35,11 @@ La colonna sonora approvata viene copiata nel progetto video e non rigenerata; i
 coincidere con la sua durata. Il render si avvia in VideoStudio e la bozza non consuma la GPU.
 Gli agenti dispongono di `audio_projects`, `create_audio_project`, `edit_audio_project`,
 `render_audio_project` e `audio_to_video`, con gli stessi controlli sulle revisioni e gli stessi job persistenti.
+
+La libreria musicale mostra anche il video associato: player, download MP4 e apertura della produzione.
+La preparazione del video permette di scegliere Anime, Realistico, Illustrato o Cartone 3D;
+il genere configura anche il modello del fotogramma iniziale.
+«Modifica nell'editor» riprende il progetto già collegato al brano. Il preset Palestra usa un arrangiamento
+elettronico energico e 128 BPM predefiniti, mantenendo controlli di durata, silenzio e ripetizioni.
+I video con una scena ripetuta raccordano il confine del ciclo con una breve dissolvenza; non viene
+moltiplicata la generazione video per coprire ogni minuto della sessione.

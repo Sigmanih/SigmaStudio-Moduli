@@ -14,6 +14,9 @@ from core import paths
 from core.job_store import JobStore
 from core.job_worker import JobCancelled, PersistentJobWorker
 from core.store import JsonStore
+from core.logger import get_logger
+
+log = get_logger(__name__)
 
 PRESETS = (
     {'id': 'lofi_study', 'name': 'Lo-Fi Study Beats', 'bpm': 72, 'key': 'C major',
@@ -40,6 +43,15 @@ PRESETS = (
              'warm deep bass, spacious futuristic pads, quiet nocturnal coding atmosphere, subtle digital textures, '
              'unobtrusive rhythm, gradual timbral evolution, no aggressive lead, no drops, no abrupt changes',
      'visual': 'space', 'scene': 'Spazio procedurale: stelle, nebulose e un movimento lento e ciclico.'},
+    {'id': 'gym_energy', 'name': 'Palestra / Workout Energy', 'bpm': 128, 'key': 'A minor',
+     'description': 'Elettronica energica, cassa regolare, basso incisivo e variazioni per allenarsi.',
+     'tags': 'instrumental energetic electronic workout music, driving four on the floor kick, '
+             'tight punchy drums, strong controlled bassline, bright rhythmic synth arpeggios, '
+             'motivating gym atmosphere, clear steady exercise pulse, progressive arrangement, '
+             'short rhythmic fills, balanced clean production, no harsh distortion, no vocals',
+     'development': 'energetic steady groove, evolving percussion and synth layers, short fills every eight bars, '
+                    'contrasting melodic sections, sustained momentum, no long breakdowns',
+     'visual': 'anime_workout', 'scene': 'Atleta adulto in una palestra anime, movimento controllato e luci dinamiche.'},
 )
 BY_ID = {preset['id']: preset for preset in PRESETS}
 
@@ -145,9 +157,9 @@ async def compose(service, job):
     prod = {'id': 'audio_' + identity, 'settings': {'seed': recipe['seed']},
             'soundtrack': {'tags': tags, 'bpm': recipe['bpm'], 'keyscale': preset['key'], 'instrumental': True,
                           'segment_seconds': 120,
-                          'development': 'subtle natural variation, consistent restrained dynamics, seamless calm flow'},
+                          'development': preset.get('development','subtle natural variation, consistent restrained dynamics, seamless calm flow')},
             'shots': [{'id': 'composition', 'status': 'done', 'frames': recipe['duration'] * 24,
-                       'scene': 'continuous calm instrumental study session'}]}
+                       'scene': preset['name']}]}
     checked = CheckedBackend(engine, job)
     def progress(message):
         checked.check()
@@ -263,7 +275,25 @@ class MusicService:
         return self.worker.submit('audio_studio', 'compose', args)
 
     def list(self):
-        return self.worker.list()
+        jobs=self.worker.list()
+        try:
+            from .audio_editor import library_links
+            from core.modules.sigma_creative_lab.video.production import manager
+            links=library_links()
+            for job in jobs:
+                entry=links.get(job['id'],{})
+                if entry:
+                    job['audio_project']=entry.get('project_id')
+                if entry.get('production_id'):
+                    prod=manager.store.get(entry['production_id'])
+                    if prod:
+                        poster=next((s.get('keyframe') for s in prod.get('shots',[]) if s.get('keyframe')),'')
+                        job['video']={'production_id':prod['id'],'title':prod['title'],'status':prod['status'],
+                            'url':paths.public_url(Path(prod['output_path'])) if prod.get('output_path') else '',
+                            'poster_url':paths.public_url(Path(poster)) if poster else ''}
+        except (ImportError,OSError,ValueError) as exc:
+            log.warning('Collegamenti della libreria audio non disponibili: %s',exc)
+        return jobs
 
     def cancel(self, job_id):
         return self.worker.cancel(job_id)
