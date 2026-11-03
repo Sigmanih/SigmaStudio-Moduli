@@ -294,3 +294,18 @@ def test_stile_scelto_dall_utente_configura_il_modello_video(workspace,monkeypat
     assert prod['bible']['style']==GENRES[style]['style']
     with pytest.raises(ValueError,match='Stile'):
         editor.video_project(project['id'],'Scena',style='inesistente')
+
+
+@pytest.mark.parametrize('activity',['study','workout'])
+def test_montaggio_vario_prepara_azioni_verificabili(workspace,monkeypatch,activity):
+    project,_=project_with_audio(workspace)
+    project['export']=editor.mix(project);editor.save(project)
+    store=production.ProductionStore(workspace/'productions')
+    monkeypatch.setattr(production,'manager',SimpleNamespace(store=store))
+    result=editor.video_project(project['id'],'Original adult anime character',mode='varied',activity=activity)
+    prod=store.get(result['production_id'])
+    assert len(prod['shots'])==8
+    assert len({s['required_action'] for s in prod['shots']})==8
+    assert prod['settings']['judge_mode']=='strict'
+    assert prod['audio_project']['activity']==activity
+    assert editor.load(project['id'])['video_activity']==activity

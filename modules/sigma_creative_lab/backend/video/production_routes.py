@@ -139,7 +139,7 @@ def handle_production_create(self):
         _err(self, str(e))
 
 
-_EDITABLE_SHOT_KEYS = {"prompt", "audio", "duration_s", "transition", "refs", "seed", "scene", "status", "props", "dialogue",
+_EDITABLE_SHOT_KEYS = {"prompt", "start_frame_prompt", "audio", "duration_s", "transition", "refs", "seed", "scene", "status", "props", "dialogue",
                        "location", "expressions", "engine"}
 
 
@@ -192,10 +192,16 @@ def handle_production_update(self):
                 merged["status"] = s["status"]
             if changed:
                 merged.update(status="pending", attempts=0, error="")
+                merged.pop('manual_review',None)
             if "prompt" in s and s["prompt"] != prev.get("prompt"):
                 # Il fotogramma chiave disegnava la descrizione vecchia.
                 merged.pop("keyframe", None)
+                if 'start_frame_prompt' not in s:
+                    merged.pop('start_frame_prompt',None)
                 edited.add(merged["id"])
+            if 'start_frame_prompt' in s and s['start_frame_prompt']!=prev.get('start_frame_prompt'):
+                merged.pop('keyframe',None)
+                edited.add(merged['id'])
             shots.append(merged)
         prod["shots"] = shots
     if isinstance(data.get("bible"), dict):
@@ -584,13 +590,23 @@ def handle_production_render(self):
     try:
         from core.modules.sigma_creative_lab.creative_router import model_router
         if data.get("shot_ids"):
+            if manager.active():
+                return _err(self,'Attendi la fine della produzione in corso',409)
             prod = manager.store.get(data.get("id", ""))
             if prod is None:
                 return _err(self, "produzione inesistente", 404)
             wanted = set(data["shot_ids"])
+            if data.get('review_existing'):
+                found=[sh for sh in prod['shots'] if sh['id'] in wanted]
+                if len(found)!=len(wanted) or any(not Path(sh.get('clip_path','')).is_file() for sh in found):
+                    return _err(self,'Scegli clip già generate da ricontrollare')
             for sh in prod["shots"]:
                 if sh["id"] in wanted:
-                    sh.update(status="pending", attempts=0, error="")
+                    sh.pop('manual_review',None)
+                    if data.get('review_existing'):
+                        sh.update(status='pending',error='',review_existing=True)
+                    else:
+                        sh.update(status="pending", attempts=0, error="")
             manager.store.save(prod)
         result = manager.start(data.get("id", ""), config=model_router.get_config())
         _ok(self, **result)
@@ -602,6 +618,22 @@ def handle_production_cancel(self):
     """POST /api/creative/productions/cancel {id}"""
     data = self.read_json_body()
     _ok(self, cancelled=manager.cancel(data.get("id", "")))
+
+
+def handle_production_manual_review(self):
+    data=self.read_json_body()
+    if manager.active():
+        return _err(self,'Attendi la fine della produzione in corso',409)
+    try:
+        if not isinstance(data,dict):
+            raise ValueError('Parametri della revisione non validi')
+        if data.get('confirmed') is not True:
+            raise ValueError('Conferma di aver verificato visivamente l’azione nella clip')
+        from .manual_review import accept
+        prod=accept(manager.store,data.get('id'),data.get('shot_id'),data.get('reason'),data.get('reviewer','operator'))
+        _ok(self,production=_decorate(prod))
+    except (ValueError,OSError,RuntimeError,TypeError) as exc:
+        _err(self,str(exc))
 
 
 def handle_production_assemble(self):
@@ -764,6 +796,7 @@ POST_ROUTES = {
     "/api/creative/productions/portraits": handle_production_portraits,
     "/api/creative/productions/keyframes": handle_production_keyframes,
     "/api/creative/productions/cancel": handle_production_cancel,
+    '/api/creative/productions/manual_review': handle_production_manual_review,
     "/api/creative/productions/assemble": handle_production_assemble,
     "/api/creative/productions/animatic": handle_production_animatic,
     "/api/creative/productions/delete": handle_production_delete,

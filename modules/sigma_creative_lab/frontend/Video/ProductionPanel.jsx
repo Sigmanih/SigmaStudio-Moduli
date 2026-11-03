@@ -276,8 +276,10 @@ function ShotFixes({ shot, disabled, dirty, onFix, onRemove }) {
   );
 }
 
-function ShotRow({ shot, index, live, disabled, onEdit, onKeyframe, characters = [], maxDur = 5.2, dirty,
+function ShotRow({ shot, index, live, disabled, onEdit, onKeyframe, onReview, onManualReview, characters = [], maxDur = 5.2, dirty,
                   isStyle, onStyle, onRender, onInsert, onDelete, onFix, onRemoveFix, locations = [] }) {
+  const [reviewReason,setReviewReason]=useState(''),[reviewConfirmed,setReviewConfirmed]=useState(false);
+  useEffect(()=>{setReviewReason('');setReviewConfirmed(false);},[shot.id,shot.rendered_at]);
   const inShot = characters.filter(c => (shot.refs || []).includes(c.name));
   const refs = shot.refs || [];
   const toggleRef = (name) => onEdit({ refs: refs.includes(name) ? refs.filter(n => n !== name) : [...refs, name] });
@@ -332,6 +334,10 @@ function ShotRow({ shot, index, live, disabled, onEdit, onKeyframe, characters =
         <textarea className="cs-textarea" rows={2} value={shot.prompt} disabled={disabled}
                   onChange={e => onEdit({ prompt: e.target.value })} />
       </div>
+      {shot.start_frame_prompt && <details><summary>Posa del fotogramma iniziale</summary>
+        <textarea className="cs-textarea" rows={3} value={shot.start_frame_prompt} disabled={disabled}
+          aria-label={`Posa iniziale ${index+1}`} onChange={e=>onEdit({start_frame_prompt:e.target.value})}/>
+      </details>}
       {shot.keyframe_check && shot.keyframe_check.ok === false && (
         <div className="cs-shot-advice" title={shot.keyframe_check.seen || ''}>
           <Eye size={12} /> Fotogramma da controllare: {(shot.keyframe_check.issues || []).join('; ')}
@@ -386,6 +392,8 @@ function ShotRow({ shot, index, live, disabled, onEdit, onKeyframe, characters =
                   title={dirty ? 'Salva prima le modifiche' : 'Rifai solo questa clip (con il prompt e i personaggi attuali)'}>
             <RotateCw size={11} /> Rifai clip
           </button>
+          {shot.clip_path&&<button className="cs-ed-mini" disabled={disabled||dirty} onClick={onReview}
+            title="Ricontrolla la clip esistente e prosegui la produzione"><Eye size={11}/> Ricontrolla e prosegui</button>}
           <button className="cs-ed-mini" disabled={disabled} onClick={onInsert} title="Nuova inquadratura subito dopo">
             <ListPlus size={11} />
           </button>
@@ -395,7 +403,16 @@ function ShotRow({ shot, index, live, disabled, onEdit, onKeyframe, characters =
         </span>
       </div>
       {shot.error && <p className="cs-prod-error">{shot.error}</p>}
+      {shot.manual_review?.accepted&&<p className="cs-hint">Revisione visiva registrata: {shot.manual_review.reason}</p>}
       {shot.clip_url && <video className="cs-prod-clip" src={shot.clip_url} controls preload="metadata" />}
+      {shot.clip_url&&(shot.status==='failed'||shot.judge?.ok===false)&&!shot.manual_review?.accepted&&<details>
+        <summary>Revisione visiva della clip</summary><p className="cs-hint">Guarda la clip completa prima di accettarla. La valutazione AI e la tua motivazione restano registrate.</p>
+        <textarea className="cs-textarea" maxLength={1000} value={reviewReason} disabled={disabled} aria-label={`Motivo revisione ${index+1}`}
+          placeholder="Descrivi quale azione hai verificato e perché la clip è utilizzabile" onChange={event=>setReviewReason(event.target.value)}/>
+        <label><input type="checkbox" checked={reviewConfirmed} disabled={disabled} onChange={event=>setReviewConfirmed(event.target.checked)}/> Ho verificato visivamente l’azione nella clip</label>
+        <button className="cs-tool-btn" disabled={disabled||dirty||!reviewConfirmed||reviewReason.trim().length<20}
+          onClick={()=>onManualReview(reviewReason)}>Accetta dopo revisione visiva</button>
+      </details>}
     </div>
   );
 }
@@ -721,6 +738,8 @@ export default function ProductionPanel({ aceInstalled = false, onOpenEditor, re
                                  onKeyframe={() => act(() => call('/keyframes', { id: draft.id, shot_ids: [s.id] }))}
                                  onStyle={() => act(() => call('/style_image', { id: draft.id, shot_id: shown.keyframe === styleImage ? '' : s.id }))}
                                  onRender={() => act(() => call('/render', { id: draft.id, shot_ids: [s.id] }))}
+                                 onReview={() => act(() => call('/render', { id: draft.id, shot_ids: [s.id],review_existing:true }))}
+                                 onManualReview={reason=>act(()=>call('/manual_review',{id:draft.id,shot_id:s.id,reason,confirmed:true}))}
                                  onInsert={() => insertAfter(i)} onDelete={() => deleteShot(i)}
                                  onFix={(problem, redo) => act(async () => {
                                    await call('/shot_fix', { id: draft.id, shot_id: s.id, problem, redo });

@@ -11,8 +11,8 @@ async function api(path, body) {
 }
 
 const clock = seconds => `${Math.floor(seconds/60)}:${String(Math.floor(seconds%60)).padStart(2,'0')}`;
-const SCENES={anime_study:'Una persona adulta studia alla scrivania in una stanza anime, pioggia alla finestra, movimenti minimi e camera fissa.',
-  anime_workout:'Un atleta adulto in una palestra anime, pausa tra le serie, respiro naturale, luci calde e camera fissa.',
+const SCENES={anime_study:'Una persona adulta studia attivamente alla scrivania in una stanza anime con libri, quaderni e piante.',
+  anime_workout:'Un atleta adulto si allena in una palestra anime con attrezzi, spazio libero ed esercizi controllati.',
   anime_reading:'Una persona adulta legge in una biblioteca anime, luce morbida e camera fissa.',
   forest:'Foresta tranquilla con piccoli animali, luce soffusa e movimento naturale delle foglie.',
   space:'Spazio procedurale con stelle, nebulose e un movimento lento e ciclico.'};
@@ -25,7 +25,8 @@ export default function AudioEditor({ sourceJob, onOpened }) {
   const [error,setError] = useState(''), [pending,setPending] = useState(false);
   const [prompt,setPrompt] = useState(''), [start,setStart] = useState(0), [seconds,setSeconds] = useState(30);
   const [videoPrompt,setVideoPrompt] = useState('Una persona adulta studia alla scrivania in una stanza anime, pioggia alla finestra, movimenti minimi e camera fissa.');
-  const [videoMode,setVideoMode]=useState('loop');
+  const [videoMode,setVideoMode]=useState('varied');
+  const [videoActivity,setVideoActivity]=useState('study');
   const [videoStyle,setVideoStyle]=useState('anime');
   const [job,setJob] = useState(null), [sources,setSources] = useState([]), [source,setSource] = useState('');
   const [newTitle,setNewTitle]=useState('Nuovo progetto audio'),[bpm,setBpm]=useState(72),[key,setKey]=useState('C major');
@@ -45,8 +46,9 @@ export default function AudioEditor({ sourceJob, onOpened }) {
   useEffect(()=>{setForm(clip?{...clip}:{});},[selected,project?.revision]);
   useEffect(()=>{if(project){setBpm(project.recipe.bpm||72);setKey(project.recipe.key||'C major');}},[project?.id,project?.revision]);
   useEffect(()=>{if(project){setVideoPrompt(project.video_prompt||SCENES[project.visual_theme]||'Descrivi la scena da abbinare alla musica.');
-    setVideoStyle(project.video_style||'anime');setVideoMode(project.video_mode||'loop');}},
-    [project?.id,project?.video_prompt,project?.video_style,project?.video_mode]);
+    setVideoStyle(project.video_style||'anime');setVideoMode(project.video_mode||'varied');
+    setVideoActivity(project.video_activity||(project.recipe.genre==='gym_energy'?'workout':'study'));}},
+    [project?.id,project?.video_prompt,project?.video_style,project?.video_mode,project?.video_activity]);
   const upload=async file=>{
     if(!file||!project)return;setPending(true);setError('');setPlaying(false);
     try{
@@ -148,8 +150,9 @@ export default function AudioEditor({ sourceJob, onOpened }) {
       </div><div><h3><Film size={16}/> Dalla musica al video</h3><p>Esporta il mix, descrivi la scena e continua in Video Studio con la colonna sonora collegata.</p>
         <textarea aria-label="Scena video per la musica" maxLength={2000} value={videoPrompt} onChange={event=>setVideoPrompt(event.target.value)}/>
         <label>Stile visivo<select value={videoStyle} onChange={event=>setVideoStyle(event.target.value)}><option value="anime">Anime</option><option value="realistic">Realistico</option><option value="illustration">Illustrato</option><option value="cartoon3d">Cartone 3D</option></select></label>
-        <label>Struttura del video<select value={videoMode} onChange={event=>setVideoMode(event.target.value)}><option value="loop">Una scena breve ripetuta sulla musica</option><option value="sequence">Scene successive lungo tutto il brano</option></select></label>
-        <button disabled={pending||!project.export||!videoPrompt.trim()} onClick={async()=>{const value=await action({action:'video',id:project.id,prompt:videoPrompt,mode:videoMode,style:videoStyle});if(value?.video){window.sessionStorage.setItem('sigmaAudioVideoProduction',value.video.production_id);openTab({name:'Video Studio'},'video_studio');window.dispatchEvent(new CustomEvent('sigma_video_open_production',{detail:value.video.production_id}));}}}>Prepara il video da questa musica</button>
+        <label>Struttura del video<select value={videoMode} onChange={event=>setVideoMode(event.target.value)}><option value="varied">Montaggio variato con azioni diverse</option><option value="loop">Una scena breve ripetuta sulla musica</option><option value="sequence">Scene successive lungo tutto il brano</option></select></label>
+        {videoMode==='varied'&&<><label>Attività<select value={videoActivity} onChange={event=>setVideoActivity(event.target.value)}><option value="study">Studio: lettura, sottolineatura, pagine e appunti</option><option value="workout">Allenamento: esercizi, cardio e mobilità</option></select></label><p className="as-note">Prepara otto clip con azioni e luci diverse. Il montaggio le alterna lungo la musica evitando azioni consecutive uguali. Puoi modificare ogni scena in Video Studio prima del render.</p></>}
+        <button disabled={pending||!project.export||!videoPrompt.trim()} onClick={async()=>{const value=await action({action:'video',id:project.id,prompt:videoPrompt,mode:videoMode,style:videoStyle,activity:videoActivity});if(value?.video){window.sessionStorage.setItem('sigmaAudioVideoProduction',value.video.production_id);openTab({name:'Video Studio'},'video_studio');window.dispatchEvent(new CustomEvent('sigma_video_open_production',{detail:value.video.production_id}));}}}>Prepara il video da questa musica</button>
       </div></section>
     </>}
   </div>;

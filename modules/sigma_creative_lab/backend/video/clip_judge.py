@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import base64
 import json
+import math
 import os
 import re
 import subprocess
@@ -53,7 +54,9 @@ A reviewer will look at its frames WITHOUT knowing this description. Write 3 to 
 every frame that would reveal whether the clip is right and whether the motion is physically natural. \
 Ask about observable facts: where the main subject is relative to the key objects, which way the body and face \
 point (toward the camera, away, toward an object), what the feet and hands touch, what supports any held or \
-hanging object. Never reveal the expected answer (ask "where is the person relative to the stairs?", \
+hanging object. For physical actions, include questions about elbow or knee angles, hand height relative to the
+shoulders or hips, and positions of feet or objects that could reveal movement while the torso stays in place.
+Never reveal the expected answer (ask "where is the person relative to the stairs?", \
 not "is the person climbing the stairs?").
 Also split the description in two: "action" = what the subjects and the scene do, with NO camera wording at all \
 (no push-in, zoom, pan, closer, "the scene moves", "we see"); "camera" = the requested camera movement, or "" \
@@ -64,7 +67,9 @@ OBSERVE_PROMPT = """These {n} images are consecutive frames of one short video c
 (about {step:.1f} s apart).
 For EACH frame answer every question below, literally, describing only what is visible:
 {questions}
-Format: one line per frame, "Frame 1: answer; answer; ...", at most 18 words per frame. Look at each frame on its own: if something changed from the previous frame, say what.
+Format: one line per frame, "Frame 1: answer; answer; ...", at most 45 words per frame. Look at each frame on its own: if something changed from the previous frame, say what.
+Compare joint angles, hand height, foot positions and held objects across the frames. Limbs moving while the torso
+stays in place IS subject movement. Do not describe a moving arm or leg as completely still merely because the person stays in the same spot.
 Then add:
 FIRST VS LAST: compare frame 1 and frame {n}: is the main subject higher, lower or at the same height relative \
 to the objects around it (stairs, ground, furniture)? closer or farther from them? facing the same way or turned?
@@ -256,15 +261,16 @@ def verdict_from(raw: dict, threshold: float = PASS_SCORE) -> dict:
 
 def sample_frames(clip: Path, out_dir: Path, n: int = FRAMES, src_in: float = 0.0,
                   src_out: float | None = None, phase: float = 0.5) -> tuple[list[Path], float]:
-    """n fotogrammi equidistanti nel tratto [src_in, src_out] del clip, e la durata del tratto."""
+    """Un fotogramma per intervallo, sfalsato per non campionare sempre la stessa fase di un esercizio."""
     from core.modules.sigma_creative_lab.video.production import _run, ffmpeg_bin, probe
     end = src_out if src_out is not None else probe(clip)["duration"]
     span = max(0.1, end - src_in)
     frames = []
     for k in range(n):
-        # Centro di ciascuno degli n intervalli: evita il primo e l'ultimo frame
-        # esatti, che nei clip H3 possono essere frame di raccordo.
-        t = src_in + span * (k + phase) / n
+        # Tempi regolari potevano mostrare sempre le ginocchia piegate in una serie di squat.
+        # Lo scarto deterministico evita anche i fotogrammi di raccordo ai due estremi.
+        offset=max(.05,min(.95,phase+.23*math.sin(k*2.399963)))
+        t = src_in + span * (k + offset) / n
         out = out_dir / f"f{int(phase * 100):02d}_{k:02d}.jpg"
         _run([ffmpeg_bin(), "-v", "error", "-y", "-ss", f"{t:.3f}", "-i", str(clip), "-frames:v", "1",
               "-vf", f"scale={FRAME_WIDTH}:-2", "-q:v", "3", str(out)], timeout=60)
@@ -441,7 +447,7 @@ class ClipJudge:
                 verdicts = []
                 for images, step in looks:
                     observations = self._chat(images + [{"type": "text", "text": OBSERVE_PROMPT.format(
-                        n=len(images), step=step, questions="\n".join(f"- {q}" for q in questions))}], 600)
+                        n=len(images), step=step, questions="\n".join(f"- {q}" for q in questions))}], 1200)
                     text = self._chat(VERDICT_PROMPT.format(intent=action, camera=camera,
                                                             observations=observations), 400)
                     try:

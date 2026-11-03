@@ -1318,7 +1318,12 @@ def compose_prompt(prod: dict, shot: dict, use_refs: bool) -> str:
     parts += world_lines(prod, shot)
     if (prod.get("settings") or {}).get("motion_guard", True):
         # Con cfg 1 H3 ignora il prompt negativo: il movimento corretto va chiesto in positivo.
-        parts.append(MOTION_GUARD)
+        if shot.get('required_action'):
+            # Un esercizio sul posto non deve ricevere il vecchio vincolo di avanzare camminando.
+            parts.append('Natural physically plausible joint and hand motion matching the described action. '
+                         'Keep body proportions coherent, feet supported and held objects in the hands.')
+        else:
+            parts.append(MOTION_GUARD)
     if shot.get("dialogue"):
         d = shot["dialogue"]
         if is_ltx(prod.get("settings") or {}) and d.get("text") and (d.get("kind") in ("pensiero", "didascalia")
@@ -2032,7 +2037,13 @@ async def generate_keyframes(store: ProductionStore, pid: str, shot_ids: list | 
             note(f"Fotogramma chiave {k}/{len(targets)}")
         seed = int(shot.get("keyframe_seed") or 0) + (7919 if shot.get("keyframe") and not missing_only else 0) \
             or int(s.get("seed", 1000)) + i * 7919
+        if shot.get('keyframe_seed') and not shot.get('keyframe'):
+            # Una posa modificata deve avere un nuovo artefatto, anche per evitare anteprime vecchie in cache.
+            seed+=7919
         best, attempt_shot = None, dict(shot)
+        if shot.get('start_frame_prompt'):
+            # Un'immagine mostra una sola posa: descrivere qui l'intera azione produceva figure duplicate.
+            attempt_shot['prompt']=shot['start_frame_prompt']
         for attempt in range(KEYFRAME_ATTEMPTS):
             out = store.path(pid) / "keyframes" / f"{i:04d}_{shot['id']}_{seed}.png"
             shot_model, prompt, refs = genres.keyframe_plan(prod, attempt_shot)
@@ -2337,7 +2348,18 @@ class ProductionRunner:
 
     async def _render_one(self, prod: dict, i: int, lane: dict) -> None:
         shot = prod["shots"][i]
+        if shot.pop('review_existing',False) and Path(shot.get('clip_path','')).is_file():
+            self.current_shot=shot['id']
+            if not self._judge_enabled(prod):
+                shot.update(status='failed',error='Il controllo visivo non è disponibile')
+                self.store.save(prod)
+                return
+            if await self._technical_check(prod,i):
+                shot['status']='reviewing'
+                await self._review(prod,i,lane)
+            return
         engine = lane["engine"]
+        shot.pop('manual_review',None)
         request = self.build_request(prod, i)
         shot.update(status="rendering", error="", lane=lane["label"])
         shot["attempts"] = int(shot.get("attempts", 0)) + 1
@@ -2368,7 +2390,10 @@ class ProductionRunner:
                     self._reviews.add(task)
                     task.add_done_callback(self._reviews.discard)
                 else:
-                    await self._finish(prod, i, lane)
+                    if shot.get('required_action'):
+                        shot.update(status='failed',error='Abilita il controllo visivo per verificare le azioni del montaggio variato')
+                    else:
+                        await self._finish(prod, i, lane)
         except EngineError as e:
             # Colpa del motore, non del clip: il tentativo non conta e la corsia
             # si prende una pausa crescente prima di riprovare.
@@ -2406,6 +2431,9 @@ class ProductionRunner:
                 self._emit(type="shot_retry", shot=shot["id"], index=i, issues=issues)
                 return False
             log.warning(f"inquadratura {shot['id']} tenuta nonostante: {issues}")
+            if shot.get('required_action'):
+                shot.update(status='failed',error='Clip non valida: '+'; '.join(issues))
+                return False
         return True
 
     @staticmethod
@@ -2433,14 +2461,21 @@ class ProductionRunner:
                                score=verdict["score"])
                     return
                 best = best_judged(shot)
+                if shot.get('required_action'):
+                    shot.update(status='failed',error='Azione non eseguita in modo verificabile: '+str(verdict.get('seen','')))
+                    return
                 if best and best["clip_path"] != str(clip) and Path(best["clip_path"]).is_file():
                     log.warning(f"inquadratura {shot['id']}: nessun tentativo promosso, tengo il migliore "
                                 f"({best['score']})")
                     shot.update(clip_path=best["clip_path"], seed=best.get("seed", shot.get("seed")))
+            if shot.get('required_action') and verdict is None:
+                shot.update(status='failed',error='Il controllo visivo dell’azione non è disponibile: verifica la clip prima di proseguire')
+                return
             await self._finish(prod, i, lane)
         except Exception as e:
             log.error(f"chiusura dell'inquadratura {shot['id']} fallita: {e}")
-            shot.update(status="pending", error=f"controllo: {e}")
+            failed=shot.get('required_action') and shot.get('attempts',0)>=int(s.get('max_attempts',3))
+            shot.update(status='failed' if failed else 'pending', error=f"controllo: {e}")
         finally:
             self.store.save(prod)
             if self._wake:
@@ -2517,6 +2552,10 @@ class ProductionRunner:
         prod["error"] = ""
         # Un'inquadratura rimasta 'rendering' o 'reviewing' viene da un crash: si riprende da li'.
         for s in prod["shots"]:
+            if (s.get('manual_review') or {}).get('accepted'):
+                from .manual_review import valid
+                if not valid(s):
+                    raise ValueError('La clip revisionata è cambiata: verifica nuovamente '+s['id'])
             if s.get("status") in ("rendering", "reviewing"):
                 s["status"] = "pending"
             if s.get("status") == "done" and not (s.get("clip_path") and Path(s["clip_path"]).is_file()):
@@ -2723,9 +2762,13 @@ class ProductionRunner:
             if abs(float(probe(music)['duration']) - duration) > .1:
                 raise ValueError('La durata del mix audio è cambiata')
             dry = out.with_name(out.stem + '_visual.mp4')
-            assemble(prod, dry, fps=int(s.get('fps', FPS)), codec=s.get('final_codec', 'libx264'),
-                     quality=int(s.get('final_quality',18)), settings=s,
-                     progress=lambda message:self._emit(type='assemble',message=message))
+            if prod['audio_project'].get('mode')=='varied':
+                from .music_montage import assemble as assemble_varied
+                assemble_varied(prod,dry,self.store.path(prod['id'])/'assembly'/'varied')
+            else:
+                assemble(prod, dry, fps=int(s.get('fps', FPS)), codec=s.get('final_codec', 'libx264'),
+                         quality=int(s.get('final_quality',18)), settings=s,
+                         progress=lambda message:self._emit(type='assemble',message=message))
             from .postprocess import video_encoder_args
             if prod['audio_project'].get('mode')=='loop':
                 loop = dry.with_name(dry.stem + '_loop.mp4')

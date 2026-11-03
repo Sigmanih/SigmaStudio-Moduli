@@ -128,6 +128,13 @@ def build_from_shots(prod: dict) -> dict:
     music = Path(prod.get("soundtrack_path") or "")
     audio_project = prod.get('audio_project') or {}
     target_duration = float((audio_project.get('mix') or {}).get('duration') or 0)
+    if audio_project.get('mode')=='varied' and len(done)==len(prod['shots']) and len(tl['video'])>=4:
+        from .music_montage import plan
+        schedule=plan(done,target_duration,int(prod['settings'].get('seed',1000)))
+        originals={item['shot_id']:item for item in tl['video']}
+        tl['video']=[{**originals[item['shot_id']],'id':_id('v'),
+                      'src_out':originals[item['shot_id']]['src_in']+item['duration']} for item in schedule]
+        tl['music_plan_ready']=True
     if audio_project.get('mode') == 'loop' and tl['video'] and target_duration > 0:
         # Una scena breve accompagna tutto il brano anche nell'editor, senza altre generazioni.
         original = [item for item in tl['video'] if item['src_out']-item['src_in']>.001]
@@ -465,6 +472,9 @@ class TimelineStore:
         if f.is_file():
             tl = json.loads(f.read_text(encoding="utf-8"))
             tl.setdefault("overlays", [])           # timeline salvate prima dei testi sovrapposti
+            if (prod.get('audio_project') or {}).get('mode')=='varied' and not tl.get('version') and not tl.get('music_plan_ready') and all(s.get('status')=='done' for s in prod['shots']):
+                tl=build_from_shots(prod)
+                self._write(f,tl)
             if prod.get('audio_project') and not tl['video'] and not tl.get('version') and any(s.get('status')=='done' for s in prod['shots']):
                 tl = build_from_shots(prod)
                 self._write(f,tl)

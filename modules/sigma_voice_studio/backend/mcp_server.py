@@ -14,7 +14,7 @@ class VoiceMCPServer(BaseMCPServer):
     def __init__(self):
         super().__init__(
             name="Voice MCP",
-            version="1.4.0",
+            version="1.5.0",
             description="AudioStudio: musica strumentale, sintesi vocale, gestione e clonazione delle voci"
         )
         self._init_tools()
@@ -40,7 +40,7 @@ class VoiceMCPServer(BaseMCPServer):
                 'start':{'type':'number','minimum':0,'maximum':3480}},'required':['id','kind']},
             handler=self._handle_audio_render,safety=SAFE,category='music')
         self.register_tool(name='audio_to_video', description='Prepara una bozza VideoStudio dalla scena descritta e dal mix esportato aggiornato. Conserva una copia del mix approvato. Non avvia il render GPU.',
-            input_schema={'type':'object','properties':{'id':{'type':'string'},'prompt':{'type':'string','maxLength':2000},'mode':{'type':'string','enum':['loop','sequence']},'style':{'type':'string','enum':['anime','realistic','illustration','cartoon3d']}},'required':['id','prompt']},
+            input_schema={'type':'object','properties':{'id':{'type':'string'},'prompt':{'type':'string','maxLength':2000},'mode':{'type':'string','enum':['loop','sequence','varied']},'activity':{'type':'string','enum':['study','workout']},'style':{'type':'string','enum':['anime','realistic','illustration','cartoon3d']}},'required':['id','prompt']},
             handler=self._handle_audio_video,safety=SAFE,category='music')
         self.register_tool(name='revise_study_music',
             description='Rivede una composizione: feedback ricompone il brano; treatment modifica la registrazione in una nuova copia senza cambiare melodia.',
@@ -165,4 +165,4 @@ class VoiceMCPServer(BaseMCPServer):
 
     def _handle_audio_video(self,args):
         from . import audio_editor as editor
-        return self._audio_call(lambda:{'video':editor.video_project(args.get('id'),args.get('prompt',''),args.get('mode','loop'),args.get('style','anime'))})
+        return self._audio_call(lambda:{'video':editor.video_project(args.get('id'),args.get('prompt',''),args.get('mode','loop'),args.get('style','anime'),args.get('activity'))})

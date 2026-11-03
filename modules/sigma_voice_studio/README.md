@@ -43,3 +43,14 @@ il genere configura anche il modello del fotogramma iniziale.
 elettronico energico e 128 BPM predefiniti, mantenendo controlli di durata, silenzio e ripetizioni.
 I video con una scena ripetuta raccordano il confine del ciclo con una breve dissolvenza; non viene
 moltiplicata la generazione video per coprire ogni minuto della sessione.
+
+«Montaggio variato» prepara otto azioni di studio (lettura attiva, sottolineatura, cambio pagina,
+appunti e ripasso) o allenamento (riscaldamento, squat, manubri, cardio, boxe e mobilità).
+Le scene hanno azioni esplicite, inquadrature adatte e luci differenti. Il piano alterna le clip
+verificate lungo la musica evitando ripetizioni consecutive e conserva lo stesso ordine nella timeline.
+Le clip vengono riutilizzate: non sono trenta minuti di riprese tutte uniche. L'utente può modificare
+i prompt in VideoStudio prima del render. Le azioni bocciate non vengono accettate automaticamente.
+Il fotogramma iniziale descrive una sola posa, separata dall'azione del video. È modificabile nella scheda della clip.
+Il giudice campiona tempi sfalsati per distinguere i movimenti ciclici dall'immobilità. «Ricontrolla e prosegui»
+verifica una clip esistente; la revisione visiva esplicita permette di motivare un falso negativo dopo aver guardato
+il video. Restano registrati il dissenso AI, l'autore, la motivazione e l'impronta del file: modificare la clip invalida la revisione.

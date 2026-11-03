@@ -313,7 +313,7 @@ async def layer_job(service, job):
     return {'audio_project': project['id'], 'clip': clip['id'],'quality':quality}
 
 
-def video_project(pid, prompt, mode='loop', style='anime'):
+def video_project(pid, prompt, mode='loop', style='anime', activity=None):
     from core.modules.sigma_creative_lab.video.production import manager, new_shot, probe
     from core.modules.sigma_creative_lab.video.genres import GENRES
     project = load(pid)
@@ -323,26 +323,34 @@ def video_project(pid, prompt, mode='loop', style='anime'):
     prompt = str(prompt).strip()
     if not prompt or len(prompt) > 2000:
         raise ValueError('Descrivi la scena video da abbinare alla musica')
-    if mode not in ('loop','sequence'):
+    if mode not in ('loop','sequence','varied'):
         raise ValueError('Modalità video non supportata')
     if style not in ('anime','realistic','illustration','cartoon3d'):
         raise ValueError('Stile video non supportato')
     duration = number(export['duration'],.05,3600)
     if abs(float(probe(Path(export['path']))['audio_duration'])-duration)>.1:
         raise ValueError('La durata del mix è cambiata: esportalo nuovamente')
-    count = 1 if mode=='loop' else max(1, math.ceil(duration / 8))
-    shots = [new_shot(prompt + '. Static camera, subtle natural movement, no speech, no music.',
-                      duration_s=min(8, duration-index*8), scene='Video musicale') for index in range(count)]
+    if mode=='varied':
+        from core.modules.sigma_creative_lab.video.music_montage import action_shots
+        activity=activity or ('workout' if project['recipe'].get('genre')=='gym_energy' else 'study')
+        shots=action_shots(prompt,activity)
+    else:
+        count = 1 if mode=='loop' else max(1, math.ceil(duration / 8))
+        shots = [new_shot(prompt + '. Static camera, subtle natural movement, no speech, no music.',
+                          duration_s=min(8, duration-index*8), scene='Video musicale') for index in range(count)]
     prod = manager.store.create(project['title'] + ' · Video', settings={'video_model':'ltx25','max_clip_seconds':10}, shots=shots,
                                 bible={'style':GENRES[style]['style'],'genre':style}, soundtrack={'enabled':True,'external_mix':True})
     snapshot=manager.store.path(prod['id'])/'music'/'audio_studio_mix.wav'
     snapshot.parent.mkdir(exist_ok=True);shutil.copy2(export['path'],snapshot)
     prod['soundtrack_path']=str(snapshot)
     prod['audio_project'] = {'id':pid,'revision':project['revision'],'mode':mode,'mix':{**export,'path':str(snapshot)}}
+    if mode=='varied':
+        prod['settings'].update(judge_mode='strict',max_attempts=3)
+        prod['audio_project']['activity']=activity
     manager.store.save(prod)
     with _lock:
         current=load(pid)
-        current.update(video_prompt=prompt,video_style=style,video_mode=mode)
+        current.update(video_prompt=prompt,video_style=style,video_mode=mode,video_activity=activity)
         save(current)
         remember_project(current,prod['id'])
     return {'production_id':prod['id'], 'url':'/?tab=video_studio', 'title':prod['title']}

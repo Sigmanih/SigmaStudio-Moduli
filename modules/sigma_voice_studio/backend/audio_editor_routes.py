@@ -76,7 +76,7 @@ def handle_audio_editor_action(self):
         elif action in ('mix','layer'):
             result={'job':E.submit(service,data.get('id'),action,data)}
         elif action=='video':
-            result={'video':E.video_project(data.get('id'),data.get('prompt',''),data.get('mode','loop'),data.get('style','anime'))}
+            result={'video':E.video_project(data.get('id'),data.get('prompt',''),data.get('mode','loop'),data.get('style','anime'),data.get('activity'))}
         else:
             raise ValueError('Azione audio non supportata')
         if result.get('project'):
