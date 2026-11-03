@@ -3,7 +3,7 @@ import CreationForm from './CreationForm';
 import CreationResults from './CreationResults';
 
 export default function GeneratePanel({
-  onGenerate, onUpload, isGenerating, recentAssets = [], onSelectAsset, onEditAsset, onReuseAsset,
+  onGenerate, onUpload, isGenerating, recentAssets = [], onSelectAsset, onEditAsset, onReuseAsset, onDeleteAsset,
   backends = [], models = [], inventory = null, draft, onDraftChange, selectedAsset,
   loading, modelError, onRefreshModels, onManageModels,
 }) {
@@ -13,6 +13,6 @@ export default function GeneratePanel({
       backends={backends} models={models} inventory={inventory} loading={loading} error={modelError}
       onRefresh={onRefreshModels} onManageModels={onManageModels} />
     <CreationResults asset={activeAsset} assets={recentAssets} busy={isGenerating}
-      onSelect={onSelectAsset} onEdit={onEditAsset} onReuse={onReuseAsset} onUpload={onUpload} />
+      onSelect={onSelectAsset} onEdit={onEditAsset} onReuse={onReuseAsset} onUpload={onUpload} onDelete={onDeleteAsset} />
   </div>;
 }

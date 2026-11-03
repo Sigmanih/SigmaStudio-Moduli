@@ -106,7 +106,12 @@ class ComfyInstances:
         out, i = set(), 0
         while i < len(argv):
             a = argv[i]
-            if a in ("--use-sage-attention", "--use-flash-attention") or a.startswith("--fast"):
+            if a == "--vram-headroom":
+                out.add(a)
+                if i + 1 < len(argv):
+                    i += 1
+                    out.add(argv[i])
+            elif a in ("--use-sage-attention", "--use-flash-attention", "--disable-comfy-compiler") or a.startswith("--fast"):
                 if a == "--fast":
                     vals = []
                     while i + 1 < len(argv) and not argv[i + 1].startswith("--"):

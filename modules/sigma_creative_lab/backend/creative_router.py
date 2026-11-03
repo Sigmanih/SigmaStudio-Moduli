@@ -352,7 +352,12 @@ def handle_creative_edit(self):
         _send_creative_sse(self, {"status": "starting", "progress": 5, "message": f"Inizializzazione {task_type}..."})
 
         async def _run():
-            if task_type == "inpaint":
+            if task_type == "img_to_img":
+                prompt = params.pop("prompt", "").strip()
+                if not prompt:
+                    raise ValueError("Descrivi la modifica da applicare all'immagine")
+                return await image_generator.image_to_image(asset_id, prompt, **params)
+            elif task_type == "inpaint":
                 mask = params.pop("mask_data", "")
                 prompt = params.pop("prompt", "")
                 return await image_editor.inpaint(asset_id, mask, prompt, **params)
@@ -657,20 +662,15 @@ def handle_creative_skills(self):
 def handle_creative_engine_start(self):
     """Avvia il motore installato e lo collega solo dopo una risposta ComfyUI valida."""
     async def prepare():
-        from core.integrations import app_manager
+        from core.modules.sigma_creative_lab.backends.comfy_launcher import instances
         url = await model_router.probe_backend('comfyui')
         if not url:
-            result = await asyncio.to_thread(app_manager.launch, 'comfyui')
-            if not result.get('success'):
-                raise ValueError(result.get('error') or 'ComfyUI non installato')
-            deadline = asyncio.get_running_loop().time() + 50
-            while asyncio.get_running_loop().time() < deadline:
-                await asyncio.sleep(2)
-                url = await model_router.probe_backend('comfyui')
-                if url:
-                    break
+            cfg = model_router.get_config().get('backends', {}).get('comfyui', {})
+            url = await asyncio.to_thread(
+                instances.ensure, 0, configured_install=cfg.get('install_dir', ''),
+                timeout_s=180, flags=cfg.get('extra_flags', ['--disable-comfy-compiler', '--vram-headroom', '2']))
         if not url:
-            raise ValueError('ComfyUI sta ancora avviandosi. Attendi e premi di nuovo Avvia motore.')
+            raise ValueError('Il servizio ComfyUI non risponde: controlla il log del motore.')
         backends = {**model_router.get_config().get('backends', {})}
         backends['comfyui'] = {**backends.get('comfyui', {}), 'enabled': True, 'url': url}
         from core.store import JsonStore

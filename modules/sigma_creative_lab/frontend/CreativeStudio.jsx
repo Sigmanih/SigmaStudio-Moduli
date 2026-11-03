@@ -179,8 +179,9 @@ export default function CreativeStudio() {
             recentAssets={assets.filter(a => a.type === 'image' || a.type === 'render')}
             onSelectAsset={setSelectedAsset}
             selectedAsset={selectedAsset} draft={imageDraft} onDraftChange={setImageDraft}
-            loading={modelsLoading} modelError={modelsError} onRefreshModels={refreshModels}
+            loading={modelsLoading} modelError={modelsError} onRefreshModels={refreshAll}
             onManageModels={() => setActiveView('models')}
+            onDeleteAsset={handleDelete}
             onEditAsset={asset => { setSelectedAsset(asset); setActiveView('edit'); }}
             onReuseAsset={asset => setImageDraft(previous => draftFromAsset(asset, previous))}
           />

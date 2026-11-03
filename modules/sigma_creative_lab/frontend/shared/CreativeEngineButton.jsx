@@ -7,7 +7,7 @@ export default function CreativeEngineButton({ onReady }) {
   const start = async () => {
     setBusy(true); setError('');
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 90000);
+    const timer = setTimeout(() => controller.abort(), 240000);
     try {
       const response = await fetch('/api/creative/engine/start', { method: 'POST', signal: controller.signal });
       const data = await response.json();

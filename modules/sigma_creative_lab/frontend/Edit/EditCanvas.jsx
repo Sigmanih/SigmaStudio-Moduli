@@ -11,6 +11,7 @@ export default function EditCanvas({ asset, busy, capabilities = {}, onEdit, onU
   const [tool, setTool] = useState('brush');
   const [brushSize, setBrushSize] = useState(40);
   const [prompt, setPrompt] = useState('');
+  const [strength, setStrength] = useState(0.45);
   const [direction, setDirection] = useState('all');
   const [pixels, setPixels] = useState(128);
   const [lightDir, setLightDir] = useState('front');
@@ -39,7 +40,7 @@ export default function EditCanvas({ asset, busy, capabilities = {}, onEdit, onU
     };
     img.onerror = () => { if (!cancelled) setNotice('Impossibile aprire questa immagine. Scegli un altro file dalla libreria.'); };
     return () => { cancelled = true; };
-  }, [asset]);
+  }, [asset?.id, asset?.url, asset?.type]);
 
   const pointAt = (e) => {
     const rect = maskRef.current.getBoundingClientRect();
@@ -112,6 +113,13 @@ export default function EditCanvas({ asset, busy, capabilities = {}, onEdit, onU
   return (
     <div className="cs-edit-canvas-container">
       {notice && <p className="cs-form-notice" role="alert">{notice}</p>}
+      <section className="cs-edit-options" aria-label="Modifica con un prompt">
+        <h3>Descrivi come vuoi modificare l’immagine</h3>
+        <textarea aria-label="Prompt di modifica" value={prompt} onChange={e => setPrompt(e.target.value)} disabled={disabled} rows={3} placeholder="Descrivi il risultato desiderato. La maschera è facoltativa e serve solo per modificare una zona." />
+        <label>Intensità della variazione <input type="range" min="0.1" max="0.9" step="0.05" value={strength} onChange={e => setStrength(Number(e.target.value))} /> {Math.round(strength * 100)}%</label>
+        <button className="cs-secondary-button" disabled={disabled || !prompt.trim()} onClick={() => hasMask() ? runMaskedEdit('inpaint') : onEdit(canInstruct ? 'instruct_edit' : 'img_to_img', asset.id, canInstruct ? { instruction: prompt } : { prompt, strength })}><MessageSquare size={16} /> Applica modifica</button>
+        <p>Con una maschera viene modificata la zona selezionata. Senza maschera viene creata una nuova versione dell’immagine{!canInstruct && ' tramite image-to-image: possono cambiare anche altri dettagli'}.</p>
+      </section>
       <div className="cs-edit-toolbar">
         <button className={`cs-tool-btn ${tool === 'brush' ? 'active' : ''}`} onClick={() => setTool('brush')} title="Pennello maschera"><Brush size={16} /> Maschera</button>
         <button className={`cs-tool-btn ${tool === 'eraser' ? 'active' : ''}`} onClick={() => setTool('eraser')} title="Gomma"><Eraser size={16} /> Gomma</button>
