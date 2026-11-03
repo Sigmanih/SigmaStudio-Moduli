@@ -182,7 +182,7 @@ def test_assemblaggio_video_preserva_durata_mix(workspace,monkeypatch,mode):
     monkeypatch.setattr(runner,'_upscale_all',lambda _:None)
     monkeypatch.setattr(runner,'_emit',lambda **kwargs:None)
     source=tone(workspace/'music.wav',1.2)
-    prod={'id':'prod_test','title':'Video musicale','settings':{},'audio_project':{'mode':mode,'mix':{'duration':1.2}},'soundtrack_path':str(source)}
+    prod={'id':'prod_test','title':'Video musicale','shots':[{'id':'fixture','status':'done','origin':'import'}],'settings':{},'audio_project':{'mode':mode,'mix':{'duration':1.2}},'soundtrack_path':str(source)}
     out=runner.assemble(prod)
     info=production.probe(out)
     assert info['duration']==pytest.approx(1.2,abs=.05)

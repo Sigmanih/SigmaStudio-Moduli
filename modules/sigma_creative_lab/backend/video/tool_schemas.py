@@ -4,6 +4,19 @@
 """Dichiarazione degli schemi JSON dei tool video per l'Agent Harness."""
 
 SCHEMI = (
+    {'type':'function','function':{
+        'name':'video_integrity_check',
+        'description':'Accoda controllo separato di anatomia, mani e oggetti e prepara fotogrammi a piena risoluzione. Il pass del modello non basta ad approvare la clip. Segui video_job_status.',
+        'parameters':{'type':'object','properties':{'prod_id':{'type':'string'},'shot_id':{'type':'string'}},
+                      'required':['prod_id','shot_id']}}},
+    {'type':'function','function':{
+        'name':'video_integrity_review',
+        'description':'Registra la revisione diretta di una clip: apri davvero video e fotogrammi, verifica arti, lateralità delle mani, dita, prese e continuità. Non approvare basandoti sul giudizio del modello o sul solo movimento. Per approvare servono tutti i checks: anatomy,hands,objects,continuity. Se noti difetti usa reject.',
+        'parameters':{'type':'object','properties':{
+            'prod_id':{'type':'string'},'shot_id':{'type':'string'},'verdict':{'type':'string','enum':['approve','reject']},
+            'reason':{'type':'string','minLength':40,'maxLength':1500},'sha256':{'type':'string'},
+            'checks':{'type':'array','items':{'type':'string','enum':['anatomy','hands','objects','continuity']}},
+            'confirmed':{'type':'boolean'}},'required':['prod_id','shot_id','verdict','reason','sha256','checks','confirmed']}}},
     # --- Personaggi ---
     {
         "type": "function",

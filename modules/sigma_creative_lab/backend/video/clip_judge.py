@@ -254,13 +254,14 @@ def verdict_from(raw: dict, threshold: float = PASS_SCORE) -> dict:
     # Grave = da rifare comunque: direzione sbagliata, fisica impossibile (oggetti che spariscono),
     # corpi deformi. Un'azione appena accennata non lo e': decide l'utente.
     severe = motion <= 0.2 or not anatomy
-    return {"ok": score >= threshold, "score": round(score, 3), "intent_match": intent, "motion_natural": motion,
+    accepted = score >= threshold and anatomy and (floor if 'main_action_happens' in raw else True)
+    return {"ok": accepted, "score": round(score, 3), "intent_match": intent, "motion_natural": motion,
             "camera_ok": camera_ok, "anatomy_ok": anatomy, "severe": severe, "seen": str(raw.get("seen", "")),
             "issues": issues, "prompt_fix": str(raw.get("prompt_fix", "")).strip()}
 
 
 def sample_frames(clip: Path, out_dir: Path, n: int = FRAMES, src_in: float = 0.0,
-                  src_out: float | None = None, phase: float = 0.5) -> tuple[list[Path], float]:
+                  src_out: float | None = None, phase: float = 0.5, width: int = FRAME_WIDTH) -> tuple[list[Path], float]:
     """Un fotogramma per intervallo, sfalsato per non campionare sempre la stessa fase di un esercizio."""
     from core.modules.sigma_creative_lab.video.production import _run, ffmpeg_bin, probe
     end = src_out if src_out is not None else probe(clip)["duration"]
@@ -273,7 +274,7 @@ def sample_frames(clip: Path, out_dir: Path, n: int = FRAMES, src_in: float = 0.
         t = src_in + span * (k + offset) / n
         out = out_dir / f"f{int(phase * 100):02d}_{k:02d}.jpg"
         _run([ffmpeg_bin(), "-v", "error", "-y", "-ss", f"{t:.3f}", "-i", str(clip), "-frames:v", "1",
-              "-vf", f"scale={FRAME_WIDTH}:-2", "-q:v", "3", str(out)], timeout=60)
+              "-vf", f"scale={width}:-2", "-q:v", "3", str(out)], timeout=60)
         frames.append(out)
     return frames, span
 

@@ -14,9 +14,10 @@ def fingerprint(source):
 
 def valid(shot):
     from .production import _prompt_hash
+    from .visual_integrity import valid as integrity_valid
     review=shot.get('manual_review') or {}
     source=Path(shot.get('clip_path') or '')
-    return (source.is_file() and review.get('sha256')==fingerprint(source)
+    return (integrity_valid(shot) and source.is_file() and review.get('sha256')==fingerprint(source)
             and review.get('prompt_hash')==_prompt_hash(shot.get('prompt','')))
 
 
@@ -33,6 +34,8 @@ def accept(store,pid,shot_id,reason,reviewer='operator'):
     source=Path(shot.get('clip_path') or '')
     if not source.is_file() or shot.get('qa_issues'):
         raise ValueError('La clip deve esistere e superare i controlli tecnici')
+    from .visual_integrity import require
+    require(shot)
     info=probe(source)
     duration=float(info['duration']);expected=float(shot['duration_s'])
     if not info.get('width') or not math.isfinite(duration) or not math.isfinite(expected) or expected<=0 or duration<expected-.1:

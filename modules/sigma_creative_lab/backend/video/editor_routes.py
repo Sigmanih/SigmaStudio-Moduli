@@ -57,7 +57,7 @@ def _payload(pid: str, tl: dict) -> dict:
     return {"timeline": {**tl, "audio": audio}, "items": lay["items"], "duration": lay["duration"],
             "shots": shots, "characters": characters, "history": ts.history_depth(pid),
             "video_model": (prod.get("settings") or {}).get("video_model", "h3"),
-            "output_url": _url(prod.get("output_path", "")), 'publication': prod.get('publication'), 'title': prod.get('title', '')}
+            "output_url": _url(prod.get("output_path", "")) if prod.get('quality_status') not in ('rejected','review_required') else '', 'publication': prod.get('publication'), 'title': prod.get('title', '')}
 
 
 def handle_editor_timeline(self):

@@ -182,6 +182,12 @@ def export_timeline(tl: dict, prod: dict, out: Path, size: tuple[int, int] | Non
                     quality: int = 18, progress: Callable[[str, float], None] | None = None) -> Path:
     from core.modules.sigma_creative_lab.video.timeline import layout
     items = layout(tl, prod)["items"]
+    from .visual_integrity import require
+    shots = {s['id']: s for s in prod.get('shots',[])}
+    for item in items:
+        source = shots.get(item['shot_id'])
+        if source:
+            require({**source, 'clip_path': item['clip_path']})
     if not items:
         raise RuntimeError("la timeline e' vuota")
     for it in items:

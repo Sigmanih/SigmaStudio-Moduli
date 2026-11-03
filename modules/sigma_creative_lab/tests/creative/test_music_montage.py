@@ -133,6 +133,11 @@ def test_revisione_visiva_esplicita_conserva_dissenso_ai_e_identita_clip(tmp_pat
     shot=production.new_shot('Punches',duration_s=.5,status='failed',clip_path=str(source),judge={'ok':False,'score':0})
     prod=store.create('Revisione',shots=[shot])
     with pytest.raises(ValueError):manual_review.accept(store,prod['id'],shot['id'],'ok')
+    from core.modules.sigma_creative_lab.video.visual_integrity import VERSION
+    digest=manual_review.fingerprint(source)
+    shot['visual_integrity']={'status':'pass','sha256':digest,'version':VERSION}
+    shot['integrity_review']={'verdict':'approve','sha256':digest}
+    store.save(prod)
     accepted=manual_review.accept(store,prod['id'],shot['id'],'Verificata l’estensione delle braccia su tutti i fotogrammi.','agent_visual_review')
     item=accepted['shots'][0]
     assert item['status']=='done' and item['judge']['ok'] is False

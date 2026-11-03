@@ -113,8 +113,7 @@ export function SettingsCard({ draft, disabled, onSettings }) {
         </label>
       </div>
       <div className="cs-prod-toggles">
-        <label><input type="checkbox" checked={s.qa !== false} disabled={disabled}
-                      onChange={e => set({ qa: e.target.checked })} /> Controllo qualita' (rifa i clip difettosi)</label>
+        <p className="cs-hint">Controllo tecnico obbligatorio · anatomia, mani e oggetti richiedono anche una revisione di dettaglio prima del montaggio.</p>
         <label><input type="checkbox" checked={s.color_match !== false} disabled={disabled}
                       onChange={e => set({ color_match: e.target.checked })} /> Correzione colore nelle riprese continue</label>
         <label><input type="checkbox" checked={s.judge !== false} disabled={disabled}

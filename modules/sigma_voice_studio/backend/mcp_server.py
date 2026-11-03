@@ -14,7 +14,7 @@ class VoiceMCPServer(BaseMCPServer):
     def __init__(self):
         super().__init__(
             name="Voice MCP",
-            version="1.5.0",
+            version="1.5.1",
             description="AudioStudio: musica strumentale, sintesi vocale, gestione e clonazione delle voci"
         )
         self._init_tools()

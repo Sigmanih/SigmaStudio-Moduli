@@ -7,6 +7,7 @@ import { SettingsCard, LoraCard, SoundtrackCard, RefImageInput } from './Product
 import CharacterVoice from './CharacterVoice';
 import PreproductionCard from './PreproductionCard';
 import MangaReview from './MangaReview';
+import IntegrityReview from './IntegrityReview';
 
 /*
  * Produzioni video lunghe: soggetto → storyboard → render su piu' GPU → montaggio.
@@ -276,7 +277,7 @@ function ShotFixes({ shot, disabled, dirty, onFix, onRemove }) {
   );
 }
 
-function ShotRow({ shot, index, live, disabled, onEdit, onKeyframe, onReview, onManualReview, characters = [], maxDur = 5.2, dirty,
+function ShotRow({ shot, index, live, disabled, onEdit, onKeyframe, onReview, onManualReview, onIntegrityCheck, onIntegrityReview, characters = [], maxDur = 5.2, dirty,
                   isStyle, onStyle, onRender, onInsert, onDelete, onFix, onRemoveFix, locations = [] }) {
   const [reviewReason,setReviewReason]=useState(''),[reviewConfirmed,setReviewConfirmed]=useState(false);
   useEffect(()=>{setReviewReason('');setReviewConfirmed(false);},[shot.id,shot.rendered_at]);
@@ -403,7 +404,8 @@ function ShotRow({ shot, index, live, disabled, onEdit, onKeyframe, onReview, on
         </span>
       </div>
       {shot.error && <p className="cs-prod-error">{shot.error}</p>}
-      {shot.manual_review?.accepted&&<p className="cs-hint">Revisione visiva registrata: {shot.manual_review.reason}</p>}
+      {shot.manual_review?.accepted&&<p className="cs-hint">Revisione dell’azione (separata dall’anatomia): {shot.manual_review.reason}</p>}
+      <IntegrityReview shot={shot} disabled={disabled || dirty} onCheck={onIntegrityCheck} onReview={onIntegrityReview} toUrl={toUrl} />
       {shot.clip_url && <video className="cs-prod-clip" src={shot.clip_url} controls preload="metadata" />}
       {shot.clip_url&&(shot.status==='failed'||shot.judge?.ok===false)&&!shot.manual_review?.accepted&&<details>
         <summary>Revisione visiva della clip</summary><p className="cs-hint">Guarda la clip completa prima di accettarla. La valutazione AI e la tua motivazione restano registrate.</p>
@@ -446,7 +448,8 @@ function SceneHeader({ scene, count, disabled, dirty, onRewrite }) {
 
 // Lo stato "reviewing" e' il giudice visivo al lavoro: la corsia intanto rende altro.
 const SHOT_STATUS = {
-  pending: 'in coda', rendering: 'in render', reviewing: 'controllo del movimento', done: 'pronta',
+  review_required: 'da revisionare nei dettagli',
+  pending: 'in coda', rendering: 'in render', reviewing: 'controllo del movimento', done: 'renderizzata',
   failed: 'fallita', skipped: 'saltata',
 };
 
@@ -643,6 +646,7 @@ export default function ProductionPanel({ aceInstalled = false, onOpenEditor, re
                   {prod.subtitles_vtt_url && <track kind="subtitles" srcLang="it" label="Italiano" src={prod.subtitles_vtt_url} />}
                 </video>
               )}
+              {prod?.quality_status === 'rejected' && <p className="cs-hint">Video respinto per difetti visivi: {prod.quality_issues?.join('; ')}. Il file precedente è conservato, ma non è approvato per la consegna.</p>}
               {prod?.subtitles_url && <a className="cs-hint" href={prod.subtitles_url} download>Sottotitoli (.srt)</a>}
               {prod?.output_url && <div className="cs-mesh-card">
                 <h3 className="cs-mesh-title">Materiali per YouTube</h3>
@@ -753,6 +757,8 @@ export default function ProductionPanel({ aceInstalled = false, onOpenEditor, re
                                  onRender={() => act(() => call('/render', { id: draft.id, shot_ids: [s.id] }))}
                                  onReview={() => act(() => call('/render', { id: draft.id, shot_ids: [s.id],review_existing:true }))}
                                  onManualReview={reason=>act(()=>call('/manual_review',{id:draft.id,shot_id:s.id,reason,confirmed:true}))}
+                                 onIntegrityCheck={()=>act(()=>call('/integrity_check',{id:draft.id,shot_id:s.id}))}
+                                 onIntegrityReview={review=>act(()=>call('/quality_review',{id:draft.id,shot_id:s.id,...review}))}
                                  onInsert={() => insertAfter(i)} onDelete={() => deleteShot(i)}
                                  onFix={(problem, redo) => act(async () => {
                                    await call('/shot_fix', { id: draft.id, shot_id: s.id, problem, redo });

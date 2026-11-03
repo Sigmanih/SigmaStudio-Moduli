@@ -69,6 +69,8 @@ def _decorate(prod: dict) -> dict:
             prod['publication'] = {**publication, 'status': 'stale', 'publication_ready': False,
                                    'error': 'Video o dati modificati: prepara nuovamente i materiali.'}
     prod["output_url"] = _url(prod.get("output_path", ""))
+    if prod.get('quality_status') in ('rejected','review_required'):
+        prod['output_url'] = ''
     prod['soundtrack_url'] = _url(prod.get('soundtrack_path',''))
     prod["shots"] = [{**s, "clip_url": _url(s.get("clip_path", "")), "frame_url": _url(s.get("last_frame", "")),
                       "keyframe_url": _url(s.get("keyframe", ""))} for s in prod.get("shots", [])]
@@ -664,6 +666,39 @@ def handle_production_publication(self):
         _err(self, str(exc))
 
 
+def handle_quality_review(self):
+    data = self.read_json_body()
+    if manager.active():
+        return _err(self, 'Attendi la fine della produzione', 409)
+    try:
+        if not isinstance(data,dict) or data.get('confirmed') is not True:
+            raise ValueError('Conferma la revisione della clip e dei dettagli a piena risoluzione')
+        from .visual_integrity import review
+        prod = review(manager.store, data.get('id'), data.get('shot_id'), data.get('verdict'),
+                      data.get('reason'), data.get('sha256'), data.get('checks'), data.get('reviewer','operator'))
+        _ok(self, production=_decorate(prod))
+    except (ValueError, OSError, TypeError) as exc:
+        _err(self, str(exc))
+
+
+def handle_integrity_check(self):
+    from .editor_jobs import editor_jobs
+    data = self.read_json_body()
+    try:
+        if not isinstance(data,dict):
+            raise ValueError('Parametri del controllo non validi')
+        prod = manager.store.get(data.get('id',''))
+        shot = next((s for s in (prod or {}).get('shots',[]) if s['id']==data.get('shot_id')),None)
+        if not shot or not Path(shot.get('clip_path') or '').is_file():
+            raise ValueError('Clip non disponibile')
+        jobs = editor_jobs()
+        if any(j['production']==prod['id'] and j['status'] in ('queued','running') for j in jobs.list()):
+            return _err(self,'Controllo già in coda per questa produzione',409)
+        _ok(self, job=jobs.submit(prod['id'],'integrity',{'shot_id':shot['id']}))
+    except (ValueError, RuntimeError) as exc:
+        _err(self,str(exc))
+
+
 def handle_production_assemble(self):
     """POST /api/creative/productions/assemble {id} — rimonta i clip gia' pronti (anche parziali)."""
     data = self.read_json_body()
@@ -676,6 +711,7 @@ def handle_production_assemble(self):
         from core.modules.sigma_creative_lab.video.production import ProductionRunner
         out = ProductionRunner(manager.store, prod["id"]).assemble(prod)
         prod["output_path"] = str(out)
+        prod['quality_status'] = 'approved'
         manager.store.save(prod)
         from .generated_publication import prepare
         prepare(manager.store, prod)
@@ -814,6 +850,8 @@ GET_ROUTES = {
 }
 
 POST_ROUTES = {
+    '/api/creative/productions/integrity_check': handle_integrity_check,
+    '/api/creative/productions/quality_review': handle_quality_review,
     '/api/creative/productions/publication': handle_production_publication,
     "/api/creative/productions/create": handle_production_create,
     "/api/creative/productions/update": handle_production_update,

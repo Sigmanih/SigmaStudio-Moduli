@@ -1055,6 +1055,7 @@ async def job_export(self: EditorJobs, job: dict) -> dict:
                             lambda m, p: self._note(job, m, p))
     prod = self.prods.get(pid)
     prod["output_path"] = str(out)
+    prod['quality_status'] = 'approved'
     self.prods.save(prod)
     from .generated_publication import prepare
     publication = await asyncio.to_thread(prepare, self.prods, prod)
@@ -1068,6 +1069,30 @@ async def job_publication(self: EditorJobs, job: dict) -> dict:
                                    progress=lambda m, p: self._note(job, m, p))
     if not result.get('publication_ready'):
         raise ValueError(result.get('error', 'Materiali editoriali incompleti'))
+    return result
+
+
+async def job_integrity(self: EditorJobs, job: dict) -> dict:
+    from .visual_integrity import inspect_clip
+    from .production import resolve_judge_device
+    pid, sid = job['production'], job['args']['shot_id']
+    prod = self.prods.get(pid)
+    shot = next((s for s in prod['shots'] if s['id']==sid),None)
+    if not shot or not Path(shot.get('clip_path') or '').is_file():
+        raise ValueError('Clip non disponibile per il controllo anatomico')
+    result = await asyncio.to_thread(inspect_clip, Path(shot['clip_path']), resolve_judge_device(prod['settings']),
+                                   self.prods.path(pid)/'checks'/'integrity'/sid)
+    current = self.prods.get(pid)
+    target = next(s for s in current['shots'] if s['id']==sid)
+    from .manual_review import fingerprint
+    if fingerprint(target['clip_path']) != result['sha256']:
+        raise ValueError('Clip cambiata durante il controllo')
+    target['visual_integrity'] = result
+    target.pop('integrity_review',None)
+    target.update(status='review_required' if result['status']=='pass' else 'failed')
+    current.update(quality_status='review_required',status='partial')
+    current['publication'] = {**current.get('publication',{}),'publication_ready':False,'status':'blocked'}
+    self.prods.save(current)
     return result
 
 
@@ -1343,6 +1368,7 @@ CPU_KINDS = {"import", "title"}
 from core.modules.sigma_creative_lab.video import manga  # noqa: E402  (i job da fumetto)
 
 HANDLERS = {
+    'integrity': job_integrity,
     'publication': job_publication,
     "regen_range": job_regen_range, "redo": job_redo, "recolor": job_recolor, "extend": job_extend,
     "insert": job_insert, "upscale": job_upscale, "restore_clean": job_restore_clean, "remaster": job_remaster,

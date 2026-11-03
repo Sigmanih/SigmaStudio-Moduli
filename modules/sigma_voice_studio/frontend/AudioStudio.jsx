@@ -16,7 +16,7 @@ async function api(path, body) {
   return value;
 }
 
-const VIDEO_STATUS={draft:'Bozza',rendering:'Generazione in corso',assembling:'Montaggio in corso',done:'Pronto',
+const VIDEO_STATUS={rejected:'Respinto per difetti visivi',review_required:'Da verificare nei dettagli',draft:'Bozza',rendering:'Generazione in corso',assembling:'Montaggio in corso',done:'Pronto',
   failed:'Errore',partial:'Incompleto',cancelled:'Fermato',rendered:'Clip pronte'};
 
 function MusicStudio({ onEdit }) {

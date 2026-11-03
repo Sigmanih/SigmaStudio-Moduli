@@ -112,6 +112,11 @@ def prepare(store, prod, ask_text=None, progress=lambda message, value: None):
     prod['publication'] = {'status': 'preparing', 'publication_ready': False}
     store.save(prod)
     try:
+        if prod.get('quality_status') in ('rejected', 'review_required'):
+            raise ValueError('Video non approvato dal controllo di integrità visiva')
+        from .visual_integrity import require
+        for shot in prod.get('shots',[]):
+            require(shot)
         if ask_text is None:
             from core.harness.vista import occhio
             ask_text = occhio.chiedi

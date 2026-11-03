@@ -454,6 +454,8 @@ def summary(prod: dict) -> dict:
         "id": prod["id"], "title": prod.get("title"), "status": prod.get("status"),
         "updated": prod.get("updated"), "shots": len(shots), "shots_done": len(done),
         "shots_failed": sum(1 for s in shots if s.get("status") == "failed"),
+        'shots_review_required': sum(1 for s in shots if s.get('status')=='review_required'),
+        'quality_status': prod.get('quality_status','unverified'),
         "duration_s": round(total_s, 1), "output_path": prod.get("output_path", ""),
         "backend": (prod.get("settings") or {}).get("backend"),
         "eta_s": round(per_clip * (len(shots) - len(done))) if done else None,
@@ -1955,17 +1957,25 @@ KEYFRAME_ATTEMPTS = 3
 
 
 async def _check_keyframe(prod: dict, shot: dict, image: Path) -> dict:
-    """Giudizio del fotogramma col giudice visivo, se c'e'; senza giudice il fotogramma passa."""
+    """Anatomia obbligatoria e controllo della posa prima dell'animazione."""
     from core.modules.sigma_creative_lab.video import clip_judge
     s = prod.get("settings") or {}
+    from .visual_integrity import inspect_image
+    try:
+        integrity = await asyncio.to_thread(inspect_image, image, resolve_judge_device(s))
+    except Exception as exc:
+        return {'ok': False, 'score': 0, 'issues': ['Controllo anatomico non disponibile: '+str(exc)]}
+    if integrity['status'] != 'pass':
+        return {'ok': False, 'score': 0, 'integrity': integrity,
+                'issues': integrity['issues'] or ['Anatomia non verificabile'], 'fix': integrity.get('fix','')}
     if not s.get("judge", True) or not clip_judge.installed():
-        return {"ok": True, "score": None}
+        return {"ok": True, "score": None, 'integrity': integrity}
     try:
         verdict = await asyncio.to_thread(clip_judge.judge.judge_image, image, shot.get("prompt", ""),
                                           resolve_judge_device(s))
     except Exception as e:
         log.warning(f"controllo del fotogramma non disponibile: {e}")
-        return {"ok": True, "score": None}
+        return {"ok": False, "score": None, 'integrity': integrity, 'issues': [str(e)]}
     try:
         wrong = await asyncio.to_thread(_cast_errors, prod, shot, image, resolve_judge_device(s))
     except Exception as e:
@@ -1977,7 +1987,7 @@ async def _check_keyframe(prod: dict, shot: dict, image: Path) -> dict:
         present = [c["name"] for c in _cast(prod, shot)[1]]
         verdict["fix"] = (f"Exactly {len(present)} character{'s' if len(present) != 1 else ''}: "
                           + ", ".join(f"one {n}" for n in present) + "; nobody appears twice.")
-    return verdict
+    return {**verdict, 'integrity': integrity}
 
 
 def character_kind(ch: dict) -> str:
@@ -2053,6 +2063,7 @@ async def generate_keyframes(store: ProductionStore, pid: str, shot_ids: list | 
             if best is None or (check.get("score") or 0) > (best["check"].get("score") or 0):
                 best = r
             if check.get("ok", True):
+                best = r
                 break
             log.warning(f"fotogramma di {shot['id']} da rifare: {check.get('issues')}")
             if note:
@@ -2061,6 +2072,8 @@ async def generate_keyframes(store: ProductionStore, pid: str, shot_ids: list | 
                 attempt_shot["keyframe_fixes"] = (attempt_shot.get("keyframe_fixes") or [])[-1:] + [check["fix"]]
             seed += 7919
         r = best
+        if not r or not r['check'].get('ok'):
+            raise ValueError('Fotogramma respinto: '+shot['id']+' · '+str((r or {}).get('check',{}).get('issues',[])))
         fresh = store.get(pid)
         target = next((x for x in fresh["shots"] if x["id"] == shot["id"]), None)
         if target is not None:
@@ -2360,6 +2373,8 @@ class ProductionRunner:
             return
         engine = lane["engine"]
         shot.pop('manual_review',None)
+        shot.pop('visual_integrity',None)
+        shot.pop('integrity_review',None)
         request = self.build_request(prod, i)
         shot.update(status="rendering", error="", lane=lane["label"])
         shot["attempts"] = int(shot.get("attempts", 0)) + 1
@@ -2418,8 +2433,6 @@ class ProductionRunner:
         from core.modules.sigma_creative_lab.video import postprocess as pp
         s = prod["settings"]
         shot = prod["shots"][i]
-        if not s.get("qa", True):
-            return True
         issues = await asyncio.to_thread(pp.quality_check, Path(shot["clip_path"]), True)
         shot["qa_issues"] = issues
         if issues:
@@ -2430,10 +2443,9 @@ class ProductionRunner:
                             error="scartato dal controllo qualita': " + "; ".join(issues))
                 self._emit(type="shot_retry", shot=shot["id"], index=i, issues=issues)
                 return False
-            log.warning(f"inquadratura {shot['id']} tenuta nonostante: {issues}")
-            if shot.get('required_action'):
-                shot.update(status='failed',error='Clip non valida: '+'; '.join(issues))
-                return False
+            log.warning(f"inquadratura {shot['id']} respinta dopo i tentativi previsti: {issues}")
+            shot.update(status='failed',error='Clip non valida: '+'; '.join(issues))
+            return False
         return True
 
     @staticmethod
@@ -2460,21 +2472,15 @@ class ProductionRunner:
                     self._emit(type="shot_retry", shot=shot["id"], index=i, issues=verdict["issues"],
                                score=verdict["score"])
                     return
-                best = best_judged(shot)
-                if shot.get('required_action'):
-                    shot.update(status='failed',error='Azione non eseguita in modo verificabile: '+str(verdict.get('seen','')))
-                    return
-                if best and best["clip_path"] != str(clip) and Path(best["clip_path"]).is_file():
-                    log.warning(f"inquadratura {shot['id']}: nessun tentativo promosso, tengo il migliore "
-                                f"({best['score']})")
-                    shot.update(clip_path=best["clip_path"], seed=best.get("seed", shot.get("seed")))
+                shot.update(status='failed',error='Clip non verificata: '+str(verdict.get('seen','')))
+                return
             if shot.get('required_action') and verdict is None:
                 shot.update(status='failed',error='Il controllo visivo dell’azione non è disponibile: verifica la clip prima di proseguire')
                 return
             await self._finish(prod, i, lane)
         except Exception as e:
             log.error(f"chiusura dell'inquadratura {shot['id']} fallita: {e}")
-            failed=shot.get('required_action') and shot.get('attempts',0)>=int(s.get('max_attempts',3))
+            failed=shot.get('attempts',0)>=int(s.get('max_attempts',3))
             shot.update(status='failed' if failed else 'pending', error=f"controllo: {e}")
         finally:
             self.store.save(prod)
@@ -2482,7 +2488,7 @@ class ProductionRunner:
                 self._wake.set()          # le corsie in attesa rivalutano cosa e' pronto
 
     async def _finish(self, prod: dict, i: int, lane: dict) -> None:
-        """Correzione colore lungo le catene, ultimo fotogramma, stato done."""
+        """Controlla il file definitivo e lo prepara alla revisione di dettaglio."""
         from core.modules.sigma_creative_lab.video import postprocess as pp
         s = prod["settings"]
         shot = prod["shots"][i]
@@ -2506,12 +2512,22 @@ class ProductionRunner:
                     shot["color_match"] = info
                 except Exception as e:
                     log.warning(f"correzione colore di {shot['id']} non applicata: {e}")
+        from .visual_integrity import inspect_clip
+        shot['visual_integrity'] = await asyncio.to_thread(inspect_clip, clip, resolve_judge_device(s),
+                                                          self.store.path(prod['id'])/'checks'/'integrity'/shot['id'])
+        if shot['visual_integrity']['status'] != 'pass':
+            retry = int(shot.get('attempts',0)) < int(s.get('max_attempts',3))
+            shot.update(status='pending' if retry else 'failed', seed=int(shot.get('seed') or 0)+7919,
+                        error='Anatomia/oggetti: '+str(shot['visual_integrity'].get('issues') or 'esito incerto'))
+            return
         # L'ultimo fotogramma si rilegge dal clip definitivo: e' quello da cui parte il successivo.
         last = await asyncio.to_thread(extract_last_frame, clip)
         if last:
             shot["last_frame"] = str(last)
-        shot["status"] = "done"
-        self._emit(type="shot_done", shot=shot["id"], index=i, lane=lane["label"], timings=shot.get("timings", {}))
+        shot['status'] = 'review_required'
+        shot['error'] = 'Controllo automatico positivo: serve la revisione di dettaglio prima del montaggio'
+        self._emit(type='shot_review_required', status='review_required', shot=shot['id'], index=i,
+                   lane=lane['label'], timings=shot.get('timings',{}), message=shot['error'])
 
     async def _lane_loop(self, prod: dict, lane: dict, lanes: list, wake: asyncio.Event) -> None:
         while not self.cancelled.is_set():
@@ -2520,6 +2536,10 @@ class ProductionRunner:
             fastest = next((l for l in lanes if not l.get("retired")), lane)
             i = self._pick(prod, lane, fastest)
             if i is None:
+                states = [shot.get('status') for shot in prod['shots']]
+                if not any(state in ('rendering','reviewing') for state in states) and any(
+                        state in ('review_required','failed') for state in states):
+                    return
                 # "reviewing" tiene viva la corsia: il giudice puo' rimandare il clip in coda.
                 if not any(s.get("status") in ("pending", "rendering", "reviewing") for s in prod["shots"]):
                     return                     # non resta niente da fare
@@ -2549,6 +2569,7 @@ class ProductionRunner:
         if prod is None:
             raise ValueError(f"produzione inesistente: {self.pid}")
         prod["status"] = "rendering"
+        prod['quality_status'] = 'review_required'
         prod["error"] = ""
         # Un'inquadratura rimasta 'rendering' o 'reviewing' viene da un crash: si riprende da li'.
         for s in prod["shots"]:
@@ -2664,7 +2685,7 @@ class ProductionRunner:
                          "lanes": prod["lanes"]}
         if self.cancelled.is_set():
             prod["status"] = "cancelled"
-        elif any(s.get("status") in ("pending", "failed") for s in prod["shots"]):
+        elif any(s.get("status") in ("pending", "failed", 'review_required') for s in prod["shots"]):
             # Clip falliti ancora riprovabili: la produzione resta riprendibile.
             prod["status"] = "partial"
         elif assemble_at_end:
@@ -2673,6 +2694,7 @@ class ProductionRunner:
             try:
                 prod["output_path"] = str(self.assemble(prod))
                 prod["status"] = "done"
+                prod['quality_status'] = 'approved'
                 from .generated_publication import prepare
                 await asyncio.to_thread(prepare, self.store, prod)
             except Exception as e:
@@ -2753,6 +2775,12 @@ class ProductionRunner:
             list(pool.map(work, enumerate(todo)))
 
     def assemble(self, prod: dict) -> Path:
+        from .visual_integrity import require
+        if not any(shot.get('status')=='done' for shot in prod['shots']):
+            raise ValueError('Nessuna clip approvata disponibile per il montaggio')
+        for shot in prod['shots']:
+            if shot.get('status') == 'done':
+                require(shot)
         s = prod["settings"]
         self._upscale_all(prod)
         out = paths.creative_output_dir("video") / f"{_slug(prod['title'])}_{prod['id'][-6:]}.mp4"

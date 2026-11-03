@@ -288,8 +288,8 @@ class MusicService:
                     prod=manager.store.get(entry['production_id'])
                     if prod:
                         poster=next((s.get('keyframe') for s in prod.get('shots',[]) if s.get('keyframe')),'')
-                        job['video']={'production_id':prod['id'],'title':prod['title'],'status':prod['status'],
-                            'url':paths.public_url(Path(prod['output_path'])) if prod.get('output_path') else '',
+                        job['video']={'production_id':prod['id'],'title':prod['title'],'status':prod.get('quality_status') if prod.get('quality_status') in ('rejected','review_required') else prod['status'],
+                            'url':paths.public_url(Path(prod['output_path'])) if prod.get('output_path') and prod.get('quality_status') not in ('rejected','review_required') else '',
                             'poster_url':paths.public_url(Path(poster)) if poster else ''}
         except (ImportError,OSError,ValueError) as exc:
             log.warning('Collegamenti della libreria audio non disponibili: %s',exc)

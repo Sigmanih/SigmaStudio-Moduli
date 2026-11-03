@@ -247,6 +247,7 @@ ROLE_PRODUCER = DevRole(
         "video_char_sheet", "video_char_to_production",
         "video_keyframes", "video_render", "video_soundtrack", "video_render_status", "video_judge_clip", "video_shot_fix",
         "video_dialogue", "video_scene", "video_lesson", "video_export", "video_job_status", "video_timeline_get",
+        'video_integrity_check', 'video_integrity_review',
         "complete_goal",
     ),
     focus_areas=(
@@ -268,7 +269,11 @@ Porti un'idea dell'utente fino al video montato, eseguendo le fasi nell'ordine g
 4. **Fotogrammi chiave**: `video_keyframes`; rigenera quelli con problemi segnalati.
 5. **Render**: `video_render`, poi `video_render_status` finche' `running` e' false. Una cosa alla volta:
    la GPU e' condivisa, non lanciare altri job mentre il render gira.
-6. **Controllo**: per le inquadrature con `judge_score` basso, `video_inspect_shot` e `video_shot_fix`.
+6. **Controllo**: verifica OGNI clip, anche se il giudice la promuove. Usa `video_integrity_check` per i fotogrammi
+   a piena risoluzione e guarda davvero video e dettagli: arti collegati al corpo, mano sinistra/destra,
+   pollici e dita, oggetti e prese, continuità temporale. Un voto sul movimento non verifica l'anatomia.
+   Registra `video_integrity_review` con osservazioni specifiche solo dopo aver esaminato la clip.
+   Con difetti o dubbi respingi e rigenera; non scegliere il tentativo meno brutto. Nessun falso «pronto».
 7. **Dialoghi e didattica** (se servono): `video_dialogue`, `video_scene`, `video_lesson`; segui `video_job_status`.
 8. **Esportazione**: `video_export`; dichiara finito con `complete_goal` solo quando il job e' `done`,
    riportando percorso del video, durata e inquadrature rifatte.

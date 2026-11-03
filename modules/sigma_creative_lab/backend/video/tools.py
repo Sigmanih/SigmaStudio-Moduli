@@ -518,6 +518,25 @@ def video_export(prod_id: str) -> dict:
     return _editor_job("video_export", prod_id, "export", {})
 
 
+def video_integrity_check(prod_id: str, shot_id: str) -> dict:
+    return _editor_job('video_integrity_check',prod_id,'integrity',{'shot_id':shot_id})
+
+
+def video_integrity_review(prod_id: str, shot_id: str, verdict: str, reason: str, sha256: str,
+                           checks: list, confirmed: bool = False) -> dict:
+    try:
+        if confirmed is not True:
+            raise ValueError('Conferma la verifica visiva diretta della clip e dei dettagli')
+        from .production import manager
+        from .visual_integrity import review
+        if manager.active():
+            raise ValueError('Attendi la fine della produzione')
+        prod=review(manager.store,prod_id,shot_id,verdict,reason,sha256,checks,'agent_visual_review')
+        return _esito('video_integrity_review',True,production=prod)
+    except (ValueError,OSError,TypeError) as exc:
+        return _esito('video_integrity_review',False,error=str(exc))
+
+
 # ---------------------------------------------------------------------------
 # Esecutori: restauro di film muti
 # ---------------------------------------------------------------------------
@@ -1350,6 +1369,8 @@ ESECUTORI: Dict[str, Callable] = {
     "video_scene": video_scene,
     "video_lesson": video_lesson,
     "video_export": video_export,
+    'video_integrity_check': video_integrity_check,
+    'video_integrity_review': video_integrity_review,
     "video_job_status": video_job_status,
     "video_char_from_image": video_char_from_image,
     "video_manga_read": video_manga_read,
@@ -1389,6 +1410,7 @@ READ_TOOLS = frozenset({
 })
 
 WRITE_TOOLS = frozenset({
+    'video_integrity_check','video_integrity_review',
     "video_restore_pipeline",
     "video_char_create", "video_char_update", "video_char_candidates", "video_char_pick",
     "video_prod_create", "video_prod_plan_storyboard", "video_prod_add_shot",
