@@ -599,7 +599,7 @@ SCHEMI = (
         "type": "function",
         "function": {
             "name": "video_export",
-            "description": "Esporta il montaggio della timeline in MP4. Job in coda.",
+            "description": "Esporta il montaggio in MP4 e prepara automaticamente miniatura, titoli e descrizioni nelle otto lingue del canale. Job in coda: controlla anche publication.publication_ready nel risultato.",
             "parameters": {
                 "type": "object",
                 "properties": {

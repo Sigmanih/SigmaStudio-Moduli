@@ -58,6 +58,16 @@ def _url(path: str) -> str:
 
 def _decorate(prod: dict) -> dict:
     prod = dict(prod)
+    publication = prod.get('publication') or {}
+    if publication.get('source'):
+        from .generated_publication import source_identity
+        try:
+            current = source_identity(prod, prod.get('output_path') or '')
+        except (OSError, ValueError):
+            current = None
+        if current != publication['source']:
+            prod['publication'] = {**publication, 'status': 'stale', 'publication_ready': False,
+                                   'error': 'Video o dati modificati: prepara nuovamente i materiali.'}
     prod["output_url"] = _url(prod.get("output_path", ""))
     prod['soundtrack_url'] = _url(prod.get('soundtrack_path',''))
     prod["shots"] = [{**s, "clip_url": _url(s.get("clip_path", "")), "frame_url": _url(s.get("last_frame", "")),
@@ -636,6 +646,24 @@ def handle_production_manual_review(self):
         _err(self,str(exc))
 
 
+def handle_production_publication(self):
+    from .editor_jobs import editor_jobs
+    data = self.read_json_body()
+    try:
+        pid = data.get('id', '')
+        prod = manager.store.get(pid)
+        if not prod or not Path(prod.get('output_path') or '').is_file():
+            return _err(self, 'Esporta prima il video', 400)
+        if manager.active():
+            return _err(self, 'Attendi la fine della produzione', 409)
+        jobs = editor_jobs()
+        if any(j['production'] == pid and j['status'] in ('queued', 'running') for j in jobs.list()):
+            return _err(self, 'Un lavoro per questo video è già in corso', 409)
+        _ok(self, job=jobs.submit(pid, 'publication', {}))
+    except (ValueError, RuntimeError) as exc:
+        _err(self, str(exc))
+
+
 def handle_production_assemble(self):
     """POST /api/creative/productions/assemble {id} — rimonta i clip gia' pronti (anche parziali)."""
     data = self.read_json_body()
@@ -649,6 +677,8 @@ def handle_production_assemble(self):
         out = ProductionRunner(manager.store, prod["id"]).assemble(prod)
         prod["output_path"] = str(out)
         manager.store.save(prod)
+        from .generated_publication import prepare
+        prepare(manager.store, prod)
         _ok(self, production=_decorate(prod))
     except (RuntimeError, ValueError) as e:
         _err(self, str(e), 500)
@@ -784,6 +814,7 @@ GET_ROUTES = {
 }
 
 POST_ROUTES = {
+    '/api/creative/productions/publication': handle_production_publication,
     "/api/creative/productions/create": handle_production_create,
     "/api/creative/productions/update": handle_production_update,
     "/api/creative/productions/preproduction": handle_production_preproduction,

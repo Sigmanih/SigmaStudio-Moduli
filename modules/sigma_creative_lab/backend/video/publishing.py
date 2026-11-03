@@ -141,7 +141,7 @@ def localizations(base, languages, ask_text, cache_path, progress, check_cancell
     return output
 
 
-def _thumbnail(video, target, duration, intro, title='', year=''):
+def _thumbnail(video, target, duration, intro, title='', year='', edition='RESTORED EDITION'):
     from PIL import Image, ImageStat
     best, best_score = None, -1
     for index, fraction in enumerate((.25, .5, .75)):
@@ -161,7 +161,7 @@ def _thumbnail(video, target, duration, intro, title='', year=''):
     if title:
         from .publication_identity import title_overlay
         overlay_path = target.with_name('.thumbnail_title.png')
-        title_overlay(1280, 720, title, year, overlay_path)
+        title_overlay(1280, 720, title, year, overlay_path, edition=edition)
         with Image.open(target) as background, Image.open(overlay_path) as overlay:
             Image.alpha_composite(background.convert('RGBA'), overlay.convert('RGBA')).convert('RGB').save(
                 target, format='JPEG', quality=90, optimize=True)

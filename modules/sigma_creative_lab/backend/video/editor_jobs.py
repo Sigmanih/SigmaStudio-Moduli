@@ -1056,7 +1056,19 @@ async def job_export(self: EditorJobs, job: dict) -> dict:
     prod = self.prods.get(pid)
     prod["output_path"] = str(out)
     self.prods.save(prod)
-    return {"output_path": str(out)}
+    from .generated_publication import prepare
+    publication = await asyncio.to_thread(prepare, self.prods, prod)
+    return {"output_path": str(out), "publication": publication}
+
+
+async def job_publication(self: EditorJobs, job: dict) -> dict:
+    from .generated_publication import prepare
+    prod = self.prods.get(job['production'])
+    result = await asyncio.to_thread(prepare, self.prods, prod,
+                                   progress=lambda m, p: self._note(job, m, p))
+    if not result.get('publication_ready'):
+        raise ValueError(result.get('error', 'Materiali editoriali incompleti'))
+    return result
 
 
 async def job_subtitles(self: EditorJobs, job: dict) -> dict:
@@ -1331,6 +1343,7 @@ CPU_KINDS = {"import", "title"}
 from core.modules.sigma_creative_lab.video import manga  # noqa: E402  (i job da fumetto)
 
 HANDLERS = {
+    'publication': job_publication,
     "regen_range": job_regen_range, "redo": job_redo, "recolor": job_recolor, "extend": job_extend,
     "insert": job_insert, "upscale": job_upscale, "restore_clean": job_restore_clean, "remaster": job_remaster,
     "restore_read": job_restore_read,

@@ -38,7 +38,7 @@ def validate_template(directory):
     return value
 
 
-def title_overlay(width, height, title, year, target):
+def title_overlay(width, height, title, year, target, edition='RESTORED EDITION'):
     from PIL import Image, ImageDraw, ImageFont
     title = str(title).strip()
     if not title or len(title) > 100:
@@ -61,7 +61,7 @@ def title_overlay(width, height, title, year, target):
             break
         size -= 1
     draw.text(((width - box[2] + box[0]) / 2, height * .75), label, font=font, fill='white')
-    subtitle = 'SIGMA STUDIO · RESTORED EDITION'
+    subtitle = 'SIGMA STUDIO · ' + edition
     font = ImageFont.truetype(str(font_path), max(12, height // 42))
     box = draw.textbbox((0, 0), subtitle, font=font)
     draw.text(((width - box[2] + box[0]) / 2, height * .84), subtitle, font=font, fill=(186, 170, 244))

@@ -2673,6 +2673,8 @@ class ProductionRunner:
             try:
                 prod["output_path"] = str(self.assemble(prod))
                 prod["status"] = "done"
+                from .generated_publication import prepare
+                await asyncio.to_thread(prepare, self.store, prod)
             except Exception as e:
                 log.error(f"montaggio fallito: {e}")
                 prod["status"] = "failed"

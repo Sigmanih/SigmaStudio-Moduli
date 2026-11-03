@@ -11,6 +11,8 @@ Avvia una sola esecuzione per richiesta. Se un nodo fallisce, conserva gli asset
 
 Interrompere l'attesa nel browser non equivale a fermare il calcolo. Controlla lo stato del motore prima di una nuova esecuzione. Distingui risultati parziali, operazioni ancora attive e completamento verificato.
 
+Ogni render finale o esportazione dell'editor prepara anche i materiali YouTube: miniatura 1280×720, titoli e descrizioni in arabo, inglese, italiano, spagnolo, tedesco, francese, portoghese e cinese, manifest e archivio ZIP. Controlla `publication.publication_ready`, non soltanto il successo del video. Un errore editoriale conserva il master: riprova dalla sezione Materiali per YouTube di VideoStudio senza rigenerare le clip. Le traduzioni riguardano i metadati, non aggiungono doppiaggi o sottotitoli. Per i video generati non usare testi o etichette da restauro. Cambiare il master o i suoi dati invalida la cache dei materiali.
+
 Per un film importato usa `video_restore_pipeline`: il preset del canale definisce lingue, cartella di uscita e sigle. Scegli `content_type=silent` per i muti, `documentary` per conservare e trascrivere il parlato originale. Titolo, anno e fonte sono dati del singolo film, non del preset; non inventarli.
 
 Il successo richiede master multilingua, audio separati, sottotitoli, miniatura, file di titolo e descrizione per lingua e `youtube_package.json`. Riusa i checkpoint verificati dopo un errore. Il pacchetto è locale: la pubblicazione sul canale richiede una richiesta esplicita e i doppiaggi vengono aggiunti tramite YouTube Studio → Lingue.

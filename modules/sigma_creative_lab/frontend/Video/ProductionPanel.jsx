@@ -644,6 +644,19 @@ export default function ProductionPanel({ aceInstalled = false, onOpenEditor, re
                 </video>
               )}
               {prod?.subtitles_url && <a className="cs-hint" href={prod.subtitles_url} download>Sottotitoli (.srt)</a>}
+              {prod?.output_url && <div className="cs-mesh-card">
+                <h3 className="cs-mesh-title">Materiali per YouTube</h3>
+                <p className="cs-hint">Miniatura, titoli e descrizioni in arabo, inglese, italiano, spagnolo, tedesco, francese, portoghese e cinese. Preparati automaticamente dopo il video; rivedili prima di pubblicare.</p>
+                {prod.publication?.publication_ready ? <>
+                  <img className="cs-video-player" src={toUrl(prod.publication.thumbnail_path)} alt="Miniatura del video" />
+                  {prod.publication.bundle_path && <a className="cs-tool-btn" href={toUrl(prod.publication.bundle_path)} download>Scarica materiali YouTube (.zip)</a>}
+                  <a className="cs-tool-btn" href={toUrl(prod.publication.package_path)} download>Scarica titoli e descrizioni (.json)</a>
+                </> : <p className="cs-hint">{prod.publication?.status === 'preparing' ? 'Preparazione dei materiali in corso…' : prod.publication?.error || 'Materiali non ancora preparati per questo video.'}</p>}
+                <button className="cs-tool-btn" disabled={running}
+                        onClick={() => act(async () => { await call('/publication', { id: prod.id }); })}>
+                  <RefreshCw size={15} /> Prepara / riprova materiali
+                </button>
+              </div>}
             </div>
 
             <div className="cs-mesh-card">
