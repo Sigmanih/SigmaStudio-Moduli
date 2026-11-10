@@ -1,14 +1,14 @@
 import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
-import {
-  Cpu, HardDrive, Zap, ChevronDown, Check, Search, Sparkles,
+import { 
+  Cpu, HardDrive, Zap, ChevronDown, Check, Search, Sparkles, 
   Layers, Database, Shield, Server, Star, Trophy, Wrench, CheckCircle2, ArrowUpDown
 } from 'lucide-react';
-import {
-  getModelSpecs,
-  detectModelFamily,
-  isSigmanihModel,
-  getModelChatSpeed,
-  FAMILY_CONFIG
+import { 
+  getModelSpecs, 
+  detectModelFamily, 
+  isSigmanihModel, 
+  getModelChatSpeed, 
+  FAMILY_CONFIG 
 } from '../../components/Chat/core/modelSpecsHelper';
 
 export default function DeveloperModelSelector({
@@ -133,9 +133,9 @@ export default function DeveloperModelSelector({
       const specs = getModelSpecs(rawName, localModels) || {};
       const fam = detectModelFamily(m);
       const isSig = isSigmanihModel(m);
-
+      
       const isResident = residentName && (
-        residentName.toLowerCase() === id.toLowerCase() ||
+        residentName.toLowerCase() === id.toLowerCase() || 
         residentName.toLowerCase() === rawName.toLowerCase() ||
         residentName.toLowerCase().includes(rawName.toLowerCase())
       );
@@ -148,8 +148,8 @@ export default function DeveloperModelSelector({
       }
 
       // Quantization
-      let quantLabel = m.quantization && m.quantization !== 'Standard'
-        ? m.quantization
+      let quantLabel = m.quantization && m.quantization !== 'Standard' 
+        ? m.quantization 
         : (specs.quant || (rawName.match(/(Q[0-9]_[A-Z0-9_]+|FP16|BF16|INT8|INT4|FP8)/i)?.[1]?.toUpperCase() || 'FP16'));
 
       const isComplete = m.is_complete !== false && !m.has_part_files;
@@ -233,7 +233,7 @@ export default function DeveloperModelSelector({
     }
     const found = allModels.find(m => m.id === selectedModel || m.name === selectedModel);
     if (found) return found;
-
+    
     const specs = getModelSpecs(selectedModel, localModels) || {};
     return {
       id: selectedModel,
@@ -251,8 +251,8 @@ export default function DeveloperModelSelector({
   // Seleziona automaticamente il primo tra i preferiti o il primo presente se non impostato o 'sigmaengine'
   useEffect(() => {
     if ((!selectedModel || selectedModel === 'sigmaengine') && allModels.length > 0) {
-      const firstFav = favoriteModels.length > 0
-        ? allModels.find(m => favoriteModels.includes(m.id) || favoriteModels.includes(m.name))
+      const firstFav = favoriteModels.length > 0 
+        ? allModels.find(m => favoriteModels.includes(m.id) || favoriteModels.includes(m.name)) 
         : null;
       const target = firstFav || allModels[0];
       if (target?.id && target.id !== selectedModel) {
@@ -327,7 +327,7 @@ export default function DeveloperModelSelector({
 
       // Search query
       const q = searchQuery.toLowerCase().trim();
-      const matchesSearch = !q ||
+      const matchesSearch = !q || 
         m.name.toLowerCase().includes(q) ||
         (m.shortName && m.shortName.toLowerCase().includes(q)) ||
         (m.params && m.params.toLowerCase().includes(q)) ||
@@ -905,8 +905,8 @@ export default function DeveloperModelSelector({
                       borderRadius: '7px',
                       marginBottom: '4px',
                       cursor: 'pointer',
-                      background: isSelected
-                        ? (isLight ? 'rgba(0, 242, 254, 0.12)' : 'rgba(0, 242, 254, 0.1)')
+                      background: isSelected 
+                        ? (isLight ? 'rgba(0, 242, 254, 0.12)' : 'rgba(0, 242, 254, 0.1)') 
                         : 'transparent',
                       border: isSelected ? '1px solid rgba(0, 242, 254, 0.4)' : '1px solid transparent',
                       transition: 'all 0.1s ease'

@@ -25,7 +25,7 @@ export default function HfPublishModal({ model, onClose, isLight, addToast }) {
   const [isPrivate, setIsPrivate] = useState(false);
   const [commitMsg, setCommitMsg] = useState('Upload model via Sigma Studio');
   const [customCardNotes, setCustomCardNotes] = useState('');
-
+  
   // Model Card options
   const [includeBenchmarks, setIncludeBenchmarks] = useState(true);
   const [includeHardware, setIncludeHardware] = useState(true);
@@ -819,7 +819,7 @@ export default function HfPublishModal({ model, onClose, isLight, addToast }) {
                   <div style={{ fontSize: '0.70rem', fontWeight: 800, color: textMuted, textTransform: 'uppercase' }}>
                     CONTENUTI INCLUSI NELLA SCHEDA (README.MD)
                   </div>
-
+                  
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
                     <label style={{
                       display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer',

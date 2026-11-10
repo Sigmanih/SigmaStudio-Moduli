@@ -308,7 +308,7 @@ export default function ProtocolBenchView({ models = [], onToast, activeTabId, b
               Misura della Pilotabilità Reale (Harness Protocol Benchmark)
             </div>
             <div style={{ fontSize: '0.74rem', color: 'var(--sigma-text-dim, #8b949e)', marginTop: '4px', lineHeight: '1.4' }}>
-              Questo banco misura se il modello è <i>pilotabile</i> dentro il ciclo di Sigma Studio attraverso prove graduate (Livello 1 Base, Livello 2 Intermedio, Livello 3 Avanzato).
+              Questo banco misura l’uso dei tool e il completamento verificato dei compiti, dalle operazioni di base ai progetti su più file.
               <br />
               <span style={{ color: '#3fb950', fontWeight: 700 }}>🛡️ SandboxJail Attiva:</span> Ogni scenario gira in una sandbox temporanea isolata con confinamento dei percorsi e blocco modifiche al kernel. Sicuro al 100% per qualsiasi modello.
             </div>
@@ -576,12 +576,14 @@ export default function ProtocolBenchView({ models = [], onToast, activeTabId, b
                   color: selectedScenarios.length === scenarios.length && scenarios.length > 0 ? '#00f2fe' : ACCENT,
                 }}
               >
-                🚀 Suite Completa ({scenarios.length * 11} Prove)
+                Suite Completa ({scenarios.length} scenari)
               </button>
               {[
-                { id: '1', label: '🟢 Liv. 1 (22 Prove)', val: 1 },
-                { id: '2', label: '🟡 Liv. 2 (22 Prove)', val: 2 },
-                { id: '3', label: '🔴 Liv. 3 (22 Prove)', val: 3 },
+                { id: '1', label: 'Liv. 1 Base', val: 1 },
+                { id: '2', label: 'Liv. 2 Intermedio', val: 2 },
+                { id: '3', label: 'Liv. 3 Avanzato', val: 3 },
+                { id: '4', label: 'Liv. 4 Autonomia', val: 4 },
+                { id: '5', label: 'Liv. 5 Progetto', val: 5 },
               ].map((lvl) => {
                 const lvlScenarios = scenarios.filter((s) => s.livello === lvl.val).map((s) => s.id);
                 const allSelected = lvlScenarios.length > 0 && lvlScenarios.every((id) => selectedScenarios.includes(id));
@@ -593,7 +595,7 @@ export default function ProtocolBenchView({ models = [], onToast, activeTabId, b
                       setLevelFilter(lvl.id);
                       setSelectedScenarios(lvlScenarios);
                     }}
-                    title={`Imposta ed esegui solo gli scenari di ${lvl.label}`}
+                    title={`Seleziona gli scenari di ${lvl.label}`}
                     style={{
                       fontSize: '0.62rem', fontWeight: 700, padding: '2px 6px', borderRadius: '5px', cursor: 'pointer',
                       border: `1px solid ${allSelected ? ACCENT : 'rgba(255,255,255,0.08)'}`,
@@ -669,7 +671,7 @@ export default function ProtocolBenchView({ models = [], onToast, activeTabId, b
             <span>•</span>
             <span>Scenari: <strong style={{ color: '#fff' }}>{selectedScenarios.length}/{scenarios.length}</strong></span>
             <span>•</span>
-            <span>Prove Pianificate: <strong style={{ color: '#00f2fe' }}>{selectedScenarios.length * 11} prove</strong></span>
+            <span>Scenari pianificati: <strong>{selectedScenarios.length}</strong></span>
             <span>•</span>
             <span>Tetto per scenario: <strong style={{ color: '#ffb86c' }}>300 s / 14 turni</strong></span>
           </div>
@@ -848,11 +850,20 @@ export default function ProtocolBenchView({ models = [], onToast, activeTabId, b
                       {results.punteggio}<span style={{ fontSize: '0.9rem', color: '#8b949e' }}>/100</span>
                     </div>
                     <div style={{ fontSize: '0.7rem', color: '#8b949e' }}>
-                      {results.superate}/{results.totali} prove · {results.turni_totali} turni totali
+                      Aderenza: {results.superate}/{results.totali} prove · {results.turni_totali} turni totali
                     </div>
                   </div>
                 )}
               </div>
+
+              {results && (
+                <p className="proto-check-line">
+                  Protocollo: {results.evaluation_protocol || 'storico, controlli precedenti'}.{' '}
+                  {results.completamento_compiti
+                    ? `Compiti verificati: ${results.completamento_compiti.riusciti}/${results.completamento_compiti.totali} (${results.completamento_compiti.percentuale ?? '—'}%). Non verificati: ${results.completamento_compiti.non_verificati}.`
+                    : 'Completamento dei compiti non registrato in questo run storico.'}
+                </p>
+              )}
 
               {/* Riferimento SIGMA-CHECK per Audit */}
               {results?.check_line && (

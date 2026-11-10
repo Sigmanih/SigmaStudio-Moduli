@@ -44,7 +44,15 @@ VIEWS = {
     "angry": ("close-up portrait, angry expression", 1024, 1024),
     "surprised": ("close-up portrait, surprised expression, open mouth", 1024, 1024),
 }
-VIEW_LABELS = {"front": "Fronte", "profile": "Profilo", "back": "Retro", "closeup": "Primo piano",
+#: Soggetti che non sono persone (una sonda, un'astronave, un'auto): stesse schede, viste da oggetto.
+#: Nel video della sonda (9/11/2026) ogni clip senza riferimento inventava una sonda diversa.
+KINDS = ("person", "object")
+OBJECT_VIEWS = {
+    "side": ("strict side view of the whole object, entirely in frame", 1216, 832),
+    "back": ("rear view of the whole object, entirely in frame", 1216, 832),
+    "top": ("top-down view of the whole object, entirely in frame", 1024, 1024),
+}
+VIEW_LABELS = {"front": "Fronte", "side": "Lato", "top": "Dall'alto", "profile": "Profilo", "back": "Retro", "closeup": "Primo piano",
                "happy": "Felice", "sad": "Triste", "angry": "Arrabbiato", "surprised": "Sorpreso"}
 
 
@@ -115,12 +123,24 @@ def file_path(char: dict, name: str) -> Path | None:
     return path if path.is_file() and folder in path.parents else None
 
 
-def create(name: str, description: str = "", genre: str = "realistic", voice_id: str = "") -> dict:
+def kind_of(char: dict) -> str:
+    return char.get("kind") if char.get("kind") in KINDS else "person"
+
+
+def views_for(char: dict) -> dict:
+    return OBJECT_VIEWS if kind_of(char) == "object" else VIEWS
+
+
+def create(name: str, description: str = "", genre: str = "realistic", voice_id: str = "",
+           kind: str = "person") -> dict:
     name = (name or "").strip()
     if not name:
         raise ValueError("serve un nome")
+    if kind not in KINDS:
+        raise ValueError(f"kind: {' | '.join(KINDS)}")
     char_id = f"{_slug(name)}_{uuid.uuid4().hex[:6]}"
     return _write({"id": char_id, "name": name, "description": description.strip(), "genre": genre or "realistic",
+                   "kind": kind,
                    "voice_id": voice_id, "seed": None, "front": "", "sheet": {}, "candidates": [],
                    "created": round(time.time(), 3)})
 
@@ -130,6 +150,10 @@ def update(char_id: str, **fields) -> dict:
     for key in ("name", "description", "genre", "voice_id", "notes"):
         if key in fields and fields[key] is not None:
             char[key] = str(fields[key]).strip()
+    if fields.get("kind") is not None:
+        if fields["kind"] not in KINDS:
+            raise ValueError(f"kind: {' | '.join(KINDS)}")
+        char["kind"] = fields["kind"]
     if not char["name"]:
         raise ValueError("serve un nome")
     return _write(char)
@@ -152,8 +176,15 @@ def view_prompt(char: dict, view: str, fix: str = "", with_reference: bool = Fal
     """Prompt di una vista: stile del genere + aspetto + inquadratura, su fondo neutro."""
     g = _genre(char)
     desc = char["description"].strip().rstrip(".")
-    shot = VIEWS[view][0]
+    shot = views_for(char)[view][0]
     extra = f", {fix.strip().rstrip('.')}" if fix else ""
+    if kind_of(char) == "object":
+        if with_reference:
+            return (f"{shot.capitalize()} of the object in image 1 ({desc}): keep exactly the same shape, "
+                    f"proportions, colors, materials and details as image 1. Plain white background, even light, "
+                    f"no people, no text{extra}")
+        return (f"{shot.capitalize()}. {g['style']}. Reference photo of {desc}, plain white background, even light, "
+                f"no people, no text{extra}")
     if with_reference:
         # klein vede il riferimento: la descrizione serve solo a non perdere i dettagli piccoli.
         return (f"{shot.capitalize()} of the character in image 1 ({desc}): keep exactly the same face, hair, body, "
@@ -180,13 +211,22 @@ async def candidates(char_id: str, count: int = 4, gpu: int = 0) -> dict:
     model = _genre(char)["image_model"]
     if not image_gen.installed(model):
         raise RuntimeError(f"{image_gen.MODELS[model]['label']} non installato (Video Studio → Motori)")
-    prompt = genres.portrait_prompt({"bible": {"genre": char["genre"]}}, char["description"])
+    obj = kind_of(char) == "object"
+    if obj:
+        # Il ritratto a figura intera trasformava la sonda in una persona: foto dell'oggetto intero.
+        prompt = (f"Reference photo of a single {char['description'].strip().rstrip('.')}, the whole object fully "
+                  f"visible, three-quarter view, isolated on a plain white background, even studio light, "
+                  f"no people, no text")
+    else:
+        prompt = genres.portrait_prompt({"bible": {"genre": char["genre"]}}, char["description"])
+    width, height = (1216, 832) if obj else (832, 1216)
     base = int(time.time()) % 100000
     folder = _folder(char_id) / "candidates"
     out = []
     for k in range(max(1, min(6, int(count)))):
         seed = base + k * 7919
-        r = await image_gen.generate(model, prompt, folder / f"cand_{seed}.png", width=832, height=1216, seed=seed, gpu=gpu)
+        r = await image_gen.generate(model, prompt, folder / f"cand_{seed}.png", width=width, height=height, seed=seed,
+                                     gpu=gpu)
         out.append({"file": f"candidates/{Path(r['path']).name}", "seed": seed})
     char = _require(char_id)
     char["candidates"] = out + [c for c in char.get("candidates") or [] if c["file"] not in {o["file"] for o in out}][:12]
@@ -371,13 +411,14 @@ async def sheet(char_id: str, views: list[str] | None = None, gpu: int = 0, chec
     # Con klein le viste partono dall'immagine di riferimento, non dal solo testo: stessa persona.
     use_ref = image_gen.installed("klein")
     model = "klein" if use_ref else _genre(char)["image_model"]
-    wanted = [v for v in (views or list(VIEWS)) if v in VIEWS]
+    all_views = views_for(char)
+    wanted = [v for v in (views or list(all_views)) if v in all_views]
     device = resolve_judge_device({})
     check = check and judge_installed()
     seed = int(char.get("seed") or time.time() % 100000)
     folder = _folder(char_id)
     for view in wanted:
-        _shot, w, h = VIEWS[view]
+        _shot, w, h = all_views[view]
         fix, best = "", None
         for attempt in range(VIEW_ATTEMPTS):
             target = folder / "sheet" / f"{view}_{seed + attempt}.png"
@@ -386,7 +427,7 @@ async def sheet(char_id: str, views: list[str] | None = None, gpu: int = 0, chec
             verdict = {"ok": True, "score": None, "differences": []}
             if check:
                 verdict = await asyncio.to_thread(judge.same_character, front, Path(r["path"]),
-                                                  char["description"], VIEWS[view][0], device)
+                                                  char["description"], all_views[view][0], device)
             entry = {"file": f"sheet/{Path(r['path']).name}", "score": verdict.get("score"),
                      "differences": verdict.get("differences") or []}
             if best is None or (entry["score"] or 0) > (best["score"] or 0):
@@ -428,7 +469,7 @@ def to_production(char_id: str, pid: str) -> dict:
     ref = refs / f"library_{char['id']}.png"
     shutil.copy2(front, ref)
     entry = {"name": char["name"], "description": char["description"], "ref_image": str(ref), "library_id": char["id"],
-             "voice_id": char.get("voice_id", "")}
+             "voice_id": char.get("voice_id", ""), "kind": kind_of(char)}
     sample = voice_sample(char)
     if sample:
         voice = refs / f"voice_{char['id']}{sample.suffix}"

@@ -116,6 +116,7 @@ def get_protocol_status(job_id: Optional[str] = None) -> Dict[str, Any]:
         for item in history:
             if item.get("id") == job_id:
                 return _sanitize_job_model(item)
+        return {'id': job_id, 'status': 'not_found', 'error': 'Benchmark protocollo non trovato'}
     if history:
         return _sanitize_job_model(history[0])
 
@@ -289,8 +290,11 @@ def start_protocol_bench(
                     j["finished_at"] = datetime.now().isoformat()
                     j["progress"] = 100
                     j["results"] = esito
+                    compiti = esito.get("completamento_compiti")
                     j["message"] = (
                         "Test annullato." if is_cancelled
+                        else (f"Compiti verificati: {compiti['riusciti']}/{compiti['totali']}; "
+                              f"aderenza {esito.get('punteggio', 0.0)}/100") if compiti
                         else f"Completato con punteggio {esito.get('punteggio', 0.0)}/100"
                     )
                     j["logs"].append(f"[{datetime.now().strftime('%H:%M:%S')}] {j['message']}")

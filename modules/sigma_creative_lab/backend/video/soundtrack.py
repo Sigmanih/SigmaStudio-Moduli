@@ -59,11 +59,10 @@ def build_ace_step(tags: str, seconds: float, seed: int, bpm: int = 90, keyscale
 
 def scene_segments(prod: dict, fps: int = 24, max_seconds: float = MAX_SEGMENT_S) -> list[dict]:
     """Durata reale di ogni scena nel montaggio (frame duplicati dei `continue` esclusi)."""
+    from core.modules.sigma_creative_lab.video.finishing import montage_durations
     segments: list[dict] = []
-    done = [s for s in prod["shots"] if s.get("status") == "done"]
-    for i, shot in enumerate(done):
-        frames = int(shot.get("frames") or 0) - (1 if shot.get("transition") == "continue" and i > 0 else 0)
-        seconds = max(0.0, frames / fps)
+    for shot, seconds in montage_durations(prod, fps):
+        seconds = max(0.0, seconds)
         scene = shot.get("scene") or "scena"
         if segments and segments[-1]["scene"] == scene:
             segments[-1]["seconds"] += seconds

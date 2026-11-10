@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import asyncio
 import inspect
+import time
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
 
@@ -48,10 +49,12 @@ def video_char_get(char_id: str) -> dict:
     return _esito("video_char_get", True, character=char)
 
 
-def video_char_create(name: str, description: str, genre: str = "realistic", voice_id: str = "") -> dict:
+def video_char_create(name: str, description: str, genre: str = "realistic", voice_id: str = "",
+                      kind: str = "person") -> dict:
     from . import character_library
     try:
-        char = character_library.create(name=name, description=description, genre=genre, voice_id=voice_id)
+        char = character_library.create(name=name, description=description, genre=genre, voice_id=voice_id,
+                                        kind=kind)
         return _esito("video_char_create", True, character=char, char_id=char.get("id"))
     except Exception as exc:
         return _esito("video_char_create", False, error=str(exc))
@@ -70,7 +73,12 @@ def video_char_candidates(char_id: str, count: int = 4) -> dict:
     from . import character_library
     try:
         res = asyncio.run(character_library.candidates(char_id, count=count))
-        return _esito("video_char_candidates", True, character=res)
+        # Il file e' relativo alla cartella del personaggio: il modello inventava la cartella
+        # (data/video_studio/characters/...) e view_image non trovava niente (prova del 9/11).
+        folder = character_library.characters_dir() / res["id"]
+        images = [{"file": c["file"], "path": str(folder / c["file"])} for c in res.get("candidates") or []]
+        return _esito("video_char_candidates", True, character=res, images=images,
+                      hint="guarda ogni 'path' con view_image, poi video_char_pick col 'file' della migliore")
     except Exception as exc:
         return _esito("video_char_candidates", False, error=str(exc))
 
@@ -116,6 +124,8 @@ def _shot_summary(index: int, shot: dict) -> dict:
         "characters": shot.get("refs") or [], "props": shot.get("props") or [],
         "prompt": (shot.get("prompt") or "")[:300], "origin": shot.get("origin", ""),
         "has_keyframe": bool(shot.get("keyframe")), "has_clip": bool(shot.get("clip_path")),
+        "start_frame_prompt": (shot.get("start_frame_prompt") or "")[:160],
+        "montage": {k: shot.get(k) for k in ("reverse", "night_gain", "trim_end_s") if shot.get(k)},
         "judge_score": last.get("score"), "prompt_fixes": (shot.get("prompt_fixes") or [])[-2:],
     }
 
@@ -138,8 +148,10 @@ def video_prod_get(prod_id: str) -> dict:
         production={
             **summary(prod), "treatment": prod.get("treatment", ""),
             "settings": {k: s.get(k) for k in ("video_model", "width", "height", "keyframes", "judge",
-                                                "judge_threshold", "max_clip_seconds", "output_height")},
+                                                "judge_threshold", "judge_mode", "max_clip_seconds", "output_height",
+                                                "upscaler", "seed", "motion_guard", "crossfade_s", "loudnorm_lufs")},
             "bible": {"genre": bible.get("genre"), "style": bible.get("style", ""),
+                      "negative": bible.get("negative", ""),
                       "characters": [{"name": c.get("name"), "description": c.get("description", ""),
                                       "has_reference": bool(c.get("ref_image")),
                                       "has_voice": bool(c.get("voice_sample"))}
@@ -150,15 +162,80 @@ def video_prod_get(prod_id: str) -> dict:
 
 
 def video_prod_create(title: str, treatment: str, style: str = "", video_model: str = "ltx25",
-                      genre: str = "realistic") -> dict:
-    from .production import manager
+                      genre: str = "realistic", negative: str = "", settings: Optional[dict] = None) -> dict:
+    from .production import manager, validate_settings
     try:
-        settings = {"video_model": video_model}
-        bible = {"style": style, "genre": genre}
-        prod = manager.store.create(title=title, treatment=treatment, settings=settings, bible=bible)
-        return _esito("video_prod_create", True, production=prod, prod_id=prod.get("id"))
+        extra = validate_settings(settings) if settings else {}
+        chosen = {**validate_settings({"video_model": video_model or "ltx25"}), **extra}
+        bible = {"style": style, "genre": genre, "negative": str(negative or "").strip()}
+        prod = manager.store.create(title=title, treatment=treatment, settings=chosen, bible=bible)
+        # Il manifest intero (impostazioni, colonna sonora) e' lungo: bastano id e cio' che si e' scelto.
+        return _esito("video_prod_create", True, prod_id=prod.get("id"), title=prod.get("title"),
+                      settings={k: prod["settings"].get(k) for k in ("video_model", *extra)})
     except Exception as exc:
         return _esito("video_prod_create", False, error=str(exc))
+
+
+def _rendering(prod_id: str) -> bool:
+    from .production import manager
+    active = manager.active()
+    return bool(active and active.get("production") == prod_id)
+
+
+#: Sinonimi che il modello usa per le impostazioni (li legge da altri tool o dall'utente).
+_SETTING_ALIASES = {"resolution": None, "clip_seconds": "max_clip_seconds", "max_seconds": "max_clip_seconds",
+                    "upscale_height": "output_height", "target_height": "output_height", "crossfade": "crossfade_s",
+                    "xfade_s": "crossfade_s", "loudness": "loudnorm_lufs", "lufs": "loudnorm_lufs",
+                    "model": "video_model"}
+
+
+def video_prod_settings(prod_id: str, settings: Optional[dict] = None, **values) -> dict:
+    """Cambia impostazioni validate della produzione (risoluzione, durata clip, upscale, giudice, seme...)."""
+    from .production import EDITABLE_SETTINGS, manager, validate_settings
+    prod = manager.store.get(str(prod_id or "").strip())
+    if not prod:
+        return _esito("video_prod_settings", False, error=f"Produzione non trovata: {prod_id}")
+    if _rendering(prod["id"]):
+        return _esito("video_prod_settings", False, error="render in corso: le impostazioni si cambiano a render fermo")
+    wanted = {**(settings or {}), **values}
+    if isinstance(wanted.get("resolution"), str) and "x" in wanted["resolution"].lower():
+        w, h = wanted.pop("resolution").lower().split("x", 1)
+        wanted.update(width=w.strip(), height=h.strip())
+    for alias, key in _SETTING_ALIASES.items():
+        if alias in wanted and key:
+            wanted.setdefault(key, wanted.pop(alias))
+    try:
+        clean = validate_settings(wanted)
+    except ValueError as exc:
+        return _esito("video_prod_settings", False, error=str(exc), accepted_keys=sorted(EDITABLE_SETTINGS))
+    before = {k: prod["settings"].get(k) for k in clean}
+    prod["settings"].update(clean)
+    manager.store.save(prod)
+    return _esito("video_prod_settings", True, prod_id=prod["id"], changed=clean, before=before,
+                  hint=("le clip gia' rese restano alla vecchia misura: rimettile in coda per rifarle"
+                        if {"width", "height", "video_model"} & set(clean) and
+                        any(s.get("clip_path") for s in prod.get("shots") or []) else ""))
+
+
+def video_prod_bible(prod_id: str, style: Optional[str] = None, negative: Optional[str] = None,
+                     audio_style: Optional[str] = None, genre: Optional[str] = None) -> dict:
+    """Stile visivo, prompt negativo, stile audio e genere comuni a tutte le inquadrature."""
+    from .production import manager
+    prod = manager.store.get(str(prod_id or "").strip())
+    if not prod:
+        return _esito("video_prod_bible", False, error=f"Produzione non trovata: {prod_id}")
+    if _rendering(prod["id"]):
+        return _esito("video_prod_bible", False, error="render in corso: la bibbia si cambia a render fermo")
+    bible = prod.setdefault("bible", {})
+    changed = {}
+    for key, value in (("style", style), ("negative", negative), ("audio_style", audio_style), ("genre", genre)):
+        if value is not None:
+            bible[key] = changed[key] = str(value).strip()
+    if not changed:
+        return _esito("video_prod_bible", False, error="indica almeno uno fra style, negative, audio_style, genre")
+    manager.store.save(prod)
+    return _esito("video_prod_bible", True, prod_id=prod["id"], changed=changed,
+                  hint="vale per i prossimi fotogrammi chiave e render; quelli gia' fatti non cambiano")
 
 
 def video_prod_plan_storyboard(prod_id: str, minutes: float = 1.0, shot_min: float = 3.0,
@@ -196,7 +273,8 @@ def video_prod_plan_storyboard(prod_id: str, minutes: float = 1.0, shot_min: flo
 
 def video_prod_add_shot(prod_id: str, prompt: str, seconds: float = 4.0, transition: str = "cut",
                         scene: str = "Scena", props: Optional[List[str]] = None,
-                        characters: Optional[List[str]] = None, audio: str = "") -> dict:
+                        characters: Optional[List[str]] = None, audio: str = "", start_frame_prompt: str = "",
+                        reverse: bool = False, night_gain: bool = False) -> dict:
     from .production import manager, new_shot
     prod = manager.store.get(prod_id)
     if not prod:
@@ -204,9 +282,11 @@ def video_prod_add_shot(prod_id: str, prompt: str, seconds: float = 4.0, transit
     if transition not in ("cut", "continue"):
         return _esito("video_prod_add_shot", False, error="transition deve essere 'cut' o 'continue'")
     try:
+        extra = {k: v for k, v in (("start_frame_prompt", str(start_frame_prompt or "").strip()),
+                                   ("reverse", bool(reverse)), ("night_gain", bool(night_gain))) if v}
         # new_shot vuole duration_s: passata come `seconds` finiva in un campo che nessuno legge.
         shot = new_shot(prompt, max(1.0, min(15.0, float(seconds))), transition,
-                        scene=scene, props=list(props or []), refs=list(characters or []), audio=audio)
+                        scene=scene, props=list(props or []), refs=list(characters or []), audio=audio, **extra)
         prod.setdefault("shots", []).append(shot)
         manager.store.save(prod)
         idx = len(prod["shots"]) - 1
@@ -218,7 +298,10 @@ def video_prod_add_shot(prod_id: str, prompt: str, seconds: float = 4.0, transit
 def video_prod_update_shot(prod_id: str, shot_index: int, prompt: Optional[str] = None,
                            seconds: Optional[float] = None, transition: Optional[str] = None,
                            props: Optional[List[str]] = None, characters: Optional[List[str]] = None,
-                           audio: Optional[str] = None) -> dict:
+                           audio: Optional[str] = None, start_frame_prompt: Optional[str] = None,
+                           seed: Optional[int] = None, reverse: Optional[bool] = None,
+                           night_gain: Optional[bool] = None, trim_end_s: Optional[float] = None) -> dict:
+    """Modifica un'inquadratura. Le correzioni di montaggio (reverse, night_gain, trim_end_s) non rifanno la clip."""
     from .production import manager
     prod = manager.store.get(prod_id)
     if not prod:
@@ -226,15 +309,19 @@ def video_prod_update_shot(prod_id: str, shot_index: int, prompt: Optional[str] 
     shots = prod.get("shots") or []
     if shot_index < 0 or shot_index >= len(shots):
         return _esito("video_prod_update_shot", False, error=f"Indice inquadratura non valido: {shot_index} (totali: {len(shots)})")
+    if _rendering(prod["id"]):
+        return _esito("video_prod_update_shot", False, error="render in corso: modifica a render fermo")
 
     shot = shots[shot_index]
+    before = {k: shot.get(k) for k in ("prompt", "duration_s", "transition", "props", "refs", "audio",
+                                         "start_frame_prompt", "seed")}
+    if transition is not None and transition.strip() not in ("cut", "continue"):
+        return _esito("video_prod_update_shot", False, error="transition deve essere 'cut' o 'continue'")
     if prompt is not None:
         shot["prompt"] = prompt.strip()
     if seconds is not None:
         shot["duration_s"] = max(1.0, min(15.0, float(seconds)))
     if transition is not None:
-        if transition.strip() not in ("cut", "continue"):
-            return _esito("video_prod_update_shot", False, error="transition deve essere 'cut' o 'continue'")
         shot["transition"] = transition.strip()
     if props is not None:
         shot["props"] = props
@@ -242,10 +329,77 @@ def video_prod_update_shot(prod_id: str, shot_index: int, prompt: Optional[str] 
         shot["refs"] = characters
     if audio is not None:
         shot["audio"] = audio
+    if start_frame_prompt is not None:
+        shot["start_frame_prompt"] = start_frame_prompt.strip()
+    if seed is not None:
+        shot["seed"] = int(seed)
+    # Correzioni del montaggio: la clip resta quella, cambia come entra nel film.
+    for key, value in (("reverse", reverse), ("night_gain", night_gain)):
+        if value is not None:
+            shot[key] = bool(value)
+    if trim_end_s is not None:
+        shot["trim_end_s"] = max(0.0, min(8.0, float(trim_end_s)))
+    after = {k: shot.get(k) for k in before}
+    rerender = after != before
+    if rerender:
+        # Come dall'interfaccia: la clip vecchia descrive l'inquadratura vecchia.
+        if after["prompt"] != before["prompt"] or after["start_frame_prompt"] != before["start_frame_prompt"]:
+            shot.pop("keyframe", None)
+            shot.pop("keyframe_check", None)
+        if shot.get("status") != "skipped":
+            shot.update(status="pending", attempts=0, error="")
+        shot.pop("manual_review", None)
+        shot.pop("integrity_review", None)
 
     manager.store.save(prod)
     return _esito("video_prod_update_shot", True, shot=_shot_summary(shot_index, shot), shot_index=shot_index,
-                  prod_id=prod_id)
+                  prod_id=prod_id, requeued=rerender,
+                  fixes={k: shot.get(k) for k in ("reverse", "night_gain", "trim_end_s") if shot.get(k)})
+
+
+def video_prod_skip_shot(prod_id: str, shot_index: int, skip: bool = True, reason: str = "") -> dict:
+    """Toglie un'inquadratura dal film senza cancellarla (skip=false la rimette in coda)."""
+    from .production import manager
+    prod = manager.store.get(prod_id)
+    if not prod:
+        return _esito("video_prod_skip_shot", False, error=f"Produzione non trovata: {prod_id}")
+    shots = prod.get("shots") or []
+    if not 0 <= int(shot_index) < len(shots):
+        return _esito("video_prod_skip_shot", False, error=f"Indice inquadratura non valido: {shot_index}")
+    if _rendering(prod["id"]):
+        return _esito("video_prod_skip_shot", False, error="render in corso: scarta a render fermo")
+    shot = shots[int(shot_index)]
+    if skip:
+        shot.update(status="skipped", error=("scartata: " + reason.strip()) if str(reason).strip() else "scartata")
+    else:
+        shot.update(status="pending", attempts=0, error="")
+    nxt = shots[int(shot_index) + 1] if int(shot_index) + 1 < len(shots) else None
+    manager.store.save(prod)
+    from .production import summary
+    return _esito("video_prod_skip_shot", True, prod_id=prod_id, shot_index=int(shot_index), status=shot["status"],
+                  production=summary(prod),
+                  warning=("l'inquadratura successiva continuava questa: sara' resa come taglio"
+                           if skip and nxt and nxt.get("transition") == "continue" else ""))
+
+
+def video_prod_remove_shot(prod_id: str, shot_index: int) -> dict:
+    """Cancella un'inquadratura dallo storyboard (le clip su disco restano fino alla pulizia)."""
+    from .production import manager, summary
+    prod = manager.store.get(prod_id)
+    if not prod:
+        return _esito("video_prod_remove_shot", False, error=f"Produzione non trovata: {prod_id}")
+    shots = prod.get("shots") or []
+    if not 0 <= int(shot_index) < len(shots):
+        return _esito("video_prod_remove_shot", False, error=f"Indice inquadratura non valido: {shot_index}")
+    if _rendering(prod["id"]):
+        return _esito("video_prod_remove_shot", False, error="render in corso: rimuovi a render fermo")
+    removed = shots.pop(int(shot_index))
+    if int(shot_index) < len(shots) and shots[int(shot_index)].get("transition") == "continue":
+        # Senza la precedente la catena non ha un fotogramma da cui ripartire.
+        shots[int(shot_index)]["transition"] = "cut"
+    manager.store.save(prod)
+    return _esito("video_prod_remove_shot", True, prod_id=prod_id, removed=removed.get("id"),
+                  production=summary(prod), hint="gli indici delle inquadrature successive sono scalati di uno")
 
 
 # ---------------------------------------------------------------------------
@@ -302,6 +456,9 @@ def video_soundtrack(prod_id: str, tags: str = "", enabled: bool = True, bpm: in
         return _esito("video_soundtrack", False, error=f"Produzione non trovata: {prod_id}")
     st = prod.setdefault("soundtrack", {})
     st["enabled"] = bool(enabled)
+    if isinstance(tags, (list, tuple)):
+        # Il 27B passa i tag come lista: salvati cosi' diventavano "['ambient', ...]" nel prompt della musica.
+        tags = ", ".join(str(x).strip() for x in tags if str(x).strip())
     if str(tags or "").strip():
         st["tags"] = str(tags).strip()
     if bpm:
@@ -312,7 +469,7 @@ def video_soundtrack(prod_id: str, tags: str = "", enabled: bool = True, bpm: in
         st["music_db"] = float(music_db)
     manager.store.save(prod)
     shots = prod.get("shots") or []
-    pronte = bool(shots) and all(s.get("status") == "done" for s in shots)
+    pronte = any(s.get("status") == "done" for s in shots) and all(s.get("status") in ("done", "skipped") for s in shots)
     if not (remix and enabled and pronte):
         return _esito("video_soundtrack", True, prod_id=prod_id, soundtrack=st,
                       hint="la musica entra al prossimo montaggio (video_render a clip finite)")
@@ -324,15 +481,57 @@ def video_soundtrack(prod_id: str, tags: str = "", enabled: bool = True, bpm: in
                   hint="tutte le clip sono pronte: si rimonta con la musica; controlla con video_render_status")
 
 
-def video_render_status(prod_id: str = "") -> dict:
-    """Avanzamento del render e ultimi eventi (inquadratura corrente, nuovi tentativi, esiti del giudice)."""
+#: Attesa massima di una sola chiamata: un'ora, poi l'agente fa il punto e richiama.
+RENDER_WAIT_MAX_S = 3600
+RENDER_WAIT_POLL_S = 10.0
+
+
+def _wait_render(prod_id: str, wait_s: float) -> float:
+    """Aspetta senza turni del modello che il render della produzione finisca.
+
+    Durante il render le due GPU sono riservate (clip e giudice): l'LLM della chat gira in RAM a
+    ~1 token/s e un turno costava fino a 34 minuti (collaudo della sonda, 9/11). Ogni controllo
+    di stato era un turno sprecato; qui si dorme finche' le GPU tornano libere.
+    """
+    from .production import manager
+    deadline = time.monotonic() + min(float(wait_s), RENDER_WAIT_MAX_S)
+    started = time.monotonic()
+    while time.monotonic() < deadline:
+        active = manager.active()
+        if not active or active.get("production") != prod_id:
+            break
+        time.sleep(min(RENDER_WAIT_POLL_S, max(0.0, deadline - time.monotonic())))
+    return round(time.monotonic() - started, 1)
+
+
+def video_render_status(prod_id: str = "", wait_s: float = 0) -> dict:
+    """Avanzamento del render e ultimi eventi (inquadratura corrente, nuovi tentativi, esiti del giudice).
+
+    Con `wait_s` aspetta (fino a un'ora) che il render finisca prima di rispondere.
+    """
     from .production import manager, summary
+    waited = 0.0
+    try:
+        wait = float(wait_s or 0)
+    except (TypeError, ValueError):
+        wait = 0.0
+    if wait > 0 and prod_id:
+        waited = _wait_render(prod_id, wait)
     active = manager.active()
     events = [{k: e.get(k) for k in ("type", "message", "shot", "status")} for e in manager.events()
               if not prod_id or e.get("production") in (prod_id, None)][-12:]
     prod = manager.store.get(prod_id) if prod_id else None
-    return _esito("video_render_status", True, active=active, running=bool(active),
-                  production=summary(prod) if prod else None, events=events)
+    running = bool(active)
+    to_review = sum(1 for s in (prod or {}).get("shots") or [] if s.get("status") == "review_required")
+    if running:
+        hint = ("render in corso, GPU riservate: richiama video_render_status con wait_s=3600 "
+                "e rivedi le clip quando running=false")
+    elif to_review:
+        hint = f"render fermo, {to_review} clip da rivedere: video_review_queue"
+    else:
+        hint = ""
+    return _esito("video_render_status", True, active=active, running=running, waited_s=waited,
+                  production=summary(prod) if prod else None, events=events, hint=hint)
 
 
 def video_judge_clip(clip_path: str, intent: str, camera: str = "", prod_id: str = "") -> dict:
@@ -520,6 +719,197 @@ def video_export(prod_id: str) -> dict:
 
 def video_integrity_check(prod_id: str, shot_id: str) -> dict:
     return _editor_job('video_integrity_check',prod_id,'integrity',{'shot_id':shot_id})
+
+
+#: Clip per pagina della coda di revisione: dodici provini stanno in un turno di un modello locale.
+REVIEW_PAGE = 12
+
+
+def video_review_queue(prod_id: str, limit: int = REVIEW_PAGE) -> dict:
+    """Le clip da rivedere, ognuna col suo provino (fotogrammi dal primo all'ultimo) da guardare con view_image.
+
+    Nel video di Marte ogni clip si approvava a mano, una chiamata con sha256 e quattro
+    verifiche alla volta, e le catene di `continue` avanzavano solo dopo ogni anello:
+    centottanta clip erano centottanta giri. Qui la coda esce a pagine con tutto quello
+    che serve a `video_review_batch`.
+    """
+    from .manual_review import fingerprint
+    from .production import manager, summary
+    from . import finishing
+    prod = manager.store.get(str(prod_id or "").strip())
+    if not prod:
+        return _esito("video_review_queue", False, error=f"Produzione non trovata: {prod_id}")
+    shots = prod.get("shots") or []
+    waiting = [i for i, s in enumerate(shots) if s.get("status") == "review_required"]
+    items, errors = [], []
+    for i in waiting[:max(1, min(int(limit or REVIEW_PAGE), 24))]:
+        sh = shots[i]
+        clip = Path(sh.get("clip_path") or "")
+        try:
+            sha = fingerprint(clip)
+            sheet = finishing.clip_contact_sheet(
+                clip, manager.store.path(prod["id"]) / "checks" / "sheets" / f"{i:04d}_{sh['id']}_{sha[:10]}.jpg")
+        except Exception as exc:
+            errors.append({"index": i, "id": sh.get("id"), "error": str(exc)})
+            continue
+        integrity = sh.get("visual_integrity") or {}
+        items.append({
+            "index": i, "shot_id": sh["id"], "scene": sh.get("scene", ""), "transition": sh.get("transition"),
+            "prompt": (sh.get("prompt") or "")[:240], "sha256": sha, "contact_sheet": str(sheet),
+            "judge_score": (sh.get("judge") or {}).get("score"), "judge_seen": (sh.get("judge") or {}).get("seen", ""),
+            "integrity": integrity.get("status"), "integrity_issues": (integrity.get("issues") or [])[:3],
+            "evidence": (integrity.get("evidence") or [])[:2],
+        })
+    waiting_chain = [i for i, s in enumerate(shots) if s.get("status") == "pending" and i > 0
+                     and s.get("transition") == "continue" and shots[i - 1].get("status") == "review_required"]
+    # Le bocciate dal giudice non erano in coda: l'agente non le vedeva e il film non si chiudeva mai
+    # (prove Ornith e Nex, 9/11). Ognuna va decisa: redo con un fix sul prompt, oppure skip.
+    failed = [{"index": i, "shot_id": s["id"], "attempts": s.get("attempts", 0),
+               "prompt": (s.get("prompt") or "")[:240], "why": (s.get("error") or "")[:300],
+               "judge_fix": (s.get("judge") or {}).get("prompt_fix", "")}
+              for i, s in enumerate(shots) if s.get("status") == "failed"]
+    return _esito(
+        "video_review_queue", True, prod_id=prod["id"], production=summary(prod), items=items, errors=errors,
+        failed=failed, remaining=max(0, len(waiting) - len(items)), chain_links_waiting=len(waiting_chain),
+        failed_hint=("clip bocciate: nello stesso video_review_batch decidi anche queste, verdict 'redo' con un "
+                     "'fix' (cosa deve vedersi, es. movimento di camera esplicito) oppure 'skip' se hanno gia' "
+                     "fallito piu' volte" if failed else ""),
+        hint=("guarda ogni contact_sheet con view_image (fotogrammi in ordine, primo in alto a sinistra, ultimo in "
+              "basso a destra): anatomia, oggetti, continuita', direzione della luce (un'alba che diventa tramonto "
+              "va montata al contrario: reverse), notti che sfumano nel nero (night_gain). Poi decidi tutte le clip "
+              "con video_review_batch" if items else
+              "nessuna clip da rivedere: se ci sono inquadrature pending o il film non e' montato, usa video_render"))
+
+
+def _sha_shown_in_queue(prod_id: str, idx: int, shot: dict) -> str:
+    """Sha256 della clip attuale, se video_review_queue ne ha gia' creato il provino."""
+    from .manual_review import fingerprint
+    from .production import manager
+    try:
+        sha = fingerprint(Path(shot.get("clip_path") or ""))
+    except (OSError, ValueError):
+        return ""
+    sheet = manager.store.path(prod_id) / "checks" / "sheets" / f"{idx:04d}_{shot['id']}_{sha[:10]}.jpg"
+    return sha if sheet.is_file() else ""
+
+
+def video_review_batch(prod_id: str, decisions: List[dict], reason: str = "", confirmed: bool = False,
+                       restart: bool = True) -> dict:
+    """Decide piu' clip insieme (approve, reject, redo, skip) e rilancia il render se resta lavoro.
+
+    Ogni decisione porta lo sha256 dato da video_review_queue: se la clip e' cambiata nel
+    frattempo la decisione si rifiuta, come per video_integrity_review. Approvare segna le
+    quattro verifiche (anatomia, mani, oggetti, continuita'): va fatto solo dopo aver
+    guardato il provino.
+    """
+    from .finishing import shot_fixes
+    from .production import add_prompt_fix, manager, summary
+    from .visual_integrity import review
+    if confirmed is not True:
+        return _esito("video_review_batch", False,
+                      error="manca confirmed: true. Rifai la stessa chiamata aggiungendo \"confirmed\": true "
+                            "(conferma di aver guardato i provini) e \"reason\" con cio' che hai visto")
+    if manager.active():
+        return _esito("video_review_batch", False, error="render in corso: attendi la fine con video_render_status")
+    prod = manager.store.get(str(prod_id or "").strip())
+    if not prod:
+        return _esito("video_review_batch", False, error=f"Produzione non trovata: {prod_id}")
+    if not isinstance(decisions, list) or not decisions:
+        return _esito("video_review_batch", False, error="decisions: lista di {shot_index|shot_id, verdict, sha256, ...}")
+    results = []
+    for d in decisions:
+        d = dict(d or {})
+        fresh = manager.store.get(prod["id"])
+        shots = fresh.get("shots") or []
+        idx = d.get("shot_index", d.get("index"))
+        if idx is None and d.get("shot_id"):
+            idx = next((k for k, s in enumerate(shots) if s["id"] == d["shot_id"]), None)
+        if idx is None or not 0 <= int(idx) < len(shots):
+            results.append({"decision": d, "ok": False, "error": "inquadratura non trovata"})
+            continue
+        idx = int(idx)
+        shot = shots[idx]
+        # Il 27B scrive "decision" al posto di "verdict" (prova in soggettiva, 9/11): stesso significato.
+        verdict = str(d.get("verdict") or d.get("decision") or d.get("action") or "").strip().lower()
+        why = str(d.get("reason") or reason or "").strip()
+        sha = str(d.get("sha256") or "").strip()
+        if not sha and shot.get("status") == "review_required" and verdict in ("approve", "reject", "redo"):
+            # Il 27B ha deciso bene tutte le clip ma senza sha256, e l'errore diceva "la clip e' cambiata"
+            # (prova del 9/11). Vale lo sha attuale solo se la coda ne ha prodotto il provino: e' la prova
+            # che il modello ha avuto davanti proprio quella versione.
+            sha = _sha_shown_in_queue(prod["id"], idx, shot)
+            if not sha:
+                results.append({"index": idx, "shot_id": shot.get("id"), "ok": False,
+                                "error": "manca sha256: apri video_review_queue e usa lo sha256 della clip"})
+                continue
+        try:
+            if verdict not in ("approve", "reject", "redo", "skip"):
+                raise ValueError("verdict: approve | reject | redo | skip")
+            failed_redo = shot.get("status") == "failed" and verdict == "redo"
+            if shot.get("status") != "review_required" and verdict != "skip" and not failed_redo:
+                raise ValueError(f"la clip e' {shot.get('status')}, non in revisione"
+                                 + (": per una bocciata usa redo (con fix) o skip" if shot.get("status") == "failed"
+                                    else ""))
+            if failed_redo:
+                # Bocciata dal giudice: niente revisione da registrare, si rifa' con la correzione e un altro seme.
+                fix = str(d.get("fix") or "").strip() or str((shot.get("judge") or {}).get("prompt_fix") or "")
+                if fix:
+                    add_prompt_fix(shot, {"prompt_fix": fix})
+                shot.update(status="pending", attempts=0, error="", seed=int(shot.get("seed") or 0) + 7919)
+                manager.store.save(fresh)
+            elif verdict == "skip":
+                shot.update(status="skipped", error="scartata in revisione: " + (why or "senza motivo"))
+                manager.store.save(fresh)
+            else:
+                # Le correzioni di montaggio decise guardando il provino entrano insieme al verdetto.
+                for key in ("reverse", "night_gain"):
+                    if key in d:
+                        shot[key] = bool(d[key])
+                if "trim_end_s" in d:
+                    shot["trim_end_s"] = max(0.0, min(8.0, float(d["trim_end_s"])))
+                manager.store.save(fresh)
+                fresh = review(manager.store, prod["id"], shot["id"], "approve" if verdict == "approve" else "reject",
+                               why, sha, ["anatomy", "hands", "objects", "continuity"], "agent_visual_review")
+                shot = fresh["shots"][idx]
+                if verdict == "redo":
+                    # Respinta con una correzione: torna in coda con un altro seme.
+                    if str(d.get("fix") or "").strip():
+                        add_prompt_fix(shot, {"prompt_fix": str(d["fix"]).strip()})
+                    shot.update(status="pending", attempts=0, seed=int(shot.get("seed") or 0) + 7919)
+                    manager.store.save(fresh)
+            results.append({"index": idx, "shot_id": shot["id"], "ok": True, "status": shot["status"],
+                            **({"fixes": shot_fixes(shot)} if shot_fixes(shot) else {}),
+                            **({"note": "approvata ma senza giudizio positivo del giudice: resta fallita"}
+                               if verdict == "approve" and shot["status"] != "done" else {})})
+        except (ValueError, OSError, TypeError) as exc:
+            results.append({"index": idx, "shot_id": shot.get("id"), "ok": False, "error": str(exc)})
+    prod = manager.store.get(prod["id"])
+    shots = prod.get("shots") or []
+    states = [s.get("status") for s in shots]
+    still = states.count("review_required")
+    work_left = any(s in ("pending", "failed") for s in states) or (
+        not still and prod.get("status") != "done" and any(s == "done" for s in states))
+    started = False
+    # Un lotto senza nessuna decisione valida non rilancia: il render ripartito bloccava il lotto
+    # corretto subito dopo con "render in corso" (prova Ornith, 9/11).
+    if restart and work_left and any(r.get("ok") for r in results):
+        # Anche con clip ancora da rivedere si rende gia' quel che non le aspetta:
+        # gli anelli di catena fermi ripartono al giro dopo.
+        try:
+            _start_render(prod["id"])
+            started = True
+        except (RuntimeError, ValueError) as exc:
+            results.append({"ok": False, "error": f"render non avviato: {exc}"})
+    failed = [r for r in results if not r.get("ok")]
+    # Senza un errore riassuntivo l'agente vedeva solo "None" e ripeteva la stessa chiamata (prova Ornith, 9/11).
+    error = "; ".join(sorted({str(r.get("error")) for r in failed})) if failed else ""
+    if "40" in error and "caratteri" in error:
+        error += " -> passa 'reason' con cio' che hai visto nei provini (almeno 40 caratteri)"
+    return _esito("video_review_batch", not failed, prod_id=prod["id"], results=results,
+                  **({"error": error} if error else {}),
+                  production=summary(prod), still_to_review=still, render_started=started,
+                  hint=("render avviato: attendi con video_render_status, poi di nuovo video_review_queue"
+                        if started else "rivedi le clip restanti con video_review_queue" if still else ""))
 
 
 def video_integrity_review(prod_id: str, shot_id: str, verdict: str, reason: str, sha256: str,
@@ -1354,6 +1744,12 @@ ESECUTORI: Dict[str, Callable] = {
     "video_prod_plan_storyboard": video_prod_plan_storyboard,
     "video_prod_add_shot": video_prod_add_shot,
     "video_prod_update_shot": video_prod_update_shot,
+    "video_prod_settings": video_prod_settings,
+    "video_prod_bible": video_prod_bible,
+    "video_prod_skip_shot": video_prod_skip_shot,
+    "video_prod_remove_shot": video_prod_remove_shot,
+    "video_review_queue": video_review_queue,
+    "video_review_batch": video_review_batch,
     "video_render_shot": video_render_shot,
     "video_judge_clip": video_judge_clip,
     "video_inspect_shot": video_inspect_shot,
@@ -1410,6 +1806,8 @@ READ_TOOLS = frozenset({
 })
 
 WRITE_TOOLS = frozenset({
+    "video_prod_settings", "video_prod_bible", "video_prod_skip_shot", "video_prod_remove_shot",
+    "video_review_queue", "video_review_batch",
     'video_integrity_check','video_integrity_review',
     "video_restore_pipeline",
     "video_char_create", "video_char_update", "video_char_candidates", "video_char_pick",

@@ -239,7 +239,8 @@ ROLE_PRODUCER = DevRole(
     top_p=0.9,
     top_k=40,
     max_tokens=8000,
-    max_turns=40,
+    # Un film lungo passa per molti giri di render e revisione: 40 turni finivano a meta' dei provini.
+    max_turns=120,
     tools=(
         "video_prod_list", "video_prod_get", "video_prod_create", "video_prod_plan_storyboard",
         "video_prod_add_shot", "video_prod_update_shot", "video_inspect_shot",
@@ -248,6 +249,8 @@ ROLE_PRODUCER = DevRole(
         "video_keyframes", "video_render", "video_soundtrack", "video_render_status", "video_judge_clip", "video_shot_fix",
         "video_dialogue", "video_scene", "video_lesson", "video_export", "video_job_status", "video_timeline_get",
         'video_integrity_check', 'video_integrity_review',
+        "video_prod_settings", "video_prod_bible", "video_prod_skip_shot", "video_prod_remove_shot",
+        "video_review_queue", "video_review_batch", "view_image",
         "complete_goal",
     ),
     focus_areas=(
@@ -275,7 +278,31 @@ Porti un'idea dell'utente fino al video montato, eseguendo le fasi nell'ordine g
    Registra `video_integrity_review` con osservazioni specifiche solo dopo aver esaminato la clip.
    Con difetti o dubbi respingi e rigenera; non scegliere il tentativo meno brutto. Nessun falso «pronto».
 7. **Dialoghi e didattica** (se servono): `video_dialogue`, `video_scene`, `video_lesson`; segui `video_job_status`.
-8. **Esportazione**: `video_export`; dichiara finito con `complete_goal` solo quando il job e' `done`,
+8. **Video lunghi generati** (paesaggi, viaggi, ambient da 10-30 minuti): imposta tutto da chat.
+   `video_prod_settings` con resolution 1280x704, max_clip_seconds 10, output_height 2160, upscaler esrgan,
+   crossfade_s 1, loudnorm_lufs -16; `video_prod_bible` per stile e `negative` (testo, persone, veicoli non voluti);
+   `video_soundtrack` per la musica (si allinea da sola alle durate reali del montaggio).
+   Dopo `video_render` chiama `video_render_status` con `wait_s` 3600 finche' `running` e' false: durante il
+   render le GPU sono riservate (tu giri lento e `view_image` non ha GPU), ogni controllo in piu' e' tempo perso.
+   Il render si ferma a ogni giro con clip `review_required`: `video_review_queue`, guarda ogni `contact_sheet`
+   con `view_image`, poi UNA chiamata `video_review_batch` con tutte le decisioni (approve, redo con fix, skip) e
+   le correzioni di montaggio (reverse per le albe rese come tramonti, night_gain per le notti che sfumano nel nero).
+   Il batch rilancia il render; ripeti finche' la produzione e' `done`.
+   Nello stesso batch decidi anche le clip in `failed` della coda: `redo` con un `fix` (cosa deve vedersi) o `skip`.
+   **Chi riprende e' il veicolo** (il viaggio di una sonda, il volo di un drone, la guida di un rover): il veicolo
+   NON si vede mai, e' la camera. `video_prod_settings` con `pov` true: il codice toglie il veicolo dai prompt,
+   chiede un quadro pulito (niente oblo', cabina, persone) e lo dice al giudice. Ogni prompt descrive solo cio'
+   che sta davanti (galassie, comete, asteroidi) e il movimento come movimento di camera ("the camera flies toward
+   ...", avanza, sorvola, ruota, rallenta). Non scrivere "onboard" ne' il nome del veicolo, niente `characters`
+   e niente scheda personaggio per il veicolo.
+   **Soggetto ricorrente in scena** (un'astronave che si vede passare, un robot, un'auto inseguita): senza
+   riferimento ogni clip ne inventa uno diverso.
+   Prima del render: `video_char_create` con `kind` "object" e una descrizione precisa (forma, colori, materiali),
+   `video_char_candidates`, guarda le proposte con `view_image`, `video_char_pick` la migliore,
+   `video_char_to_production`; poi in ogni inquadratura dove compare `characters` col suo nome e
+   `video_prod_settings` con `keyframes` true: ogni clip parte da un fotogramma disegnato col riferimento. Una clip che fallisce piu' volte si
+   scarta con `video_prod_skip_shot`: altrimenti il film non si monta mai.
+9. **Esportazione**: `video_export`; dichiara finito con `complete_goal` solo quando il job e' `done`,
    riportando percorso del video, durata e inquadrature rifatte.
 
 ## REGOLE

@@ -94,13 +94,13 @@ def _compute_idf(documents_tokens: List[List[str]]) -> Dict[str, float]:
     n_docs = len(documents_tokens)
     if n_docs == 0:
         return {}
-
+    
     doc_freq = Counter()
     for tokens in documents_tokens:
         unique_terms = set(tokens)
         for term in unique_terms:
             doc_freq[term] += 1
-
+    
     # IDF con smoothing: log((N + 1) / (df + 1)) + 1
     idf = {}
     for term, df in doc_freq.items():
@@ -117,18 +117,18 @@ def _cosine_similarity(vec_a: Dict[str, float], vec_b: Dict[str, float]) -> floa
     """Calcola la similarità di cosine tra due vettori sparse."""
     if not vec_a or not vec_b:
         return 0.0
-
+    
     # Calcola il prodotto scalare (solo termini comuni)
     common_terms = set(vec_a.keys()) & set(vec_b.keys())
     dot_product = sum(vec_a[term] * vec_b[term] for term in common_terms)
-
+    
     # Norme
     norm_a = math.sqrt(sum(v ** 2 for v in vec_a.values()))
     norm_b = math.sqrt(sum(v ** 2 for v in vec_b.values()))
-
+    
     if norm_a == 0 or norm_b == 0:
         return 0.0
-
+    
     return dot_product / (norm_a * norm_b)
 
 
@@ -143,7 +143,7 @@ class SemanticMCPServer(BaseMCPServer):
         )
         self._index: Optional[Dict[str, Any]] = None
         self._load_index()
-
+        
         # Registra i tool con handler
         self.register_tool(
             name="semantic_search",
@@ -161,7 +161,7 @@ class SemanticMCPServer(BaseMCPServer):
             },
             handler=lambda query, top_k=10, force_fallback=False: self._semantic_search(query, top_k, force_fallback)
         )
-
+        
         self.register_tool(
             name="index_codebase",
             description="Costruisce o aggiorna l'indice semantico del codice sorgente. "
@@ -173,7 +173,7 @@ class SemanticMCPServer(BaseMCPServer):
             },
             handler=lambda: self._build_index()
         )
-
+        
         self.register_tool(
             name="index_status",
             description="Mostra lo stato dell'indice semantico: se esiste, quando è stato creato, quanti file contiene, e quanti file sono cambiati, nuovi o spariti da allora. Se dice che l'indice è indietro, esegui index_codebase.",
@@ -357,7 +357,7 @@ class SemanticMCPServer(BaseMCPServer):
             "snippet": best.get("content", "")[:500],
             "occurrences": len(matches)
         }
-
+    
     def _index_dir(self) -> Path:
         return Path(resolve_root()) / INDEX_SUBDIR
 
@@ -386,11 +386,11 @@ class SemanticMCPServer(BaseMCPServer):
         with open(idx_file, "w", encoding="utf-8") as f:
             json.dump(self._index, f, ensure_ascii=False, indent=2)
         logger.info("Indice semantico salvato in %s (%d documenti)", idx_file, len(self._index.get("documents", [])))
-
+    
     def _build_index(self) -> Dict[str, Any]:
         """Costruisce l'indice TF-IDF del codice sorgente."""
         logger.info("Costruzione indice semantico...")
-
+        
         # Raccolta documenti
         documents: List[Dict[str, Any]] = []
         all_tokens: List[List[str]] = []
@@ -436,16 +436,16 @@ class SemanticMCPServer(BaseMCPServer):
             }
             documents.append(doc)
             all_tokens.append(tokens)
-
+        
         # Calcola IDF
         idf = _compute_idf(all_tokens)
-
+        
         # Calcola vettori TF-IDF per ogni documento
         for doc in documents:
             tf = _compute_tf(doc["tokens"])
             doc["vector"] = _tfidf_vector(tf, idf)
             del doc["tokens"]  # Libera memoria
-
+        
         self._index = {
             "created_at": datetime.now(timezone.utc).isoformat(),
             # Il numero, non solo la data leggibile: e' quello che permette di
@@ -456,11 +456,11 @@ class SemanticMCPServer(BaseMCPServer):
             "total_documents": len(documents),
             "status": "success"
         }
-
+        
         self._save_index()
         logger.info("Indice costruito: %d documenti", len(documents))
         return self._index
-
+    
     def _semantic_search(self, query: str, top_k: int = 10, force_fallback: bool = False) -> List[Dict[str, Any]]:
         """Esegue la ricerca semantica."""
         if not self._index or not self._index.get("documents"):
@@ -468,7 +468,7 @@ class SemanticMCPServer(BaseMCPServer):
 
         if not self._index or not self._index.get("documents"):
             return []
-
+        
         query_tokens = _tokenize(query)
         if not query_tokens:
             return []
@@ -573,8 +573,8 @@ class SemanticMCPServer(BaseMCPServer):
                                 "score": round(score, 4),
                                 "snippet": doc["snippet"]
                             })
-
+        
         # Ordina per score decrescente
         results.sort(key=lambda x: x["score"], reverse=True)
-
+        
         return self._segna_vecchi(results[:top_k])

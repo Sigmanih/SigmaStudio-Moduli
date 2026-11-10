@@ -72,6 +72,17 @@ def lora_family(lora: dict) -> str:
         return ""
 
 
+def normalize_video_model(name) -> str:
+    """Nome canonico del modello video. Il modello scrive "LTX-2.5" come nei testi: un nome non
+    riconosciuto faceva ripiegare il runner su H3 senza avvisi (collaudo del 9/11: 9 min per clip)."""
+    key = "".join(ch for ch in str(name or "").lower() if ch.isalnum())
+    if key in ("ltx25", "ltx", "ltx2", "ltxv25", "ltxvideo25", "lightricks"):
+        return "ltx25"
+    if key in ("h3", "minimaxh3", "minimax", "hailuo"):
+        return "h3"
+    raise ValueError(f"modello video sconosciuto: {name!r} (ammessi: {list(VIDEO_MODELS)})")
+
+
 def is_ltx(settings: dict) -> bool:
     return settings.get("video_model") == "ltx25"
 
@@ -183,7 +194,87 @@ DEFAULT_SETTINGS = {
     # Ambiente sonoro del luogo sotto le battute (generato con l'audio di LTX).
     "ambience": True,
     "motion_engine": "",
+    # Dissolvenza fra le riprese in secondi (0 = tagli netti); mai dentro una catena di continue.
+    "crossfade_s": 0.0,
+    "pov": False,                       # soggettiva: il veicolo e' la camera e non compare mai
+    # Volume integrato del film finito (0 = come esce dal mix; YouTube normalizza a -14, -16 lascia margine).
+    "loudnorm_lufs": 0.0,
 }
+
+
+#: Impostazioni modificabili dalla chat, con il loro controllo: (tipo, minimo, massimo) o (tipo, scelte).
+#: Le altre chiavi (corsie, profili del worker, flag di ComfyUI) restano dell'interfaccia: un valore
+#: sbagliato li' ferma le GPU, non peggiora solo il video.
+EDITABLE_SETTINGS = {
+    "video_model": ("choice", VIDEO_MODELS),
+    "width": ("int", 256, 3840),
+    "height": ("int", 256, 2160),
+    "fps": ("int", 12, 60),
+    "steps": ("int", 4, 60),
+    "seed": ("int", 0, 2 ** 31 - 1),
+    "max_clip_seconds": ("float", 2.0, 15.0),
+    "max_chain": ("int", 1, 12),
+    "max_attempts": ("int", 1, 6),
+    "output_height": ("choice", (0, 720, 1080, 1440, 2160)),
+    "upscaler": ("choice", ("esrgan", "seedvr2", "lanczos")),
+    "judge": ("bool",),
+    "judge_mode": ("choice", ("severe", "advise", "strict")),
+    "judge_threshold": ("float", 0.0, 1.0),
+    "judge_passes": ("int", 1, 4),
+    "motion_guard": ("bool",),
+    "keyframes": ("bool",),
+    "color_match": ("bool",),
+    "color_strength": ("float", 0.0, 1.0),
+    "final_quality": ("int", 10, 30),
+    "writer_model": ("str",),
+    "ambience": ("bool",),
+    "crossfade_s": ("float", 0.0, 3.0),
+    "pov": ("bool",),
+    "loudnorm_lufs": ("float", -30.0, 0.0),
+}
+
+
+def validate_settings(values: dict) -> dict:
+    """Valori controllati e convertiti; un errore elenca le chiavi ammesse, cosi' il modello non tira a indovinare."""
+    if not isinstance(values, dict) or not values:
+        raise ValueError(f"servono impostazioni da cambiare; ammesse: {sorted(EDITABLE_SETTINGS)}")
+    out = {}
+    for key, raw in values.items():
+        rule = EDITABLE_SETTINGS.get(key)
+        if rule is None:
+            raise ValueError(f"impostazione non modificabile: {key}; ammesse: {sorted(EDITABLE_SETTINGS)}")
+        kind = rule[0]
+        try:
+            if kind == "bool":
+                if isinstance(raw, str):
+                    if raw.strip().lower() not in ("true", "false", "1", "0", "si", "no"):
+                        raise ValueError
+                    raw = raw.strip().lower() in ("true", "1", "si")
+                value = bool(raw)
+            elif kind == "str":
+                value = str(raw or "").strip()
+            elif key == "video_model":
+                value = normalize_video_model(raw)
+            elif kind == "choice":
+                choices = rule[1]
+                value = int(raw) if isinstance(choices[0], int) else str(raw).strip()
+                if value not in choices:
+                    raise ValueError
+            else:
+                value = int(raw) if kind == "int" else float(raw)
+                if not rule[1] <= value <= rule[2]:
+                    raise ValueError
+        except (TypeError, ValueError):
+            spec = rule[1] if kind == "choice" else rule[1:] if len(rule) > 1 else kind
+            raise ValueError(f"valore non valido per {key}: {raw!r} (ammesso: {spec})") from None
+        out[key] = value
+    if ("width" in out) != ("height" in out):
+        # Cambiarne una sola deforma il quadro: LTX vuole multipli di 32 e il rapporto della prima clip.
+        raise ValueError("width e height vanno cambiate insieme")
+    for key in ("width", "height"):
+        if key in out and out[key] % 32:
+            raise ValueError(f"{key} deve essere multiplo di 32 (es. 1280x704)")
+    return out
 
 
 def _soundtrack_defaults() -> dict:
@@ -303,6 +394,13 @@ class ProductionStore:
                 if isinstance(shot.get("scene"), dict):
                     shot["teaching"] = shot.pop("scene")
                     shot["scene"] = "Lezione"
+            settings = prod.get("settings") or {}
+            if settings.get("video_model") not in VIDEO_MODELS:
+                # Manifest scritti prima della convalida: "LTX-2.5" girava come H3.
+                try:
+                    settings["video_model"] = normalize_video_model(settings.get("video_model"))
+                except ValueError:
+                    log.warning(f"{pid}: modello video sconosciuto {settings.get('video_model')!r}, resta H3")
             return prod
 
     def list(self) -> list[dict]:
@@ -442,6 +540,9 @@ def summary(prod: dict) -> dict:
     # Le rigenerazioni dall'editor non sono inquadrature dello storyboard:
     # contarle gonfierebbe durata e avanzamento della produzione.
     shots = [s for s in (prod.get("shots") or []) if s.get("origin") not in ("edit", "import", "title", "scene")]
+    skipped = sum(1 for s in shots if s.get("status") == "skipped")
+    # Le scartate non sono nel film: ne' nella durata ne' nell'avanzamento.
+    shots = [s for s in shots if s.get("status") != "skipped"]
     done = [s for s in shots if s.get("status") == "done"]
     total_s = sum(float(s.get("duration_s") or 0) for s in shots)
     if prod.get('audio_project'):
@@ -455,6 +556,7 @@ def summary(prod: dict) -> dict:
         "updated": prod.get("updated"), "shots": len(shots), "shots_done": len(done),
         "shots_failed": sum(1 for s in shots if s.get("status") == "failed"),
         'shots_review_required': sum(1 for s in shots if s.get('status')=='review_required'),
+        "shots_skipped": skipped,
         'quality_status': prod.get('quality_status','unverified'),
         "duration_s": round(total_s, 1), "output_path": prod.get("output_path", ""),
         "backend": (prod.get("settings") or {}).get("backend"),
@@ -469,9 +571,15 @@ def summary(prod: dict) -> dict:
 GenerateFn = Callable[[list, int], str]
 
 
+#: Le richieste dello scrittore vogliono solo JSON: col ragionamento acceso i modelli "thinking"
+#: (Qwen3.x, Ornith) spendevano tutti i token nel <think> e il JSON non arrivava (collaudo 9/11).
+WRITER_THINKING = False
+
+
 def _default_generate(messages: list, max_tokens: int) -> str:
     from core.engine import sigma_engine
-    chunks = sigma_engine.generate_stream(messages=messages, temperature=0.7, max_tokens=max_tokens)
+    chunks = sigma_engine.generate_stream(messages=messages, temperature=0.7, max_tokens=max_tokens,
+                                          thinking=WRITER_THINKING)
     return "".join((c.get("token") or c.get("content") or "") for c in chunks if isinstance(c, dict))
 
 
@@ -488,7 +596,7 @@ def writer(settings: dict | None) -> GenerateFn:
     def gen(messages: list, max_tokens: int) -> str:
         from core.engine import sigma_engine
         chunks = sigma_engine.generate_stream(messages=messages, temperature=0.7, max_tokens=max_tokens,
-                                              model_name=model)
+                                              model_name=model, thinking=WRITER_THINKING)
         return "".join((c.get("token") or c.get("content") or "") for c in chunks
                        if isinstance(c, dict) and not c.get("notice"))
     return gen
@@ -500,8 +608,10 @@ def extract_json(text: str, want: type | None = None):
     Con `want=list` una lista avvolta in un oggetto ({"shots": [...]}) torna come lista.
     """
     text = re.sub(r"<think>.*?</think>", "", text or "", flags=re.S)
-    fenced = re.search(r"```(?:json)?\s*(.*?)```", text, flags=re.S)
-    if fenced:
+    # Ragionamento troncato dal limite di token: il <think> resta aperto e il JSON, se c'e', viene dopo.
+    text = re.sub(r"^\s*<think>.*?(?=[\[{]\s*[\"{\[])", "", text, flags=re.S)
+    fenced = re.search(r"```(?:json)?\s*(.*?)(?:```|$)", text, flags=re.S)
+    if fenced and fenced.group(1).strip():
         text = fenced.group(1)
     # Prima la parentesi che apre per prima: un oggetto che contiene una lista ("scenes": [...])
     # tornava solo come la lista interna, e la storia perdeva titolo e messaggio.
@@ -513,11 +623,54 @@ def extract_json(text: str, want: type | None = None):
             try:
                 found = json.loads(text[start:end + 1])
             except ValueError:
-                continue
+                if not (want is list and opener == "{"):
+                    continue
+                # Oggetti separati da virgole senza le parentesi dell'array: Ornith risponde cosi'
+                # alla riscrittura per LTX, e il JSON risultava "non valido" (prova del 9/11).
+                try:
+                    found = json.loads("[" + text[start:end + 1] + "]")
+                except ValueError:
+                    continue
             if want is list and isinstance(found, dict):
                 found = next((v for v in found.values() if isinstance(v, list)), found)
+                if isinstance(found, dict):
+                    # Un oggetto solo dove serviva una lista: o e' il primo di una fila troncata,
+                    # o la lista ha un elemento solo.
+                    return _salvage_list(text) or [found]
             return found
+    if want is list:
+        salvaged = _salvage_list(text)
+        if salvaged:
+            log.warning(f"JSON troncato: recuperati {len(salvaged)} elementi completi")
+            return salvaged
     raise ValueError("nessun JSON valido nella risposta del modello")
+
+
+def _salvage_list(text: str) -> list:
+    """Elementi completi di un array tagliato a meta' (risposta finita contro max_tokens).
+
+    Collaudo della sonda (9/11): 40 scene per 30 minuti superavano i token concessi e lo storyboard
+    falliva intero, costringendo l'agente a scrivere 181 inquadrature una per una.
+    """
+    start = text.find("[")
+    first_obj = text.find("{")
+    if start == -1 or (first_obj != -1 and first_obj < start):
+        # Senza parentesi d'apertura (oggetti in fila): si parte dal primo oggetto.
+        if first_obj == -1:
+            return []
+        start = first_obj - 1
+    dec, pos, out = json.JSONDecoder(), start + 1, []
+    while pos < len(text):
+        while pos < len(text) and text[pos] in " \t\r\n,":
+            pos += 1
+        if pos >= len(text) or text[pos] == "]":
+            break
+        try:
+            item, pos = dec.raw_decode(text, pos)
+        except ValueError:
+            break
+        out.append(item)
+    return out
 
 
 LTX_REWRITE_PROMPT = """You rewrite video shot descriptions for the LTX-2 video model, which follows a short
@@ -749,7 +902,11 @@ def rewrite_for_ltx(prod: dict, generate: "GenerateFn | None" = None, note=None)
             + (f", camera MUST be: {requested_camera(sh['prompt'])}" if requested_camera(sh["prompt"]) else "")
             + f") {sh['prompt'].strip()}" for i, sh in batch)
         try:
-            answer = extract_json(gen([{"role": "user", "content": LTX_REWRITE_PROMPT.format(shots=listing)}], 2500), list)
+            # ~950 token a inquadratura: i modelli che ragionano anche con enable_thinking=false (Nex)
+            # spendono ~700 token di <think> per inquadratura e con 2500 fissi il JSON non arrivava mai.
+            budget = 1500 + 950 * len(batch)
+            answer = extract_json(gen([{"role": "user", "content": LTX_REWRITE_PROMPT.format(shots=listing)}],
+                                      budget), list)
         except Exception as e:
             # Senza riscrittura il render parte lo stesso con la descrizione originale.
             log.warning(f"riscrittura dei prompt per LTX non riuscita: {e}")
@@ -950,7 +1107,18 @@ def plan_storyboard(treatment: str, minutes: float, style: str = "", characters:
     else:
         msg = SCENES_PROMPT.format(minutes=minutes, style=style or "libero", treatment=treatment.strip(),
                                    seconds=int(seconds), min_scenes=max(1, n_scenes - 2), max_scenes=n_scenes + 3)
-        scenes = extract_json(gen([{"role": "user", "content": msg}], 3000), list)
+        # ~120 token per scena: 3000 fissi bastavano per 5 minuti, non per i 40 di un video da 30.
+        budget = max(3000, 600 + 150 * (n_scenes + 3))
+        scenes = None
+        for attempt in range(2):
+            try:
+                scenes = extract_json(gen([{"role": "user", "content": msg}], budget), list)
+                break
+            except ValueError as e:
+                log.warning(f"elenco delle scene non valido (tentativo {attempt + 1}): {e}")
+        if scenes is None:
+            raise ValueError("il modello non ha restituito un elenco di scene in JSON (due tentativi)")
+        scenes = [s for s in scenes if isinstance(s, dict) and (s.get("summary") or s.get("title"))]
     if not isinstance(scenes, list) or not scenes:
         raise ValueError("il modello non ha restituito un elenco di scene")
     # Riporta la durata totale a quella chiesta: i modelli sbagliano spesso le somme.
@@ -1277,7 +1445,51 @@ MOTION_GUARD = ("Natural, physically plausible motion: people move forward in th
                 "feet step on the ground, held objects stay in the hands.")
 
 
+#: Soggettiva del veicolo (viaggio di una sonda, volo di un drone). Prova della sonda, 9/11/2026: scrivendo
+#: "onboard camera of a space probe" LTX disegnava oblo', scafo, plancia e persino un equipaggio di spalle,
+#: e il giudice cercava la sonda come soggetto. Il veicolo diventa "la camera" e il quadro resta pulito.
+POV_PREFIX = "Seamless first-person camera flight: the viewer is the camera itself, moving through open space."
+POV_CLEAN = ("Clean full-frame view of the scene only: no window frame, no porthole, no cockpit, no dashboard, "
+             "no vehicle parts, no crew, no people.")
+POV_MOTION = "Smooth continuous camera motion, the scene flows past the camera."
+POV_NEGATIVE = "window frame, porthole, cockpit, dashboard, control panel, hull, vehicle, crew, people, silhouettes"
+_POV_VEHICLE = r"(?:space\s+)?(?:probe|spacecraft|spaceship|ship|vessel|satellite|drone|rover)"
+_POV_RULES = (
+    (rf"\bfirst[- ]person view from (?:the|an?)\s+onboard camera of (?:the|an?)\s+[\w\s-]*?{_POV_VEHICLE}\b",
+     "First-person camera view"),
+    (rf"\bview from (?:the|an?)\s+[\w\s-]*?{_POV_VEHICLE}(?:'s)?\s+onboard camera\b", "camera view"),
+    (r"\b(?:the|its|an?)\s+onboard camera\b", "the camera"),
+    (r"\bonboard\s+", ""),
+    (rf"\b(?:the|an?)\s+(?:lone\s+|small\s+|tiny\s+|deep[- ]space\s+)*{_POV_VEHICLE}(?:'s)?\b", "the camera"),
+)
+
+
+def is_pov(settings: dict) -> bool:
+    return bool((settings or {}).get("pov"))
+
+
+def pov_text(text: str) -> str:
+    """Il veicolo nominato nel prompt diventa la camera: LTX disegna cio' che legge."""
+    out = text or ""
+    for pattern, repl in _POV_RULES:
+        out = re.sub(pattern, repl, out, flags=re.I)
+    return re.sub(r"\bthe camera(?:'s)? camera\b", "the camera", out, flags=re.I)
+
+
+def pov_negative(negative: str) -> str:
+    return ", ".join(x for x in (str(negative or "").strip().rstrip(","), POV_NEGATIVE) if x)
+
+
 def compose_prompt(prod: dict, shot: dict, use_refs: bool) -> str:
+    text = _compose_prompt(prod, shot, use_refs)
+    if not is_pov(prod.get("settings") or {}):
+        return text
+    # La guardia sul movimento parla di persone e piedi: in soggettiva portava gente in scena.
+    text = pov_text(text.replace(MOTION_GUARD, POV_MOTION))
+    return f"{POV_PREFIX}\n{text}\n{POV_CLEAN}"
+
+
+def _compose_prompt(prod: dict, shot: dict, use_refs: bool) -> str:
     bible = prod.get("bible") or {}
     parts = []
     # Le LoRA di stile si attivano con le loro parole chiave: senza, il peso
@@ -1762,7 +1974,7 @@ def _assemble_locked(shots: list, out_path: Path, fps: int, codec: str, quality:
     out_path.parent.mkdir(parents=True, exist_ok=True)
     work = Path(tempfile.mkdtemp(prefix=f".{out_path.stem}_", dir=out_path.parent))
     ff = ffmpeg_bin()
-    list_lines = []
+    segments: list[Path] = []
     # La misura del film e' quella della prima clip: Wan genera a 832x480, LTX a 1280x704, e la
     # concatenazione senza ricodifica vuole segmenti tutti uguali.
     first = probe(Path(shots[0]["clip_path"]))
@@ -1773,13 +1985,19 @@ def _assemble_locked(shots: list, out_path: Path, fps: int, codec: str, quality:
         src = Path(shot["clip_path"])
         if not src.is_file():
             raise RuntimeError(f"clip mancante: {src}")
+        from core.modules.sigma_creative_lab.video import finishing
+        # Correzioni dell'inquadratura (al contrario, notte, coda) prima dell'upscale: costano meno a bassa risoluzione.
+        src = finishing.corrected_source(shot)
         if output_height:
             from core.modules.sigma_creative_lab.video import postprocess as pp
             src = pp.upscaled_source(src, output_height, settings or {})
         # Audio PCM nei segmenti e AAC una volta sola alla fine: ogni AAC aggiunge il suo ritardo di
         # codifica (~20-30 ms) e su venti clip le voci finivano mezzo secondo avanti alle labbra.
         seg = work / f"{i:05d}_{shot['id']}.mkv"
-        drop_first = shot.get("transition") == "continue" and i > 0
+        # Solo se la clip parte davvero dall'ultimo fotogramma della precedente: un anello rifatto
+        # come taglio (precedente scartata o fallita) non ha il fotogramma doppio.
+        drop_first = shot.get("transition") == "continue" and i > 0 and shot.get("continued", True) \
+            and not shot.get("reverse")
         info = probe(src)
         dur = info["duration"] or (info["frames"] / fps)
         start = 1.0 / fps if drop_first else 0.0
@@ -1826,9 +2044,23 @@ def _assemble_locked(shots: list, out_path: Path, fps: int, codec: str, quality:
         _run(cmd)
         timeline.append((t, dur - start, shot))
         t += dur - start
-        list_lines.append(f"file '{seg.resolve().as_posix()}'")
+        segments.append(seg)
         if progress:
             progress(f"Montaggio {i + 1}/{len(shots)}")
+    crossfade = float((settings or {}).get("crossfade_s") or 0)
+    durations = [seg_s for _t, seg_s, _sh in timeline]
+    fades = finishing.fade_boundaries(shots, crossfade, durations)
+    if any(fades):
+        if progress:
+            progress("Dissolvenze fra le riprese")
+        segments = finishing.crossfade_pieces(segments, durations, fades, work, _video_codec_args(codec, quality), fps)
+        # Ogni dissolvenza sovrappone due riprese: le successive (e i sottotitoli) anticipano.
+        shifted, overlap = [], 0.0
+        for k, (start_t, seg_s, sh) in enumerate(timeline):
+            shifted.append((start_t - overlap, seg_s, sh))
+            overlap += fades[k]
+        timeline = shifted
+    list_lines = [f"file '{p.resolve().as_posix()}'" for p in segments]
     concat_list = work / "concat.txt"
     concat_list.write_text("\n".join(list_lines) + "\n", encoding="utf-8")
     partial = work / f"montato{out_path.suffix}"
@@ -2091,6 +2323,16 @@ async def generate_keyframes(store: ProductionStore, pid: str, shot_ids: list | 
 # Giudice visivo
 # ---------------------------------------------------------------------------
 
+def _llm_back_to_vram() -> None:
+    """A render finito l'LLM della chat, partito in RAM per il lease, torna sulle GPU al turno dopo."""
+    try:
+        from core.engine import sigma_engine
+        if sigma_engine is not None:
+            sigma_engine.refresh_placement()
+    except Exception as e:
+        log.warning(f"LLM non riportato in VRAM dopo il render: {e}")
+
+
 def resolve_judge_device(settings: dict) -> str:
     """Dove gira il giudice: un valore esplicito vince, altrimenti la GPU piu' piccola se ce ne sono due."""
     wanted = str(settings.get("judge_device") or "auto")
@@ -2117,6 +2359,10 @@ async def judge_clip(prod: dict, shot: dict, clip: Path, intent: str, src_in: fl
     """
     from core.modules.sigma_creative_lab.video import clip_judge
     s = prod.get("settings") or {}
+    if is_pov(s) and intent.strip():
+        # Senza questa nota il giudice cercava la sonda e bocciava clip in cui la camera avanzava davvero.
+        intent = (pov_text(intent) + " This is a first-person camera flight: the camera itself is the moving "
+                  "vehicle and nothing of the vehicle is in the frame; judge the camera motion through the scene.")
     if not s.get("judge", True) or not intent.strip() or not clip_judge.installed():
         return None
     try:
@@ -2235,7 +2481,8 @@ class ProductionRunner:
             **speech,
             "prompt": compose_prompt(prod, {**shot, "transition": "continue" if (can_continue or keyframe) else "cut"},
                                      bool(ref_images)),
-            "negative_prompt": (prod.get("bible") or {}).get("negative", ""),
+            "negative_prompt": (pov_negative((prod.get("bible") or {}).get("negative", "")) if is_pov(s)
+                                else (prod.get("bible") or {}).get("negative", "")),
             "frames": frames,
             "seed": int(seed),
             "init_image": prev["last_frame"] if can_continue else keyframe,
@@ -2590,6 +2837,11 @@ class ProductionRunner:
                     s["status"] = "pending"
                     s["attempts"] = 0
                     s["error"] = ""
+                    # Stesso seme = stessa clip e stessa bocciatura (prova Ornith, 9/11): si cambia il rumore
+                    # e si porta dentro la correzione suggerita dal giudice.
+                    s["seed"] = int(s.get("seed") or 0) + 7919
+                    if (s.get("judge") or {}).get("prompt_fix"):
+                        add_prompt_fix(s, s["judge"])
         self.store.save(prod)
         if is_ltx(prod["settings"]) and self._engine is None:
             # Prima del lease: dopo, la VRAM dell'LLM viene liberata per il render e chiamarlo la ricaricherebbe.
@@ -2678,8 +2930,17 @@ class ProductionRunner:
             renewer.cancel()
             for lane in lanes:
                 await lane["engine"].release()
+            if judge_device.startswith("gpu:"):
+                # Render e agente si alternano: a giro finito la GPU piccola serve subito alla vista
+                # (view_image) e all'LLM; aspettare i 10 minuti di inattivita' del giudice li mandava in RAM.
+                try:
+                    from core.modules.sigma_creative_lab.video import clip_judge
+                    await asyncio.to_thread(clip_judge.judge.stop)
+                except Exception as e:
+                    log.warning(f"giudice non fermato a fine render: {e}")
             if lease_id:
                 leases.release(lease_id)
+                _llm_back_to_vram()
 
         prod["stats"] = {**summary(prod), "render_wall_s": round(time.monotonic() - started, 1),
                          "lanes": prod["lanes"]}
@@ -2775,6 +3036,16 @@ class ProductionRunner:
             list(pool.map(work, enumerate(todo)))
 
     def assemble(self, prod: dict) -> Path:
+        out = self._assemble_film(prod)
+        target = float((prod.get("settings") or {}).get("loudnorm_lufs") or 0)
+        if target:
+            # Dopo il mix della musica: il volume da piattaforma vale per il film finito.
+            from .finishing import loudnorm
+            self._emit(type="assemble", message=f"Volume a {target:g} LUFS")
+            prod["loudness"] = loudnorm(out, target)
+        return out
+
+    def _assemble_film(self, prod: dict) -> Path:
         from .visual_integrity import require
         if not any(shot.get('status')=='done' for shot in prod['shots']):
             raise ValueError('Nessuna clip approvata disponibile per il montaggio')

@@ -42,7 +42,9 @@ def punteggio(mask) -> float:
             interni = np.diff(bordi)[1::2]
             vuoto += float(interni.min()) / larghezza if len(interni) else 0.0
     n = max(1, len(fascia))
-    return staccate / n + vuoto / n
+    spazio_medio = vuoto / max(1, staccate)
+    qualita_spazio = max(0.0, 1.0 - abs(spazio_medio - 0.06) / 0.12)
+    return 0.7 * (staccate / n) + 0.3 * qualita_spazio
 
 
 def main() -> int:

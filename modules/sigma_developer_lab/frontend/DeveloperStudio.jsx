@@ -460,7 +460,7 @@ export default function DeveloperStudio() {
           <ModulePublisher isLight={isLight} />
         </div>
       ) : (
-        <div
+        <div 
           onClick={() => setLeftCollapsed(false)}
           title="Espandi Esploratore File"
           style={{
@@ -511,7 +511,7 @@ export default function DeveloperStudio() {
         position: 'relative'
       }}>
         {/* Unified Top Header Bar Container spanning both center and right columns */}
-        <div
+        <div 
           ref={node => { if (node && node !== headerPortalNode) setHeaderPortalNode(node); }}
           id="dev-studio-top-header"
           style={{
@@ -627,7 +627,7 @@ export default function DeveloperStudio() {
               />
             </div>
           ) : (
-            <div
+            <div 
               onClick={() => setRightCollapsed(false)}
               title="Espandi Admin AI Chat"
               style={{

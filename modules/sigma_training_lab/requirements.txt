@@ -1,3 +1,6 @@
-# sigma_training_lab — Python dependencies
-# Optional / acceleration packages for training
-# unsloth, torch, datasets, transformers, peft, trl
+# ==============================================================================
+# sigma_training_lab — Module Dependencies
+# Installate automaticamente quando il modulo viene scaricato/installato.
+# ==============================================================================
+datasets>=2.18.0
+peft>=0.10.0

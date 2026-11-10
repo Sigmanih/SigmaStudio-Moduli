@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import {
-  X, RefreshCw, Box, CheckCircle2, AlertCircle, ShieldCheck,
+import { 
+  X, RefreshCw, Box, CheckCircle2, AlertCircle, ShieldCheck, 
   Layers, Terminal, Play, Square, RotateCw, Trash2, FolderOpen, Plus, Rocket,
   ExternalLink, Flame, HelpCircle, Zap
 } from 'lucide-react';
@@ -273,7 +273,7 @@ export default function DockerViewerModal({ isOpen, onClose, isLight, onSelectCo
   const images = dockerData?.images || [];
 
   return (
-    <div
+    <div 
       onClick={onClose}
       style={{
         position: 'fixed',
@@ -287,7 +287,7 @@ export default function DockerViewerModal({ isOpen, onClose, isLight, onSelectCo
         padding: '20px'
       }}
     >
-      <div
+      <div 
         onClick={e => e.stopPropagation()}
         style={{
           width: '780px',
@@ -419,7 +419,7 @@ export default function DockerViewerModal({ isOpen, onClose, isLight, onSelectCo
                 </span>
               </div>
               <div style={{ fontSize: '0.68rem', color: textMuted }}>
-                {isContainerMode
+                {isContainerMode 
                   ? 'I comandi dei task e degli agenti girano isolati nel container con dev-server esposti.'
                   : 'I comandi girano sulla macchina host usando l\'ambiente nativo.'}
               </div>
@@ -555,7 +555,7 @@ export default function DockerViewerModal({ isOpen, onClose, isLight, onSelectCo
 
               {/* Form Espandibile di Lancio Container */}
               {showLaunchForm && (
-                <form
+                <form 
                   onSubmit={handleLaunchContainer}
                   style={{
                     padding: '14px',
@@ -798,7 +798,7 @@ export default function DockerViewerModal({ isOpen, onClose, isLight, onSelectCo
                     const isActing = actionLoading && actionLoading.includes(cid);
 
                     return (
-                      <div
+                      <div 
                         key={cid || i}
                         style={{
                           padding: '12px 14px',
@@ -1037,7 +1037,7 @@ export default function DockerViewerModal({ isOpen, onClose, isLight, onSelectCo
                   {images.map((img, i) => {
                     const tag = `${img.Repository}:${img.Tag || 'latest'}`;
                     return (
-                      <div
+                      <div 
                         key={img.ID || i}
                         style={{
                           padding: '10px 14px',
@@ -1115,15 +1115,15 @@ export default function DockerViewerModal({ isOpen, onClose, isLight, onSelectCo
               {/* Card Hot-Reload Kernel Rust */}
               <div style={{
                 padding: '16px',
-                background: isLight
-                  ? 'linear-gradient(135deg, #ffffff 0%, #fff7ed 100%)'
+                background: isLight 
+                  ? 'linear-gradient(135deg, #ffffff 0%, #fff7ed 100%)' 
                   : 'linear-gradient(135deg, rgba(30, 41, 59, 0.7) 0%, rgba(15, 23, 42, 0.85) 100%)',
                 borderRadius: '8px',
-                border: dockerData?.rust_hot_reload
-                  ? '1px solid rgba(249, 115, 22, 0.45)'
+                border: dockerData?.rust_hot_reload 
+                  ? '1px solid rgba(249, 115, 22, 0.45)' 
                   : `1px solid ${borderModal}`,
-                boxShadow: dockerData?.rust_hot_reload
-                  ? '0 4px 18px rgba(249, 115, 22, 0.12)'
+                boxShadow: dockerData?.rust_hot_reload 
+                  ? '0 4px 18px rgba(249, 115, 22, 0.12)' 
                   : 'none',
                 position: 'relative',
                 transition: 'all 0.2s ease'
@@ -1133,8 +1133,8 @@ export default function DockerViewerModal({ isOpen, onClose, isLight, onSelectCo
                     <div style={{
                       padding: '7px',
                       borderRadius: '8px',
-                      background: dockerData?.rust_hot_reload
-                        ? 'rgba(249, 115, 22, 0.2)'
+                      background: dockerData?.rust_hot_reload 
+                        ? 'rgba(249, 115, 22, 0.2)' 
                         : 'rgba(255, 255, 255, 0.05)',
                       display: 'flex',
                       alignItems: 'center',
@@ -1148,9 +1148,9 @@ export default function DockerViewerModal({ isOpen, onClose, isLight, onSelectCo
                         <span style={{ fontSize: '0.84rem', fontWeight: 800, color: textPrimary }}>
                           🔥 Hot-Reload Kernel Nativo Rust
                         </span>
-
+                        
                         {/* Info Hover Tooltip Trigger */}
-                        <div
+                        <div 
                           style={{ position: 'relative', display: 'inline-flex', alignItems: 'center' }}
                           onMouseEnter={() => setShowHotReloadTooltip(true)}
                           onMouseLeave={() => setShowHotReloadTooltip(false)}
@@ -1261,7 +1261,7 @@ export default function DockerViewerModal({ isOpen, onClose, isLight, onSelectCo
                     fontWeight: 700,
                     color: textPrimary
                   }}>
-                    <input
+                    <input 
                       type="checkbox"
                       checked={Boolean(dockerData?.rust_hot_reload)}
                       onChange={(e) => handleToggleHotReload(e.target.checked)}
@@ -1287,8 +1287,8 @@ export default function DockerViewerModal({ isOpen, onClose, isLight, onSelectCo
                       borderRadius: '6px',
                       fontSize: '0.68rem',
                       fontWeight: 700,
-                      background: reloadingKernel
-                        ? 'rgba(255, 255, 255, 0.1)'
+                      background: reloadingKernel 
+                        ? 'rgba(255, 255, 255, 0.1)' 
                         : 'linear-gradient(135deg, #ea580c, #f97316)',
                       border: 'none',
                       color: '#ffffff',
@@ -1475,7 +1475,7 @@ export default function DockerViewerModal({ isOpen, onClose, isLight, onSelectCo
                   {(dockerData?.ports || ['3000:3000', '5000:5000', '5173:5173', '8080:8080']).map(p => {
                     const hostPort = p.split(':')[0] || p;
                     return (
-                      <button
+                      <button 
                         key={p}
                         type="button"
                         onClick={() => window.open(`http://localhost:${hostPort}`, '_blank', 'noopener,noreferrer')}

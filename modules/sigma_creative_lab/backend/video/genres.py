@@ -173,6 +173,9 @@ def keyframe_plan(prod: dict, shot: dict) -> tuple[str, str, list[str]]:
     for fix in [f.get("text", "") for f in shot.get("fixes") or []] + list(shot.get("keyframe_fixes") or []):
         prompt += f". {str(fix).strip().rstrip('.')}"
     from core.modules.sigma_creative_lab.video.preproduction import world_lines
+    from core.modules.sigma_creative_lab.video.production import POV_CLEAN, is_pov, pov_text
+    if is_pov(prod.get("settings") or {}):
+        prompt = pov_text(prompt) + ". " + POV_CLEAN.rstrip(".")
     parts = [f"{style}. {prompt}."] + world_lines(prod, shot)
     speaker = (shot.get("dialogue") or {}).get("character")
     if speaker:
@@ -181,7 +184,10 @@ def keyframe_plan(prod: dict, shot: dict) -> tuple[str, str, list[str]]:
         parts.append(f"Medium close-up: {speaker} is in the foreground, face toward the viewer, mouth closed and "
                      f"clearly visible, about to speak.")
     refs = [c["ref_image"] for c in present]
-    parts += [f"{c['name']} is the character in image {k}: keep exactly the same face, hair, body and clothes."
+    parts += [(f"{c['name']} is the object in image {k}: keep exactly the same shape, proportions, colors, "
+               f"materials and details; it appears once, as part of the scene (not as a picture or a cut-out)."
+               if c.get("kind") == "object" else
+               f"{c['name']} is the character in image {k}: keep exactly the same face, hair, body and clothes.")
               for k, c in enumerate(present, 1)]
     if style_ref:
         refs.append(style_ref)

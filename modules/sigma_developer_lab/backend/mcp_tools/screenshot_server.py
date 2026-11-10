@@ -26,21 +26,21 @@ log = get_logger(__name__)
 
 def _capture_screenshot(url: str, output_path: Path, width: int = 1280, height: int = 720) -> Dict[str, Any]:
     """Cattura uno screenshot di una pagina web usando Playwright o fallback."""
-
+    
     # Verifica che il percorso di output sia valido
     output_path.parent.mkdir(parents=True, exist_ok=True)
-
+    
     # Prova con Playwright se disponibile
     try:
         from playwright.sync_api import sync_playwright
-
+        
         with sync_playwright() as p:
             browser = p.chromium.launch(headless=True)
             page = browser.new_page(viewport={"width": width, "height": height})
             page.goto(url, wait_until="networkidle", timeout=30000)
             page.screenshot(path=str(output_path), full_page=False)
             browser.close()
-
+        
         return {
             "success": True,
             "method": "playwright",
@@ -54,7 +54,7 @@ def _capture_screenshot(url: str, output_path: Path, width: int = 1280, height: 
         log.info("Playwright non disponibile, provo con fallback")
     except Exception as exc:
         log.warning("Errore con Playwright: %s", exc)
-
+    
     # Fallback: usa wkhtmltoimage se disponibile
     try:
         result = subprocess.run(
@@ -63,7 +63,7 @@ def _capture_screenshot(url: str, output_path: Path, width: int = 1280, height: 
             text=True,
             timeout=30
         )
-
+        
         if result.returncode == 0 and output_path.exists():
             return {
                 "success": True,
@@ -88,7 +88,7 @@ def _capture_screenshot(url: str, output_path: Path, width: int = 1280, height: 
             "method": "fallback",
             "error": f"Errore durante la cattura screenshot: {exc}",
         }
-
+    
     # Nessun metodo disponibile
     return {
         "success": False,
@@ -98,7 +98,7 @@ def _capture_screenshot(url: str, output_path: Path, width: int = 1280, height: 
 
 class ScreenshotMCPServer(BaseMCPServer):
     """MCP server per la verifica visiva tramite screenshot."""
-
+    
     def __init__(self):
         super().__init__(
             name="screenshot",
@@ -140,8 +140,8 @@ class ScreenshotMCPServer(BaseMCPServer):
         else:
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
             output_path = Path(get_default_workspace_root()) / "var" / "screenshots" / f"screenshot_{timestamp}.png"
-
+        
         width = kwargs.get("width", 1280)
         height = kwargs.get("height", 720)
-
+        
         return _capture_screenshot(url, output_path, width, height)

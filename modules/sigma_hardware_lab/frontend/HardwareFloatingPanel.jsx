@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import {
+import { 
   Zap, Activity, ShieldCheck, Play, Pause, X, GripVertical, Maximize2, RotateCcw,
   HardDrive, Cpu, Thermometer, Flame, Gauge, Sliders, BarChart2, AlertTriangle, Database,
   Terminal, Search, Trash2, ChevronRight
@@ -219,7 +219,7 @@ export default function HardwareFloatingPanel({ onClose, onOpenTab, addToast }) 
     const hMM = (e) => {
       const dx = e.clientX - resizeStart.x;
       const dy = e.clientY - resizeStart.y;
-
+      
       setPanelPos(prev => {
         let newX = prev.x;
         let newY = prev.y;
@@ -316,8 +316,8 @@ export default function HardwareFloatingPanel({ onClose, onOpenTab, addToast }) 
   // Theme Design Tokens
   const panelBg = isLight ? '#fffdf9' : 'rgba(9, 13, 22, 0.97)';
   const panelBorder = isLight ? '1px solid rgba(190, 160, 110, 0.45)' : '1px solid rgba(0, 242, 254, 0.28)';
-  const panelShadow = isLight
-    ? '0 24px 60px rgba(0, 0, 0, 0.18), 0 0 20px rgba(234, 88, 12, 0.08)'
+  const panelShadow = isLight 
+    ? '0 24px 60px rgba(0, 0, 0, 0.18), 0 0 20px rgba(234, 88, 12, 0.08)' 
     : '0 32px 64px -16px rgba(0, 0, 0, 0.85), 0 0 30px rgba(0, 242, 254, 0.18)';
   const headerBg = isLight ? '#f4efe4' : 'rgba(13, 20, 34, 0.85)';
   const headerBorder = isLight ? '1px solid rgba(190, 160, 110, 0.3)' : '1px solid rgba(255, 255, 255, 0.08)';
@@ -359,8 +359,8 @@ export default function HardwareFloatingPanel({ onClose, onOpenTab, addToast }) 
       <div style={{
         height: '2px',
         width: '100%',
-        background: isLight
-          ? 'linear-gradient(90deg, #ea580c 0%, #d97706 50%, #16a34a 100%)'
+        background: isLight 
+          ? 'linear-gradient(90deg, #ea580c 0%, #d97706 50%, #16a34a 100%)' 
           : 'linear-gradient(90deg, #00f2fe 0%, #a855f7 50%, #10b981 100%)',
         boxShadow: isLight ? 'none' : '0 0 10px rgba(0, 242, 254, 0.5)'
       }} />
@@ -403,17 +403,17 @@ export default function HardwareFloatingPanel({ onClose, onOpenTab, addToast }) 
             </div>
 
             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>
-              <button
-                className="hw-btn"
-                onClick={() => setShowRestartAlert(false)}
-                disabled={restartingOllama}
+              <button 
+                className="hw-btn" 
+                onClick={() => setShowRestartAlert(false)} 
+                disabled={restartingOllama} 
                 style={{ fontSize: '12px', padding: '6px 14px', background: isLight ? '#fff' : undefined, color: textPrimary }}
               >
                 Annulla
               </button>
-              <button
-                className="hw-btn"
-                onClick={handleRestartOllama}
+              <button 
+                className="hw-btn" 
+                onClick={handleRestartOllama} 
                 disabled={restartingOllama}
                 style={{ background: 'linear-gradient(135deg, #ef4444, #dc2626)', color: '#fff', border: 'none', fontWeight: 800, fontSize: '12px', padding: '6px 14px', display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer' }}
               >
@@ -444,10 +444,10 @@ export default function HardwareFloatingPanel({ onClose, onOpenTab, addToast }) 
       ))}
 
       {/* Header — Drag Handle */}
-      <div
-        className="task-floating-header"
+      <div 
+        className="task-floating-header" 
         onMouseDown={handleMouseDownHeader}
-        style={{
+        style={{ 
           cursor: isDragging ? 'grabbing' : 'grab',
           padding: '12px 18px',
           background: headerBg,
@@ -485,22 +485,22 @@ export default function HardwareFloatingPanel({ onClose, onOpenTab, addToast }) 
         </div>
 
         <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-          <button
-            onClick={() => setShowRestartAlert(true)}
-            className="chat-header-btn"
+          <button 
+            onClick={() => setShowRestartAlert(true)} 
+            className="chat-header-btn" 
             title="Svuota la memoria VRAM scaricando tutti i modelli residenti"
-            style={{
-              background: isLight ? 'rgba(239, 68, 68, 0.12)' : 'rgba(239, 68, 68, 0.15)',
-              border: '1px solid rgba(239, 68, 68, 0.35)',
-              borderRadius: '8px',
-              padding: '5px 10px',
-              cursor: 'pointer',
-              color: isLight ? '#dc2626' : '#fca5a5',
-              fontSize: '11px',
+            style={{ 
+              background: isLight ? 'rgba(239, 68, 68, 0.12)' : 'rgba(239, 68, 68, 0.15)', 
+              border: '1px solid rgba(239, 68, 68, 0.35)', 
+              borderRadius: '8px', 
+              padding: '5px 10px', 
+              cursor: 'pointer', 
+              color: isLight ? '#dc2626' : '#fca5a5', 
+              fontSize: '11px', 
               fontWeight: 800,
-              display: 'flex',
-              alignItems: 'center',
-              gap: '4px'
+              display: 'flex', 
+              alignItems: 'center', 
+              gap: '4px' 
             }}
           >
             <RotateCcw size={12} color="#ef4444" />
@@ -508,16 +508,16 @@ export default function HardwareFloatingPanel({ onClose, onOpenTab, addToast }) 
           </button>
 
           {onOpenTab && (
-            <button
-              onClick={() => onOpenTab({ name: 'Monitor Hardware' }, 'hardware_lab')}
-              className="chat-header-btn"
+            <button 
+              onClick={() => onOpenTab({ name: 'Monitor Hardware' }, 'hardware_lab')} 
+              className="chat-header-btn" 
               title="Apri scheda estesa con grafici di approfondimento e telemetria continua"
-              style={{
-                background: isLight ? 'rgba(0, 210, 255, 0.12)' : 'rgba(0, 242, 254, 0.12)',
-                border: isLight ? '1px solid rgba(0, 210, 255, 0.35)' : '1px solid rgba(0, 242, 254, 0.35)',
-                borderRadius: '8px',
-                padding: '5px 10px',
-                cursor: 'pointer',
+              style={{ 
+                background: isLight ? 'rgba(0, 210, 255, 0.12)' : 'rgba(0, 242, 254, 0.12)', 
+                border: isLight ? '1px solid rgba(0, 210, 255, 0.35)' : '1px solid rgba(0, 242, 254, 0.35)', 
+                borderRadius: '8px', 
+                padding: '5px 10px', 
+                cursor: 'pointer', 
                 color: isLight ? '#0284c7' : '#00f2fe',
                 fontSize: '11px',
                 fontWeight: 800,
@@ -531,17 +531,17 @@ export default function HardwareFloatingPanel({ onClose, onOpenTab, addToast }) 
             </button>
           )}
 
-          <button
-            onClick={onClose}
-            className="chat-header-btn"
+          <button 
+            onClick={onClose} 
+            className="chat-header-btn" 
             title="Chiudi pannello"
-            style={{
-              background: headerBtnBg,
-              border: headerBtnBorder,
-              borderRadius: '8px',
-              padding: '5px 8px',
-              cursor: 'pointer',
-              color: textPrimary
+            style={{ 
+              background: headerBtnBg, 
+              border: headerBtnBorder, 
+              borderRadius: '8px', 
+              padding: '5px 8px', 
+              cursor: 'pointer', 
+              color: textPrimary 
             }}
           >
             <X size={14} />
@@ -551,7 +551,7 @@ export default function HardwareFloatingPanel({ onClose, onOpenTab, addToast }) 
 
       {/* Floating Panel Body */}
       <div className="task-floating-body" style={{ padding: '14px 18px', overflowY: 'auto', flex: 1, display: 'flex', flexDirection: 'column', gap: '12px' }}>
-
+        
         {/* 1. CYBERPUNK HUD RIBBON - KEY METRICS AT FIRST GLANCE */}
         <div style={{
           display: 'grid',
@@ -801,9 +801,9 @@ export default function HardwareFloatingPanel({ onClose, onOpenTab, addToast }) 
                     {/* Top subtle neon line */}
                     <div style={{
                       position: 'absolute', top: 0, left: 0, right: 0, height: '2px',
-                      background: isIntegrated
-                        ? 'linear-gradient(90deg, #ea580c, transparent)'
-                        : idx === 0
+                      background: isIntegrated 
+                        ? 'linear-gradient(90deg, #ea580c, transparent)' 
+                        : idx === 0 
                           ? 'linear-gradient(90deg, #00f2fe, #a855f7, transparent)'
                           : 'linear-gradient(90deg, #38bdf8, transparent)'
                     }} />
@@ -1329,25 +1329,25 @@ export default function HardwareFloatingPanel({ onClose, onOpenTab, addToast }) 
             {/* System charts */}
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
               <div style={{ padding: '12px 14px', borderRadius: '12px', background: cardBg, border: cardBorder }}>
-                <RealtimeTelemetryChart
-                  data={systemHistory.cpu}
-                  label="Carico CPU Host (%)"
+                <RealtimeTelemetryChart 
+                  data={systemHistory.cpu} 
+                  label="Carico CPU Host (%)" 
                   icon={Cpu}
-                  color={isLight ? '#7c3aed' : '#bc8cff'}
-                  unit="%"
-                  maxVal={100}
+                  color={isLight ? '#7c3aed' : '#bc8cff'} 
+                  unit="%" 
+                  maxVal={100} 
                   height={85}
                   isLight={isLight}
                 />
               </div>
               <div style={{ padding: '12px 14px', borderRadius: '12px', background: cardBg, border: cardBorder }}>
-                <RealtimeTelemetryChart
-                  data={systemHistory.ram}
-                  label="RAM Allocata (GB)"
+                <RealtimeTelemetryChart 
+                  data={systemHistory.ram} 
+                  label="RAM Allocata (GB)" 
                   icon={HardDrive}
-                  color={isLight ? '#16a34a' : '#10b981'}
-                  unit="GB"
-                  maxVal={ramTotalGb || 94}
+                  color={isLight ? '#16a34a' : '#10b981'} 
+                  unit="GB" 
+                  maxVal={ramTotalGb || 94} 
                   height={85}
                   isLight={isLight}
                   formatVal={(val) => `${typeof val === 'number' ? val.toFixed(1) : val}`}
@@ -1367,23 +1367,23 @@ export default function HardwareFloatingPanel({ onClose, onOpenTab, addToast }) 
                     GPU {idx}: {gpu.name}
                   </div>
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
-                    <RealtimeTelemetryChart
-                      data={hist.compute}
-                      label="Compute GPU (%)"
+                    <RealtimeTelemetryChart 
+                      data={hist.compute} 
+                      label="Compute GPU (%)" 
                       icon={Gauge}
-                      color={isLight ? '#7c3aed' : '#bc8cff'}
-                      unit="%"
-                      maxVal={100}
+                      color={isLight ? '#7c3aed' : '#bc8cff'} 
+                      unit="%" 
+                      maxVal={100} 
                       height={80}
                       isLight={isLight}
                     />
-                    <RealtimeTelemetryChart
-                      data={hist.vram}
-                      label="VRAM Allocata (MB)"
+                    <RealtimeTelemetryChart 
+                      data={hist.vram} 
+                      label="VRAM Allocata (MB)" 
                       icon={Zap}
-                      color={isLight ? '#0284c7' : '#00f2fe'}
-                      unit="MB"
-                      maxVal={vramTotal}
+                      color={isLight ? '#0284c7' : '#00f2fe'} 
+                      unit="MB" 
+                      maxVal={vramTotal} 
                       height={80}
                       isLight={isLight}
                     />
@@ -1397,3 +1397,5 @@ export default function HardwareFloatingPanel({ onClose, onOpenTab, addToast }) 
     </div>
   );
 }
+
+

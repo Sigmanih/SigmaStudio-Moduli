@@ -26,16 +26,5 @@
   "size": "~2 MB",
   "icon": "Terminal",
   "color": "#00f2fe",
-  "requirements": "requirements.txt",
-  "backend": {
-    "handlers_module": "core.modules.sigma_developer_lab.handlers",
-    "mcp_server_module": "core.modules.sigma_developer_lab.mcp_server",
-    "routes_prefix": "/api/developer",
-    "install_to": "core/modules/sigma_developer_lab/"
-  },
-  "frontend": {
-    "entrypoint": "frontend/index.jsx",
-    "install_to": "sigma_studio/src/modules/sigma_developer_lab/"
-  },
-  "kernel_modules_required": []
+  "requirements": "requirements.txt"
 }

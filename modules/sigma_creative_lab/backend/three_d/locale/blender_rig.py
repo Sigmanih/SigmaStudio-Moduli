@@ -23,6 +23,7 @@ Di solito lo lancia agenti.py, che fa tutta la catena dal ritratto in poi.
 from __future__ import annotations
 
 import argparse
+import math
 import sys
 from pathlib import Path
 
@@ -276,6 +277,51 @@ def taglia_ponti(corpo: bpy.types.Object, quota_spalla: float, lato_max: float =
     return len(via)
 
 
+def posa_rilassata(arm: bpy.types.Object, corpo: bpy.types.Object,
+                   apertura_gradi: float = 12.0) -> None:
+    """Porta le braccia dalla posa tecnica a una posizione naturale di riposo.
+
+    La figura generata e' gia' rilassata; si corregge solo quanto basta per
+    allinearla allo scheletro, evitando di deformare spalle e ascelle.
+    """
+    bpy.ops.object.select_all(action="DESELECT")
+    arm.select_set(True)
+    bpy.context.view_layer.objects.active = arm
+    bpy.ops.object.mode_set(mode="POSE")
+    apertura = math.radians(apertura_gradi)
+    for lato, suffisso in ((1.0, "L"), (-1.0, "R")):
+        bpy.context.view_layer.update()
+        bone = arm.pose.bones[f"DEF-upper_arm.{suffisso}"]
+        testa = bone.head.copy()
+        direzione = (bone.tail - bone.head).normalized()
+        obiettivo = Vector((lato * math.sin(apertura), 0.0, -math.cos(apertura)))
+        rotazione = direzione.rotation_difference(obiettivo)
+        attorno_spalla = (Matrix.Translation(testa) @ rotazione.to_matrix().to_4x4()
+                          @ Matrix.Translation(-testa))
+        bone.matrix = attorno_spalla @ bone.matrix
+    bpy.context.view_layer.update()
+
+    # Si congela la deformazione nella mesh prima di dichiararla posa di riposo:
+    # Blender altrimenti conserva l'A-pose nei vertici del GLB esportato.
+    bpy.ops.object.mode_set(mode="OBJECT")
+    arm.select_set(False)
+    corpo.select_set(True)
+    bpy.context.view_layer.objects.active = corpo
+    armatura = next((m for m in corpo.modifiers if m.type == "ARMATURE"), None)
+    if not armatura:
+        raise RuntimeError("modificatore Armature assente durante la posa rilassata")
+    bpy.ops.object.modifier_apply(modifier=armatura.name)
+
+    corpo.select_set(False)
+    arm.select_set(True)
+    bpy.context.view_layer.objects.active = arm
+    bpy.ops.object.mode_set(mode="POSE")
+    bpy.ops.pose.armature_apply(selected=False)
+    bpy.ops.object.mode_set(mode="OBJECT")
+    nuova_armatura = corpo.modifiers.new("Armature", "ARMATURE")
+    nuova_armatura.object = arm
+
+
 def esporta(oggetti: list[bpy.types.Object], uscita: Path, animazioni: bool) -> None:
     bpy.ops.object.select_all(action="DESELECT")
     for o in oggetti:
@@ -335,6 +381,7 @@ def main() -> int:
     pesa_dal_manichino(corpo, manichino, arm, adattato)
     spalla_z = min((adattato.matrix_world @ adattato.data.bones[f"DEF-upper_arm.{s}"].head_local).z for s in "LR")
     log.info("membrane tolte: %d facce", taglia_ponti(corpo, spalla_z - 0.04))
+    posa_rilassata(adattato, corpo)
     bpy.data.objects.remove(manichino, do_unlink=True)
     bpy.data.objects.remove(arm, do_unlink=True)
     esporta([adattato, corpo], args.uscita, animazioni=False)

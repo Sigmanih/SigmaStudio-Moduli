@@ -253,7 +253,7 @@ def parse_model_specs(model_id: str, name: str, tags: List[str] = None, raw_item
     siblings_list = raw_item.get("siblings") or [] if raw_item else []
     has_safetensors = any(s.get("rfilename", "").lower().endswith(".safetensors") for s in siblings_list)
     has_gguf = any(s.get("rfilename", "").lower().endswith(".gguf") for s in siblings_list)
-
+    
     # Check config quantization
     raw_cfg = raw_item.get("config") if raw_item else {}
     q_cfg = raw_cfg.get("quantization_config") if isinstance(raw_cfg, dict) else {}
@@ -390,7 +390,7 @@ def parse_model_specs(model_id: str, name: str, tags: List[str] = None, raw_item
             m_sh = re.search(r'-of-(\d+)', sf.get("rfilename", ""))
             if m_sh:
                 max_shard_count = max(max_shard_count, int(m_sh.group(1)))
-
+        
         formula_gb = round(total_b * bytes_per_param, 1)
         if max_shard_count > 1 and not is_gguf:
             # Gli shard standard Safetensors su HF sono da ~5 a ~10 GB ciascuno (standard 4.95GB o 9.9GB)
@@ -1440,3 +1440,4 @@ def get_hf_model_details(model_id: str, hf_token: Optional[str] = None) -> Dict[
         "card_url": f"https://huggingface.co/{model_id}",
         "hf_url": f"https://huggingface.co/{model_id}"
     }
+

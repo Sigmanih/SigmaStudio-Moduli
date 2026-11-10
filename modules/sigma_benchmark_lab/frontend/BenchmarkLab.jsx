@@ -7,6 +7,7 @@ import {
   List, LayoutGrid, Trophy, Wrench, HardDrive
 } from 'lucide-react';
 import ProtocolBenchView from './ProtocolBenchView.jsx';
+import SigmaBaselineView from './SigmaBaselineView.jsx';
 import TabHeader from '../../components/common/TabHeader';
 import {
   getModelSpecs, detectModelFamily, isSigmanihModel, getModelChatSpeed,
@@ -679,10 +680,11 @@ export default function BenchmarkLab({ addToast, activeTabId }) {
       <TabHeader
         icon={benchTab === 'protocol' ? Bot : Award}
         title="Benchmark Lab"
-        highlight={benchTab === 'protocol' ? 'COLLAUDO TOOL' : 'VALUTAZIONE UFFICIALE'}
+        highlight={benchTab === 'sigma' ? 'SIGMA-27B v0' : benchTab === 'protocol' ? 'COLLAUDO TOOL' : 'VALUTAZIONE UFFICIALE'}
         tabs={[
           { id: 'official', label: 'Benchmark Ufficiali', icon: Award, active: benchTab === 'official', onClick: () => setBenchTab('official') },
-          { id: 'protocol', label: 'Aderenza Protocollo Tool', icon: Bot, active: benchTab === 'protocol', onClick: () => setBenchTab('protocol') }
+          { id: 'protocol', label: 'Aderenza Protocollo Tool', icon: Bot, active: benchTab === 'protocol', onClick: () => setBenchTab('protocol') },
+          { id: 'sigma', label: 'sigma', icon: Code, active: benchTab === 'sigma', onClick: () => setBenchTab('sigma') }
         ]}
         description={benchTab === 'protocol'
           ? '10 Prove Osservabili nel Transcript · Harness Pilotability Check · Zero Quiz · Solo Fatti sul Disco'
@@ -705,7 +707,11 @@ export default function BenchmarkLab({ addToast, activeTabId }) {
 
       <div className="bench-lab-content">
         {/* Vista Aderenza Protocollo */}
-      {benchTab === 'protocol' ? (
+      {benchTab === 'sigma' ? (
+        <SigmaBaselineView models={models} jobs={jobs} onStarted={(id) => {
+          setSelectedJobId(id); loadJobs(); setBenchTab('official');
+        }} />
+      ) : benchTab === 'protocol' ? (
         <ProtocolBenchView models={models} onToast={toast} activeTabId={activeTabId} benchTab={benchTab} />
       ) : (
         <>

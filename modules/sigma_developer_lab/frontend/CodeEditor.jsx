@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
-import {
-  X, Save, Copy, Check, Play, FileCode, SplitSquareVertical,
-  RotateCcw, RotateCw, Sparkles, Eye, Code, Download, BookOpen, PieChart
+import { 
+  X, Save, Copy, Check, Play, FileCode, SplitSquareVertical, 
+  RotateCcw, RotateCw, Sparkles, Eye, Code, Download, BookOpen, PieChart 
 } from 'lucide-react';
 import { getFileIcon } from './WorkspaceExplorer';
 import DevGraphView from './DevGraphView';
@@ -78,9 +78,9 @@ export default function CodeEditor({
   const iframeRef = useRef(null);
 
   const norm = (p) => String(p || '').replace(/\\/g, '/').toLowerCase();
-  const activeFile = openFiles.find(f =>
-    norm(f.path) === norm(activeFilePath) ||
-    norm(f.path).endsWith(norm(activeFilePath)) ||
+  const activeFile = openFiles.find(f => 
+    norm(f.path) === norm(activeFilePath) || 
+    norm(f.path).endsWith(norm(activeFilePath)) || 
     norm(activeFilePath).endsWith(norm(f.path))
   ) || openFiles[0];
 
@@ -315,8 +315,8 @@ export default function CodeEditor({
                 gap: '6px',
                 padding: '6px 12px',
                 borderRadius: '6px 6px 0 0',
-                background: isActive
-                  ? (isLight ? '#ffffff' : '#0d1117')
+                background: isActive 
+                  ? (isLight ? '#ffffff' : '#0d1117') 
                   : (isLight ? '#eaeef2' : '#161b22'),
                 borderTop: isActive ? '2px solid #00f2fe' : '2px solid transparent',
                 borderLeft: isLight ? '1px solid #d0d7de' : '1px solid rgba(255,255,255,0.06)',
@@ -324,8 +324,8 @@ export default function CodeEditor({
                 cursor: 'pointer',
                 fontSize: '0.72rem',
                 fontWeight: isActive ? 700 : 500,
-                color: isActive
-                  ? (isLight ? '#24292f' : '#f0f6fc')
+                color: isActive 
+                  ? (isLight ? '#24292f' : '#f0f6fc') 
                   : (isLight ? '#57606a' : '#8b949e'),
                 userSelect: 'none'
               }}
@@ -939,13 +939,13 @@ export default function CodeEditor({
               sandbox="allow-scripts allow-same-origin allow-modals allow-downloads allow-popups allow-popups-to-escape-sandbox allow-forms"
             />
           ) : fileExt === 'svg' ? (
-            <div
+            <div 
               key={`svg-${activeFile.path}`}
               style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100%' }}
-              dangerouslySetInnerHTML={{ __html: activeFile.content || '' }}
+              dangerouslySetInnerHTML={{ __html: activeFile.content || '' }} 
             />
           ) : (
-            <div
+            <div 
               key={`md-${activeFile.path}`}
               className="markdown-body"
               style={{

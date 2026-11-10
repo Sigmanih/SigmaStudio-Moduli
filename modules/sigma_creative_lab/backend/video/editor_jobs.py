@@ -1050,9 +1050,26 @@ async def job_export(self: EditorJobs, job: dict) -> dict:
     prod = self.prods.get(pid)
     tl = self.timelines.get(pid)
     out = paths.creative_output_dir("video") / f"{_slug(prod['title'])}_{pid[-6:]}_v{tl.get('version', 0)}.mp4"
-    await asyncio.to_thread(export_timeline, tl, prod, out, None, prod["settings"].get("final_codec", "libx264"),
-                            int(prod["settings"].get("final_quality", 18)),
-                            lambda m, p: self._note(job, m, p))
+    assembled = Path(prod.get("output_path") or "")
+    if not int(tl.get("version", 0)) and prod.get("status") == "done" and assembled.is_file():
+        # Timeline mai modificata: il film montato e' gia' quello definitivo. Ricostruirlo dalla timeline
+        # perdeva dissolvenze, correzioni di montaggio e volume (prova della sonda, 9/11/2026: 40 s invece
+        # di 37 e -18,8 LUFS invece di -16).
+        import shutil
+        self._note(job, "Film montato riusato (timeline invariata)", 0.5)
+        await asyncio.to_thread(shutil.copy2, assembled, out)
+    else:
+        await asyncio.to_thread(export_timeline, tl, prod, out, None, prod["settings"].get("final_codec", "libx264"),
+                                int(prod["settings"].get("final_quality", 18)),
+                                lambda m, p: self._note(job, m, p))
+        target = float((prod.get("settings") or {}).get("loudnorm_lufs") or 0)
+        if target:
+            from .finishing import loudnorm
+            self._note(job, f"Volume a {target:g} LUFS", 0.95)
+            loudness = await asyncio.to_thread(loudnorm, out, target)
+            prod = self.prods.get(pid)
+            prod["loudness"] = loudness
+            self.prods.save(prod)
     prod = self.prods.get(pid)
     prod["output_path"] = str(out)
     prod['quality_status'] = 'approved'

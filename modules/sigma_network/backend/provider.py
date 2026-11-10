@@ -167,7 +167,7 @@ class InferenceProvider:
         caller_ip: str = "anon",
     ) -> Any:
         """Serve una richiesta di inferenza tracciando la telemetria live.
-
+        
         Supporta sia la modalità generator-stream per FastAPI, sia la modalità
         sincrona quando invocata con engine_fn nei test.
         """
@@ -176,7 +176,7 @@ class InferenceProvider:
             prompt = payload_or_prompt if isinstance(payload_or_prompt, str) else payload_or_prompt.get("prompt", "")
             mid = model_id or (payload_or_prompt.get("model", "") if isinstance(payload_or_prompt, dict) else "unknown")
             mtok = max_tokens or (payload_or_prompt.get("max_tokens", 256) if isinstance(payload_or_prompt, dict) else 256)
-
+            
             with self._lock:
                 self._active_requests += 1
 
@@ -423,3 +423,5 @@ class InferenceProvider:
                 "history": list(self._service_history[:50]),
                 "recent_requests": list(self._service_history[:25]),
             }
+
+

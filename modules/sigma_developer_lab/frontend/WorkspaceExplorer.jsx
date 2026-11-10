@@ -1,8 +1,8 @@
 import React, { useState } from 'react';
-import {
-  Folder, FolderOpen, File, FileCode, FileText, ChevronRight, ChevronDown,
+import { 
+  Folder, FolderOpen, File, FileCode, FileText, ChevronRight, ChevronDown, 
   Plus, Trash2, Edit2, RefreshCw, Search, HardDrive, CornerDownRight,
-  Box, ExternalLink, PieChart, Sparkles
+  Box, ExternalLink, PieChart, Sparkles 
 } from 'lucide-react';
 import DockerViewerModal from './DockerViewerModal';
 import WorkspaceContextMenu from './WorkspaceContextMenu';
@@ -30,27 +30,27 @@ export const getFileIcon = (filename = '') => {
   }
 };
 
-const TreeNode = ({
-  node,
-  activeFilePath,
-  onFileSelect,
-  onDeleteEntry,
-  onCreateEntry,
+const TreeNode = ({ 
+  node, 
+  activeFilePath, 
+  onFileSelect, 
+  onDeleteEntry, 
+  onCreateEntry, 
   onOpenGraph,
   onAiCreate,
   onContextMenu,
-  theme,
+  theme, 
   isLight,
   depth = 0
 }) => {
   const isRoot = depth === 0;
   const [expanded, setExpanded] = useState(
     isRoot ||
-    node.name === 'Sigma_Studio' ||
-    node.name === 'data' ||
-    node.name === 'roles' ||
-    node.name === 'projects' ||
-    node.name === 'agent_memory' ||
+    node.name === 'Sigma_Studio' || 
+    node.name === 'data' || 
+    node.name === 'roles' || 
+    node.name === 'projects' || 
+    node.name === 'agent_memory' || 
     node.name === 'sigma_studio'
   );
 
@@ -70,7 +70,7 @@ const TreeNode = ({
 
   return (
     <div style={{ userSelect: 'none', fontSize: '0.74rem' }}>
-      <div
+      <div 
         onClick={handleRowClick}
         onContextMenu={(e) => {
           e.preventDefault();
@@ -158,10 +158,10 @@ const TreeNode = ({
             <div style={{ padding: '2px 6px', fontSize: '0.66rem', color: '#8b949e', fontStyle: 'italic' }}>(cartella vuota)</div>
           ) : (
             node.children.map(child => (
-              <TreeNode
-                key={child.path}
-                node={child}
-                activeFilePath={activeFilePath}
+              <TreeNode 
+                key={child.path} 
+                node={child} 
+                activeFilePath={activeFilePath} 
                 onFileSelect={onFileSelect}
                 onDeleteEntry={onDeleteEntry}
                 onCreateEntry={onCreateEntry}
@@ -657,7 +657,7 @@ export default function WorkspaceExplorer({
       </div>
 
       {/* Tree Content */}
-      <div
+      <div 
         onContextMenu={(e) => handleContextMenu(e, displayTree)}
         style={{
           flex: 1,
@@ -705,10 +705,10 @@ export default function WorkspaceExplorer({
       )}
 
       {/* Modale Visualizza Docker & Sandbox Monitor */}
-      <DockerViewerModal
-        isOpen={showDockerModal}
-        onClose={() => setShowDockerModal(false)}
-        isLight={isLight}
+      <DockerViewerModal 
+        isOpen={showDockerModal} 
+        onClose={() => setShowDockerModal(false)} 
+        isLight={isLight} 
         onSelectContainer={(cid) => {
           if (onSelectWorkspaceRoot) {
             onSelectWorkspaceRoot(`docker://${cid}/`);

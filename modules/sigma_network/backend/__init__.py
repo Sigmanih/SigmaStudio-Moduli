@@ -22,3 +22,4 @@ def register_mcp(mcp_hub) -> None:
         log.info("[sigma_network] Sigma Network MCP Server registrato con successo nell'MCP Hub.")
     except Exception as e:
         log.warning(f"[sigma_network] Sigma Network MCP Server non registrato: {e}")
+

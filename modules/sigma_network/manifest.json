@@ -27,13 +27,5 @@
   "size": "~1 MB",
   "icon": "Network",
   "color": "#5865f2",
-  "requirements": "requirements.txt",
-  "backend": {
-    "handlers_module": "core.modules.sigma_network.handlers",
-    "install_to": "core/modules/sigma_network/"
-  },
-  "frontend": {
-    "entrypoint": "frontend/index.jsx",
-    "install_to": "sigma_studio/src/modules/sigma_network/"
-  }
+  "requirements": "requirements.txt"
 }

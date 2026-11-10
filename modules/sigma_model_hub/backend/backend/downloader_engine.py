@@ -43,7 +43,7 @@ class ModelDownloadTask:
     completed_at: Optional[float] = None
     error_message: Optional[str] = None
     _cancel_flag: bool = False
-
+    
     # Whole-repository multi-shard support
     is_repo_download: bool = False
     files_queue: List[Dict[str, str]] = field(default_factory=list)

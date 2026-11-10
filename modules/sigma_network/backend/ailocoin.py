@@ -239,7 +239,7 @@ class Wallet:
 
     def mint_faucet(self, peer_id: str, amount: float = 100.0, force: bool = False) -> Dict[str, Any]:
         """Emette un'allocazione iniziale Genesis per permettere al nodo di effettuare richieste.
-
+        
         Protezione Anti-Sybil: consente una sola erogazione per wallet a meno di force=True.
         """
         if amount <= 0:
@@ -328,7 +328,7 @@ class Wallet:
         note: str = "",
     ) -> Dict[str, Any]:
         """Trasferisce AiloCoin dal mittente a un peer destinatario.
-
+        
         Verifica il saldo del mittente, applica nonce sequenziale per prevenire
         la doppia spesa e registra una ricevuta crittograficamente firmata.
         """

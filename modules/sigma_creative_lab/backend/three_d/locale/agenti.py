@@ -1,13 +1,13 @@
 """Dal ritratto di un agente al suo personaggio 3D animabile, in un solo comando.
 
-La catena che ha prodotto i personaggi della plancia, senza passi a mano:
+La catena che produce i personaggi della plancia, senza passi a mano:
 
-1. FLUX.2 klein 4B (Apache 2.0) disegna dal ritratto alcune figure intere in
-   A-pose, con le braccia larghe: con le braccia vicine ai fianchi TRELLIS le
-   univa al busto e il rig lasciava schegge;
+1. FLUX.2 klein 4B (Apache 2.0) ricostruisce dal ritratto una figura intera
+   in posa rilassata, con le braccia vicine ai fianchi ma separate dal busto;
 2. scegli_variante.py sceglie la figura con le braccia piu' staccate;
-3. TRELLIS fa la mesh, Blender la alleggerisce (12k triangoli, texture 1024);
-4. blender_rig.py le da' lo scheletro della Universal Animation Library (CC0).
+3. TRELLIS fa la mesh; Blender proietta la foto sul fronte e cuoce una texture
+   fino a 4096 px su una mesh da 120k triangoli;
+4. blender_rig.py applica i pesi e rende la posa rilassata quella di riposo.
 
 Il risultato finisce in works/creative/agenti_3d/<nome>/ e nel Creative Studio
 come asset 3D. Per pubblicarlo con il ruolo: tools/agenti_3d/pacchetti.py.
@@ -36,13 +36,14 @@ log = get_logger("creative.agenti_3d")
 # esplicitamente, altrimenti klein li porta nella figura e TRELLIS li fonde al corpo.
 PROMPT_FIGURA = (
     "Full body shot of the exact same character as in the reference image, same face, same outfit, "
-    "same colors and materials. Standing upright in an A-pose: both arms straight, extended diagonally "
-    "down and outward at about 45 degrees from the torso, with a wide clear gap of empty space between "
-    "each arm and the body, hands open with palms facing forward, legs straight with feet shoulder "
-    "width apart, facing the camera. "
+    "same colors and materials. Standing upright in a calm, natural neutral stance, facing the camera. "
+    "Both arms hang beside the torso, angled only 12 degrees outward, shoulders relaxed, elbows softly "
+    "bent, hands relaxed beside the upper thighs with palms facing inward. Keep a narrow but clearly "
+    "visible strip of empty background between each arm and the torso from armpit to wrist; do not raise "
+    "or spread the arms. Legs straight with feet shoulder-width apart. "
     "The whole figure is visible from the top of the head to the feet, centered. "
     "Plain light grey studio background, soft even lighting, no shadows on the floor. "
-    "No table, no furniture, no props, no other people, no text."
+    "No table, no furniture, no props, no other people, no text, no writing, no labels, no logos."
 )
 
 
@@ -95,7 +96,8 @@ async def genera_agente(nome: str, ritratto: Path, varianti: int = 4, seed: int 
     await asyncio.to_thread(TL.genera_mesh, {"mesh": scelta}, cartella, 1)
     statico = cartella / "statico.glb"
     dettagli = await asyncio.to_thread(TL.ottimizza, cartella / "mesh" / "alto_gauss.ply", statico,
-                                       12000, 1024, cartella / "anteprima.png")
+                                       120000, 4096, cartella / "anteprima.png",
+                                       cartella / "mesh" / "ritaglio.png")
     personaggio = cartella / "personaggio.glb"
     await asyncio.to_thread(TL.rig, statico, personaggio)
 

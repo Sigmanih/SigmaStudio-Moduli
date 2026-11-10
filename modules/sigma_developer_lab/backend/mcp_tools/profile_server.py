@@ -202,3 +202,4 @@ class ProfileMCPServer(BaseMCPServer):
             )
         else:
             return {"success": False, "error": f"target_type non valido: {target_type}"}
+

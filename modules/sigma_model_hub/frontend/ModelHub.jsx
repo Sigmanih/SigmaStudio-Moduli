@@ -719,10 +719,10 @@ export default function ModelHub({ addToast: addToastProp, openTab }) {
 
 
   return (
-    <div
-      className="model-hub-container"
-      style={{
-        background: 'var(--bg)',
+    <div 
+      className="model-hub-container" 
+      style={{ 
+        background: 'var(--bg)', 
         color: textPrimary,
         padding: 0,
         margin: 0,
@@ -1333,7 +1333,7 @@ export default function ModelHub({ addToast: addToastProp, openTab }) {
               {/* Modalità importazione */}
               <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', alignItems: 'center' }}>
                 <span style={{ fontSize: '0.72rem', fontWeight: 700, color: textMuted }}>Modalità:</span>
-
+                
                 <button
                   type="button"
                   onClick={() => setImportMode('add_path')}
@@ -2047,3 +2047,4 @@ export default function ModelHub({ addToast: addToastProp, openTab }) {
     </div>
   );
 }
+

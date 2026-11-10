@@ -33,6 +33,10 @@ def resolve_underlying_model(model_name: Optional[str]) -> str:
     raw = (model_name or "").strip()
     cleaned = raw[6:].strip() if raw.startswith("sigma:") else raw
 
+    # Il prefisso identifica un checkpoint concreto, anche quando si chiama sigma.
+    if raw.lower() == "sigma:sigma":
+        return "sigma:sigma"
+
     # Se e' gia' un identificatore concreto (es. 'sigma:Qwen/Qwen3.8-27B' o 'gpt-4o'), usalo
     if cleaned and cleaned.lower() not in GENERIC_ALIASES:
         return raw
@@ -42,7 +46,7 @@ def resolve_underlying_model(model_name: Optional[str]) -> str:
         from core.engine.unified_runtime import sigma_engine
         if sigma_engine and getattr(sigma_engine, "has_resident_model", False) and sigma_engine.loaded_model_name:
             vram_m = sigma_engine.loaded_model_name.strip()
-            if vram_m and vram_m.lower() not in GENERIC_ALIASES:
+            if vram_m and (vram_m.lower() not in GENERIC_ALIASES or vram_m.lower() == "sigma"):
                 return f"sigma:{vram_m}"
     except Exception as exc:
         log.debug("[model_resolver] VRAM inspection error: %s", exc)

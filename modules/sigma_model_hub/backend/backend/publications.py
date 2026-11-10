@@ -214,3 +214,4 @@ def update_repo_id(old_repo_id: str, new_repo_id: str, new_url: str = "") -> boo
             _salva(dati)
             log.info("[Publications] Repository aggiornato nel registro: %s -> %s", old_id, new_id)
         return updated
+

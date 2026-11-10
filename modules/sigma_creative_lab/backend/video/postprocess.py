@@ -268,24 +268,35 @@ def ddcolor_weights() -> Path:
 
 _PY_CHECKED: dict[str, bool] = {}
 
+# Un torch che si importa ma non ha i kernel della scheda (torch 2.6 cu124 del .venv sulle RTX 50,
+# sm_120) fallisce solo al primo calcolo, a meta' pipeline: il controllo prova anche quello.
+_TORCH_CHECK = (
+    "import torch, cv2\n"
+    "if torch.cuda.is_available():\n"
+    "    major, minor = torch.cuda.get_device_capability(0)\n"
+    "    assert f'sm_{major}{minor}' in torch.cuda.get_arch_list()\n"
+    "    torch.ones(1, device='cuda').add_(1)\n"
+)
+
 
 def torch_python() -> Path | None:
     """Interprete con torch e OpenCV per i worker (Real-ESRGAN, DDColor).
 
-    Il venv delle voci se c'e', altrimenti quello del server: senza ripiego
-    ESRGAN restava inutilizzabile su una macchina con torch ma senza le Voci.
-    Il server non importa torch (lo fa il worker in un processo a parte): il
-    controllo lancia l'interprete una volta e ricorda l'esito.
+    Il venv delle voci se c'e', poi quello del server, poi il Python da cui il venv
+    e' nato: senza ripiego ESRGAN restava inutilizzabile su una macchina con torch
+    ma senza le Voci. Il server non importa torch (lo fa il worker in un processo a
+    parte): il controllo lancia l'interprete una volta e ricorda l'esito.
     """
     from core.modules.sigma_creative_lab.voice.runtime import venv_python
-    for py in (venv_python(), Path(sys.executable)):
+    base = Path(getattr(sys, "_base_executable", "") or sys.executable)
+    for py in (venv_python(), Path(sys.executable), base):
         if not py.is_file():
             continue
         key = str(py)
         if key not in _PY_CHECKED:
             flags = subprocess.CREATE_NO_WINDOW if hasattr(subprocess, "CREATE_NO_WINDOW") else 0
             try:
-                _PY_CHECKED[key] = subprocess.run([key, "-c", "import torch, cv2"], capture_output=True,
+                _PY_CHECKED[key] = subprocess.run([key, "-c", _TORCH_CHECK], capture_output=True,
                                                   timeout=120, creationflags=flags).returncode == 0
             except (OSError, subprocess.TimeoutExpired) as e:
                 log.warning(f"controllo di {key} per la ricolorazione fallito: {e}")

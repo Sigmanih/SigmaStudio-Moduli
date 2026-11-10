@@ -28,7 +28,7 @@ export default function McpQuickActionsBar({ workspaceRoot, onLogTerminal, isLig
       });
       const data = await res.json();
       const outputText = data.message || data.content || (data.result ? JSON.stringify(data.result, null, 2) : 'Esecuzione completata.');
-
+      
       setModalResult({
         title: title || toolName,
         success: data.success !== false,

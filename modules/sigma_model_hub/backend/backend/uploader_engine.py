@@ -309,7 +309,7 @@ def _detect_model_config(local_path: str) -> Dict[str, Any]:
                 q_match = re.search(r'(Q[0-9]_[A-Z0-9_]+|IQ[0-9]_[A-Z0-9_]+|FP16|FP32|BF16|FP8|INT8|INT4)', g_name, re.IGNORECASE)
                 if q_match:
                     quant_candidates.append(q_match.group(1).upper())
-
+            
             if not quant_candidates:
                 folder_q_match = re.search(r'(Q[0-9]_[A-Z0-9_]+|IQ[0-9]_[A-Z0-9_]+|FP16|FP32|BF16|FP8|INT8|INT4)', os.path.basename(local_path), re.IGNORECASE)
                 if folder_q_match:

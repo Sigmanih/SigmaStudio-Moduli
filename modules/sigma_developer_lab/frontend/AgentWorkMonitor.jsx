@@ -170,7 +170,7 @@ export default function AgentWorkMonitor({
         <span style={{ fontSize: '0.68rem', fontWeight: 800, color: text }}>
           Stato del lavoro
         </span>
-
+        
         {/* Task Mode Badge */}
         <span
           style={{
@@ -227,7 +227,7 @@ export default function AgentWorkMonitor({
                 ? (isExploration
                     ? 'Pronto a completare: consultazione file e sintesi grounded completate con successo.'
                     : 'Pronto a completare: modifiche applicate e ultima verifica terminata con successo.')
-                : (gateReason || (isExploration
+                : (gateReason || (isExploration 
                     ? 'In corso: raccogli informazioni sui file con read_file o search_code.'
                     : 'Non ancora completabile: servono modifiche ai file e una verifica riuscita.'))}
             </span>

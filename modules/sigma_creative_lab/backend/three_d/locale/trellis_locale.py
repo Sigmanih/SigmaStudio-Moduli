@@ -90,13 +90,15 @@ def genera_mesh(immagini: dict[str, Path], uscita: Path, seed: int = 1) -> None:
              "--uscita", str(uscita), "--seed", str(seed)], TIMEOUT_TRELLIS, env)
 
 
-def ottimizza(ply: Path, glb: Path, triangoli: int = 12000, texture: int = 1024,
-              anteprima: Path | None = None) -> dict:
+def ottimizza(ply: Path, glb: Path, triangoli: int = 40000, texture: int = 2048,
+              anteprima: Path | None = None, riferimento: Path | None = None) -> dict:
     cmd = [blender_exe(), "--background", "--factory-startup", "--python", str(QUI / "blender_ottimizza.py"),
            "--", "--ingresso", str(ply), "--uscita", str(glb), "--triangoli", str(triangoli),
            "--texture", str(texture)]
     if anteprima:
         cmd += ["--anteprima", str(anteprima)]
+    if riferimento:
+        cmd += ["--riferimento", str(riferimento)]
     _esegui(cmd, TIMEOUT_BLENDER)
     return json.loads(glb.with_name("dettagli.json").read_text(encoding="utf-8"))
 

@@ -444,3 +444,4 @@ class DeveloperFsMCPServer(BaseMCPServer):
         return _testo(json.dumps(
             {"righe": scelte[-quante:], "mostrate": len(scelte[-quante:]), "totale": totale},
             ensure_ascii=False, indent=2))
+

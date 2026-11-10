@@ -116,7 +116,9 @@ def prepare(store, prod, ask_text=None, progress=lambda message, value: None):
             raise ValueError('Video non approvato dal controllo di integrità visiva')
         from .visual_integrity import require
         for shot in prod.get('shots',[]):
-            require(shot)
+            # Le scartate non sono nel film: senza questa eccezione una sola clip tolta bloccava la pubblicazione.
+            if shot.get('status') != 'skipped':
+                require(shot)
         if ask_text is None:
             from core.harness.vista import occhio
             ask_text = occhio.chiedi

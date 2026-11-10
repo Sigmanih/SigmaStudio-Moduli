@@ -100,6 +100,21 @@ def english_metadata(facts, info, cards):
     return _validate_localization({'title': title, 'description': '\n'.join(lines)})
 
 
+#: Alfabeti che una traduzione deve usare: il modello della vista ha scritto la descrizione "araba" in cinese
+#: (prova della sonda, 9/11/2026) e la pubblicazione si fermava senza riprovare.
+SCRIPTS = {'ar': r'[\u0600-\u06ff]', 'zh': r'[\u4e00-\u9fff]', 'ja': r'[\u3040-\u30ff\u4e00-\u9fff]',
+           'ko': r'[\uac00-\ud7af]', 'ru': r'[\u0400-\u04ff]', 'uk': r'[\u0400-\u04ff]', 'hi': r'[\u0900-\u097f]',
+           'el': r'[\u0370-\u03ff]', 'he': r'[\u0590-\u05ff]'}
+
+
+def script_problem(language, value):
+    """Perche' una traduzione non e' nella scrittura della sua lingua, o '' se va bene."""
+    pattern = SCRIPTS.get(language)
+    if pattern and not re.search(pattern, value.get('description', '')):
+        return f'the description must be written in {LANG_NAMES.get(language, language)} script, not another language'
+    return ''
+
+
 def localizations(base, languages, ask_text, cache_path, progress, check_cancelled):
     identity = hashlib.sha256(json.dumps(base, sort_keys=True).encode()).hexdigest()
     store = JsonStore(cache_path, default={})
@@ -115,9 +130,11 @@ def localizations(base, languages, ask_text, cache_path, progress, check_cancell
             value = saved.get(language)
             if value:
                 value = _validate_localization(value)
-            else:
+                if script_problem(language, value):
+                    value = None              # traduzione sbagliata rimasta in cache: si rifa'
+            if not value:
                 error = ''
-                for _ in range(2):
+                for _ in range(3):
                     answer = ask_text('Translate this YouTube title and description into ' + LANG_NAMES[language] + '. '
                         'Preserve facts, proper names, resolution, every chapter timestamp and the Sigma Studio brand. '
                         'Do not add dates, cast, sources, public-domain claims or other facts. '
@@ -128,6 +145,9 @@ def localizations(base, languages, ask_text, cache_path, progress, check_cancell
                         value = _validate_localization(json.loads(text[text.index('{'):text.rindex('}') + 1]))
                         if re.findall(r'^\d+:\d\d(?::\d\d)?(?= )', value['description'], re.M) != source_times:
                             raise ValueError('I tempi dei capitoli sono stati modificati')
+                        problem = script_problem(language, value)
+                        if problem:
+                            raise ValueError(problem)
                         break
                     except (ValueError, TypeError) as exc:
                         value = None

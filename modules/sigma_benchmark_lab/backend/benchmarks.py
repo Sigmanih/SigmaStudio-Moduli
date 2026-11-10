@@ -2309,6 +2309,9 @@ def _run_official_benchmark(job_id: str, model_name: str, suite_id: str,
                             is_extension: bool = False, thinking_mode: str | None = None):
     """Esegue i quesiti su un pool di worker, versando gli esiti nello store."""
     import concurrent.futures
+    execution_environment = {}
+    if is_extension:
+        _update_job_state(job_id, {'checkpoint_history_unverified': True})
 
     from core.modules.sigma_benchmark_lab.endpoints import EndpointPool
 
@@ -2574,6 +2577,7 @@ def _run_official_benchmark(job_id: str, model_name: str, suite_id: str,
         """
         from core.engine.unified_runtime import sigma_engine
 
+        nonlocal execution_environment
         target = _sigma_target(model_name)
 
         # I pesi si caricano qui, prima del primo quesito. Due ragioni: un
@@ -2587,6 +2591,36 @@ def _run_official_benchmark(job_id: str, model_name: str, suite_id: str,
         if not load.get("success"):
             raise ModelUnavailable(load.get("error") or "caricamento fallito",
                                    load.get("message") or "")
+
+        # La velocita' dipende dalla collocazione reale: lo storico deve
+        # conservarla, invece di dedurla dal motore caricato in seguito.
+        try:
+            backend = sigma_engine.active_backend_instance
+            if backend is not None:
+                settings = backend.telemetry() or {}
+                from core.engine.checkpoint_identity import current_checkpoint_identity
+                execution_environment = {
+                    "backend": backend.name,
+                    "model": sigma_engine.loaded_model_name,
+                    "checkpoint": current_checkpoint_identity(sigma_engine),
+                    "settings": {k: settings.get(k) for k in (
+                        "n_ctx", "main_gpu", "forced_single_gpu", "tensor_split",
+                        "n_gpu_layers", "kv_quant", "n_batch", "parallel_slots", "slot_ctx")},
+                    "placement": backend.describe_placement(),
+                }
+                from pathlib import Path
+                from core.modules.sigma_benchmark_lab import answer_parser, code_exec, protocols
+                components = {}
+                for component in (answer_parser, code_exec, protocols):
+                    source = Path(component.__file__)
+                    if source.stat().st_size > 2**20:
+                        raise ValueError('Valutatore oltre il budget di lettura')
+                    components[component.__name__] = hashlib.sha256(source.read_bytes()).hexdigest()
+                execution_environment['evaluation_implementation'] = hashlib.sha256(
+                    json.dumps(components, sort_keys=True).encode()).hexdigest()
+                _update_job_state(job_id, {"execution_environment": execution_environment})
+        except Exception as exc:
+            log.warning("Collocazione del benchmark non registrata: %s", exc)
 
         batch = sigma_engine.auto_batch_size(concurrency)
         endpoint_used = (f"⚡ SigmaEngine ({target})"
@@ -2851,6 +2885,18 @@ def _run_official_benchmark(job_id: str, model_name: str, suite_id: str,
 
     _cancel_requested.discard(job_id)
     _pause_requested.discard(job_id)
+
+    if execution_environment:
+        from core.engine.unified_runtime import sigma_engine
+        from core.engine.checkpoint_identity import current_checkpoint_identity
+        execution_environment['checkpoint_after'] = current_checkpoint_identity(sigma_engine)
+        execution_environment['model_after'] = sigma_engine.loaded_model_name
+        backend = sigma_engine.active_backend_instance
+        execution_environment['runtime_after'] = {
+            'backend': backend.name if backend else None,
+            'settings': backend.telemetry() if backend else {},
+        }
+        _update_job_state(job_id, {'execution_environment': execution_environment})
 
     metrics = _compute_metrics(counts, completed, total, tokens_total, duration_total, latency_sum,
                                thinking_counts, no_thinking_counts)
@@ -3195,6 +3241,8 @@ def _worker_run_rerun_suite(job_id: str, model_name: str, suite_id: str, concurr
 
 def _run_suite_rerun(job_id: str, model_name: str, suite_id: str, concurrency: int):
     """Esegue nuovamente i quesiti della suite target conservando le altre suite."""
+    # Una sostituzione parziale non certifica retroattivamente le righe conservate.
+    _update_job_state(job_id, {'checkpoint_history_unverified': True})
     from core.modules.sigma_benchmark_lab.endpoints import EndpointPool
     import concurrent.futures
 

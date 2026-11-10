@@ -41,10 +41,12 @@ def argomenti() -> argparse.Namespace:
     p = argparse.ArgumentParser()
     p.add_argument("--ingresso", type=Path, required=True)
     p.add_argument("--uscita", type=Path, required=True)
-    p.add_argument("--triangoli", type=int, default=14000)
-    p.add_argument("--texture", type=int, default=1024)
+    p.add_argument("--triangoli", type=int, default=40000)
+    p.add_argument("--texture", type=int, default=2048)
     p.add_argument("--qualita-jpeg", type=int, default=85)
     p.add_argument("--anteprima", type=Path, default=None)
+    p.add_argument("--riferimento", type=Path, default=None,
+                   help="foto trasparente da proiettare sulle superfici frontali")
     p.add_argument("--ruota", type=float, default=0.0, help="gradi attorno a Y per portare il viso verso +Z")
     return p.parse_args(argv)
 
@@ -146,16 +148,61 @@ def uv_automatiche(obj: bpy.types.Object) -> None:
     bpy.ops.object.mode_set(mode="OBJECT")
 
 
-def materiale_colore_vertici(obj: bpy.types.Object) -> None:
+def materiale_colore_vertici(obj: bpy.types.Object, riferimento: Path | None = None) -> None:
     mat = bpy.data.materials.new("colori_alti")
     mat.use_nodes = True
     nt = mat.node_tree
     nt.nodes.clear()
     attr = nt.nodes.new("ShaderNodeVertexColor")
     attr.layer_name = obj.data.color_attributes[0].name
+    colore = attr.outputs["Color"]
+    if riferimento and riferimento.is_file():
+        # La foto conserva occhi, cuciture e simboli che il colore per vertice
+        # perde durante la ricostruzione; la proiezione copre solo il fronte.
+        immagine = bpy.data.images.load(str(riferimento.resolve()), check_existing=True)
+        texcoord = nt.nodes.new("ShaderNodeTexCoord")
+        separate = nt.nodes.new("ShaderNodeSeparateXYZ")
+        nt.links.new(texcoord.outputs["Generated"], separate.inputs["Vector"])
+
+        mappa_x = nt.nodes.new("ShaderNodeMapRange")
+        mappa_x.inputs["From Min"].default_value = 0.0
+        mappa_x.inputs["From Max"].default_value = 1.0
+        mappa_x.inputs["To Min"].default_value = 0.02
+        mappa_x.inputs["To Max"].default_value = 0.98
+        nt.links.new(separate.outputs["X"], mappa_x.inputs["Value"])
+        mappa_z = nt.nodes.new("ShaderNodeMapRange")
+        mappa_z.inputs["From Min"].default_value = 0.0
+        mappa_z.inputs["From Max"].default_value = 1.0
+        mappa_z.inputs["To Min"].default_value = 0.05
+        mappa_z.inputs["To Max"].default_value = 0.94
+        nt.links.new(separate.outputs["Z"], mappa_z.inputs["Value"])
+        coordinate = nt.nodes.new("ShaderNodeCombineXYZ")
+        nt.links.new(mappa_x.outputs["Result"], coordinate.inputs["X"])
+        nt.links.new(mappa_z.outputs["Result"], coordinate.inputs["Y"])
+        texture = nt.nodes.new("ShaderNodeTexImage")
+        texture.image = immagine
+        texture.extension = "CLIP"
+        nt.links.new(coordinate.outputs["Vector"], texture.inputs["Vector"])
+
+        profondita = nt.nodes.new("ShaderNodeMapRange")
+        profondita.clamp = True
+        profondita.inputs["From Min"].default_value = 0.05
+        profondita.inputs["From Max"].default_value = 0.55
+        profondita.inputs["To Min"].default_value = 1.0
+        profondita.inputs["To Max"].default_value = 0.0
+        nt.links.new(separate.outputs["Y"], profondita.inputs["Value"])
+        maschera = nt.nodes.new("ShaderNodeMath")
+        maschera.operation = "MULTIPLY"
+        nt.links.new(texture.outputs["Alpha"], maschera.inputs[0])
+        nt.links.new(profondita.outputs["Result"], maschera.inputs[1])
+        miscela = nt.nodes.new("ShaderNodeMixRGB")
+        nt.links.new(maschera.outputs["Value"], miscela.inputs[0])
+        nt.links.new(colore, miscela.inputs[1])
+        nt.links.new(texture.outputs["Color"], miscela.inputs[2])
+        colore = miscela.outputs["Color"]
     emis = nt.nodes.new("ShaderNodeEmission")
     out = nt.nodes.new("ShaderNodeOutputMaterial")
-    nt.links.new(attr.outputs["Color"], emis.inputs["Color"])
+    nt.links.new(colore, emis.inputs["Color"])
     nt.links.new(emis.outputs["Emission"], out.inputs["Surface"])
     obj.data.materials.clear()
     obj.data.materials.append(mat)
@@ -233,8 +280,8 @@ def anteprima(basso: bpy.types.Object, percorso: Path) -> None:
     scena.render.engine = "BLENDER_WORKBENCH"
     scena.display.shading.light = "FLAT"
     scena.display.shading.color_type = "TEXTURE"
-    scena.render.resolution_x = 512
-    scena.render.resolution_y = 512
+    scena.render.resolution_x = 768
+    scena.render.resolution_y = 768
     scena.render.film_transparent = True
     cam_data = bpy.data.cameras.new("cam")
     cam_data.type = "ORTHO"
@@ -257,7 +304,7 @@ def main() -> int:
     normalizza(alto, args.ruota)
     basso = decima(alto, args.triangoli)
     uv_automatiche(basso)
-    materiale_colore_vertici(alto)
+    materiale_colore_vertici(alto, args.riferimento)
     materiale_texture(basso, args.texture)
     cuoci(alto, basso)
     bpy.data.objects.remove(alto, do_unlink=True)

@@ -98,7 +98,7 @@ def _extract_author_and_name(raw_name: str) -> tuple[str, str, bool]:
 def detect_family_and_category(name: str, architecture: str = "", author: str = "", is_multimodal: bool = False) -> tuple[str, str]:
     """Detects model architecture family (e.g. Gemma, Qwen, Llama) and task category (e.g. reasoning, code, vision, llm)."""
     text = f"{name} {architecture} {author}".lower()
-
+    
     # 1. Family detection
     family = "Altro"
     if "gemma" in text:
@@ -152,7 +152,7 @@ def detect_task_type(
     config_dict: Optional[Dict[str, Any]] = None
 ) -> tuple[str, str]:
     """Rileva la modalita'/task funzionale del modello (es. text-to-text, text-to-image, image-to-text, ecc.).
-
+    
     Restituisce (task_type, task_label):
     - text-to-text: "Text to Text" (LLM, Chat, Reasoning, Code)
     - text-to-image: "Text to Image" (Diffusione, Flux, Stable Diffusion)
@@ -379,7 +379,7 @@ def _scan_single_dir(base_dir: str, is_extra: bool = False) -> List[Dict[str, An
                     author=author or "",
                     is_multimodal=has_mmproj
                 )
-
+                
                 # Check model_index.json for diffusion / multimodal pipelines
                 model_idx_path = os.path.join(full_entry_path, "model_index.json")
                 effective_cfg = cfg_data if 'cfg_data' in locals() and isinstance(cfg_data, dict) else {}
@@ -515,7 +515,7 @@ def _scan_single_dir(base_dir: str, is_extra: bool = False) -> List[Dict[str, An
 
 def scan_local_models(custom_dir: Optional[str] = None) -> List[Dict[str, Any]]:
     """Scans local disk for downloaded model files (.gguf, .safetensors, .bin, multi-shard repos).
-
+    
     If custom_dir is provided and non-empty, scans that specific directory.
     Otherwise, aggregates models from the primary models directory,
     the default store/models directory, and all configured extra directories.
@@ -592,7 +592,7 @@ def deploy_model_to_sigma_engine(
         return {"success": False, "error": f"File modello non trovato su disco: {model_path}"}
 
     model_name = os.path.basename(resolved_path).replace("--", "/")
-
+    
     if os.path.isdir(resolved_path):
         part_files = [f for f in os.listdir(resolved_path) if f.endswith((".part", ".download", ".tmp"))]
         if part_files:
@@ -879,7 +879,7 @@ def delete_local_model(model_path_or_id: str, custom_dir: Optional[str] = None) 
 
     # 3. If model is currently loaded in SigmaEngine, unload it first
     try:
-        if (sigma_engine.loaded_model_name and
+        if (sigma_engine.loaded_model_name and 
             (sigma_engine.loaded_model_name in target_path or target_path in sigma_engine.loaded_model_name)):
             sigma_engine.unload()
     except Exception as ex:
@@ -915,3 +915,4 @@ def delete_local_model(model_path_or_id: str, custom_dir: Optional[str] = None) 
     except Exception as e:
         log.error(f"[ModelInventory] Errore cancellazione modello {target_path}: {e}")
         return {"success": False, "error": f"Errore durante l'eliminazione dei file: {str(e)}"}
+

@@ -67,6 +67,13 @@ SCHEMI = (
                         "description": "ID voce associata in Voice Studio (opzionale)",
                         "default": "",
                     },
+                    "kind": {
+                        "type": "string",
+                        "enum": ["person", "object"],
+                        "description": "person per persone e animali; object per un soggetto ricorrente che non e' "
+                                       "una persona (sonda, astronave, veicolo, robot): stessa scheda, viste da oggetto",
+                        "default": "person",
+                    },
                 },
                 "required": ["name", "description"],
             },
@@ -182,6 +189,8 @@ SCHEMI = (
                     "style": {"type": "string", "description": "Stile visivo (es. 'Cinematic 35mm, dark moody lighting')", "default": ""},
                     "video_model": {"type": "string", "enum": ["ltx25", "h3"], "description": "Modello video da usare", "default": "ltx25"},
                     "genre": {"type": "string", "description": "Genere della produzione", "default": "realistic"},
+                    "negative": {"type": "string", "description": "Prompt negativo in inglese (cosa NON deve comparire)", "default": ""},
+                    "settings": {"type": "object", "description": "Impostazioni iniziali, stesse chiavi di video_prod_settings"},
                 },
                 "required": ["title", "treatment"],
             },
@@ -221,6 +230,9 @@ SCHEMI = (
                     "props": {"type": "array", "items": {"type": "string"}, "description": "Oggetti di scena visibili"},
                     "characters": {"type": "array", "items": {"type": "string"}, "description": "Nomi dei personaggi visibili"},
                     "audio": {"type": "string", "description": "Audio, battuta o commento sonoro", "default": ""},
+                    "start_frame_prompt": {"type": "string", "description": "Descrizione (in inglese) del solo PRIMO fotogramma: una posa ferma, da cui parte il video. Vuoto = il prompt"},
+                    "reverse": {"type": "boolean", "description": "Monta la clip al contrario (es. alba resa come tramonto)"},
+                    "night_gain": {"type": "boolean", "description": "Guadagno per fotogramma sulle notti che sfumano nel nero"},
                 },
                 "required": ["prod_id", "prompt"],
             },
@@ -242,12 +254,82 @@ SCHEMI = (
                     "props": {"type": "array", "items": {"type": "string"}, "description": "Lista aggiornata dei props"},
                     "characters": {"type": "array", "items": {"type": "string"}, "description": "Personaggi aggiornati"},
                     "audio": {"type": "string", "description": "Audio o dialogo aggiornato"},
+                    "start_frame_prompt": {"type": "string", "description": "Descrizione in inglese del solo primo fotogramma (posa ferma) usata dal generatore dei fotogrammi chiave"},
+                    "seed": {"type": "integer", "description": "Seme fisso dell'inquadratura"},
+                    "reverse": {"type": "boolean", "description": "Montaggio: clip al contrario, video e audio (alba resa come tramonto). Non rifa' la clip"},
+                    "night_gain": {"type": "boolean", "description": "Montaggio: guadagno per fotogramma riferito al primo secondo, tetto 3x; taglia la clip se serve di piu' (mai sotto 7 s). Non rifa' la clip"},
+                    "trim_end_s": {"type": "number", "description": "Montaggio: secondi da togliere alla fine della clip (0-8)"},
                 },
                 "required": ["prod_id", "shot_index"],
             },
         },
     },
 
+    {"type": "function", "function": {
+        "name": "video_prod_settings",
+        "description": ("Cambia le impostazioni della produzione a render fermo, con valori controllati. Chiavi: video_model "
+                        "(ltx25|h3), width+height (insieme, multipli di 32, es. 1280x704; anche resolution='1280x704'), fps, "
+                        "steps, seed, max_clip_seconds (2-15, LTX 10), max_chain, max_attempts, output_height "
+                        "(0|720|1080|1440|2160), upscaler (esrgan|seedvr2|lanczos), judge, judge_mode "
+                        "(severe|advise|strict), judge_threshold, judge_passes, motion_guard, keyframes, color_match, "
+                        "color_strength, final_quality, writer_model, ambience, pov (true: soggettiva, il veicolo e' la camera e non si vede), crossfade_s (dissolvenza fra riprese, "
+                        "0-3; mai dentro le catene continue), loudnorm_lufs (volume finale, es. -16; 0 = spento)."),
+        "parameters": {"type": "object", "properties": {
+            "prod_id": {"type": "string"},
+            "settings": {"type": "object", "description": "Chiavi e valori da cambiare, es. {output_height: 2160, crossfade_s: 1}"}},
+            "required": ["prod_id", "settings"]}}},
+    {"type": "function", "function": {
+        "name": "video_prod_bible",
+        "description": "Imposta stile visivo, prompt negativo (negative, in inglese), stile audio e genere comuni a tutte le inquadrature.",
+        "parameters": {"type": "object", "properties": {
+            "prod_id": {"type": "string"},
+            "style": {"type": "string", "description": "Stile visivo in inglese"},
+            "negative": {"type": "string", "description": "Cosa non deve comparire, in inglese (es. 'text, watermark, people, vehicles')"},
+            "audio_style": {"type": "string", "description": "Atmosfera sonora e musicale, in inglese"},
+            "genre": {"type": "string", "description": "realistic | anime | cartoon3d | illustration"}},
+            "required": ["prod_id"]}}},
+    {"type": "function", "function": {
+        "name": "video_prod_skip_shot",
+        "description": ("Toglie un'inquadratura dal film senza cancellarla (skip=false la rimette in coda). Una clip che resta "
+                        "failed blocca il montaggio: scartala per chiudere il film."),
+        "parameters": {"type": "object", "properties": {
+            "prod_id": {"type": "string"}, "shot_index": {"type": "integer"},
+            "skip": {"type": "boolean", "default": True}, "reason": {"type": "string"}},
+            "required": ["prod_id", "shot_index"]}}},
+    {"type": "function", "function": {
+        "name": "video_prod_remove_shot",
+        "description": "Cancella un'inquadratura dallo storyboard; gli indici successivi scalano di uno.",
+        "parameters": {"type": "object", "properties": {
+            "prod_id": {"type": "string"}, "shot_index": {"type": "integer"}},
+            "required": ["prod_id", "shot_index"]}}},
+    {"type": "function", "function": {
+        "name": "video_review_queue",
+        "description": ("Clip in attesa di revisione (review_required), a pagine: per ognuna sha256 e contact_sheet, un "
+                        "provino di 12 fotogrammi dal primo all'ultimo da guardare con view_image. Poi video_review_batch."),
+        "parameters": {"type": "object", "properties": {
+            "prod_id": {"type": "string"}, "limit": {"type": "integer", "default": 12}},
+            "required": ["prod_id"]}}},
+    {"type": "function", "function": {
+        "name": "video_review_batch",
+        "description": ("Decide piu' clip insieme dopo averne guardato i provini e rilancia il render se resta lavoro (catene "
+                        "continue comprese). verdict: approve (anatomia, oggetti e continuita' verificati), reject, redo "
+                        "(rifalla, con fix opzionale in inglese), skip (fuori dal film). Ogni decisione porta lo sha256 "
+                        "di video_review_queue; reverse/night_gain/trim_end_s applicano le correzioni di montaggio."),
+        "parameters": {"type": "object", "properties": {
+            "prod_id": {"type": "string"},
+            "decisions": {"type": "array", "items": {"type": "object", "properties": {
+                "shot_index": {"type": "integer"}, "shot_id": {"type": "string"},
+                "verdict": {"type": "string", "enum": ["approve", "reject", "redo", "skip"]},
+                "sha256": {"type": "string", "description": "sha256 dato da video_review_queue; se manca vale "
+                                                            "quello della clip che la coda ti ha mostrato"},
+                "reason": {"type": "string", "description": "Cosa hai visto (almeno 40 caratteri; se manca vale quello comune)"},
+                "fix": {"type": "string"}, "reverse": {"type": "boolean"}, "night_gain": {"type": "boolean"},
+                "trim_end_s": {"type": "number"}},
+                "required": ["verdict"]}},
+            "reason": {"type": "string", "description": "Motivazione comune alle decisioni senza la propria (almeno 40 caratteri)"},
+            "confirmed": {"type": "boolean", "description": "true: hai guardato i provini di tutte le clip decise"},
+            "restart": {"type": "boolean", "default": True}},
+            "required": ["prod_id", "decisions", "confirmed"]}}},
     # --- Render, Qualità e Ispezione ---
     {
         "type": "function",
@@ -361,7 +443,9 @@ SCHEMI = (
         "type": "function",
         "function": {
             "name": "video_render_status",
-            "description": "Avanzamento del render: inquadratura corrente, ultimi eventi, clip completate.",
+            "description": "Avanzamento del render: inquadratura corrente, ultimi eventi, clip completate. "
+                           "Con wait_s aspetta (fino a 3600 s) che il render finisca: durante il render le GPU "
+                           "sono riservate, non controllare lo stato a ripetizione.",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -369,6 +453,11 @@ SCHEMI = (
                         "type": "string",
                         "description": "Produzione (opzionale)",
                         "default": ""
+                    },
+                    "wait_s": {
+                        "type": "number",
+                        "description": "Secondi da aspettare la fine del render prima di rispondere (0 = subito, max 3600)",
+                        "default": 0
                     }
                 },
                 "required": []

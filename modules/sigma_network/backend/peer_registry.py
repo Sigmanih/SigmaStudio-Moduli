@@ -311,3 +311,4 @@ class PeerRegistry:
                 "cluster_status": "active" if online_count > 1 else "solo",
             },
         }
+

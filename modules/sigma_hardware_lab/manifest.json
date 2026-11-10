@@ -39,19 +39,5 @@
       "reason_if_unavailable": null
     },
     "modules": []
-  },
-  "backend": {
-    "handlers_module": "core.modules.sigma_hardware_lab.handlers",
-    "mcp_server_module": "core.modules.sigma_hardware_lab.mcp_server",
-    "routes_prefix": "/api/hardware",
-    "install_to": "core/modules/sigma_hardware_lab/"
-  },
-  "frontend": {
-    "entrypoint": "frontend/index.jsx",
-    "styles": [
-      "frontend/styles/hardware-lab.css"
-    ],
-    "install_to": "sigma_studio/src/modules/sigma_hardware_lab/"
-  },
-  "kernel_modules_required": []
+  }
 }

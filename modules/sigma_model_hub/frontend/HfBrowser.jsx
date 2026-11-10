@@ -615,7 +615,7 @@ export default function HfBrowser({ isLight, addToast, onDownloadStarted, active
               Da Preferiti
             </span>
           </label>
-
+ 
           {/* Mobile Filters Toggle Button */}
           <button
             type="button"
@@ -1181,11 +1181,11 @@ export default function HfBrowser({ isLight, addToast, onDownloadStarted, active
                                     onClick={() => setSelectedQuantMap(prev => ({ ...prev, [m.id]: gf.filename }))}
                                     style={{
                                       padding: '3px 8px', borderRadius: '5px',
-                                      border: isSelected
-                                        ? '1.5px solid #10b981'
+                                      border: isSelected 
+                                        ? '1.5px solid #10b981' 
                                         : (isGfDownloaded ? '1px solid rgba(16, 185, 129, 0.45)' : subBorder),
-                                      background: isSelected
-                                        ? 'rgba(16, 185, 129, 0.25)'
+                                      background: isSelected 
+                                        ? 'rgba(16, 185, 129, 0.25)' 
                                         : (isGfDownloaded ? 'rgba(16, 185, 129, 0.08)' : subBg),
                                       color: isSelected ? '#10b981' : (isGfDownloaded ? '#10b981' : textPrimary),
                                       fontSize: '0.66rem', fontWeight: (isSelected || isGfDownloaded) ? 800 : 600,

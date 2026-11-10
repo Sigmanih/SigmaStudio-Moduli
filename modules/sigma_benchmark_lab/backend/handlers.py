@@ -46,6 +46,17 @@ def handle_benchmark_jobs(self):
     self.send_json_response(list_benchmark_jobs())
 
 
+def handle_benchmark_sigma_baseline(self):
+    from .sigma_baseline import get_baseline_report
+    self.send_json_response(get_baseline_report())
+
+
+def handle_benchmark_sigma_prepare(self):
+    from .sigma_baseline import prepare_baseline
+    result = prepare_baseline(self.read_json_body().get("model", ""))
+    self.send_json_response(result, 200 if result.get("success") else 409)
+
+
 def handle_benchmark_results(self):
     from core.modules.sigma_benchmark_lab.benchmarks import get_job_detail
     self.send_json_response(get_job_detail(
@@ -300,6 +311,7 @@ def handle_benchmark_protocol_history(self):
 # ---------------------------------------------------------------- route tables
 
 GET_ROUTES = {
+    "/api/benchmark/sigma/baseline": handle_benchmark_sigma_baseline,
     # Nuove route canoniche
     "/api/benchmark/models": handle_benchmark_models,
     "/api/benchmark/jobs": handle_benchmark_jobs,
@@ -329,6 +341,7 @@ GET_ROUTES = {
 }
 
 POST_ROUTES = {
+    "/api/benchmark/sigma/prepare": handle_benchmark_sigma_prepare,
     # Nuove route canoniche
     "/api/benchmark/run": handle_benchmark_run,
     "/api/benchmark/extend": handle_benchmark_extend,
