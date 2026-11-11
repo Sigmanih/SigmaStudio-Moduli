@@ -30,7 +30,7 @@ PROFILE = {
     "seed": 42,
     "optimization_target": {
         "gpu": "RTX 5070 Ti", "vram_gib": 16,
-        "weights_budget_gib": 13, "context_tokens": 8192,
+        "weights_budget_gib": 13, "context_tokens": 32768, "kv_quant": "q8_0",
         "batch_size": 1, "allow_cpu_offload": False, "allow_second_gpu": False,
     },
 }
@@ -145,6 +145,7 @@ def placement_matches_target(settings: dict, placement: dict, gpu_id: int) -> bo
     return (settings.get("forced_single_gpu") is True
             and settings.get("main_gpu") == gpu_id
             and settings.get("n_ctx") == PROFILE["optimization_target"]["context_tokens"]
+            and settings.get("kv_quant") == PROFILE["optimization_target"]["kv_quant"]
             and not settings.get("tensor_split")
             and placement.get("fully_offloaded") is True
             and placement.get("layers_on_cpu") == 0)
@@ -177,6 +178,8 @@ def prepare_baseline(model: str) -> dict:
             context_tokens=PROFILE["optimization_target"]["context_tokens"],
             target_hardware=f"gpu:{gpu_id}",
             require_full_offload=True,
+            # Fissata: senza, la cache cambiava con la VRAM libera e le misure non erano confrontabili.
+            kv_quant=PROFILE["optimization_target"]["kv_quant"],
         )
         if not loaded.get("success"):
             return loaded
@@ -185,7 +188,8 @@ def prepare_baseline(model: str) -> dict:
         placement = backend.describe_placement() if backend else {}
         if not placement_matches_target(settings, placement, gpu_id):
             return {"success": False, "error": "Il candidato non rispetta il vincolo: tutti i layer "
-                    "sulla sola 5070 Ti, contesto 8192, senza offload CPU", "placement": placement}
+                    f"sulla sola 5070 Ti, contesto {PROFILE['optimization_target']['context_tokens']}, "
+                    f"cache KV {PROFILE['optimization_target']['kv_quant']}, senza offload CPU", "placement": placement}
         return {"success": True, "model": model, "gpu": target["name"],
                 "context_tokens": settings["n_ctx"], "placement": placement}
     except Exception as exc:
