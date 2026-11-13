@@ -2,6 +2,8 @@ import { useCallback, useEffect, useState } from 'react';
 import { Music, Mic, Radio, Download, RefreshCw, X, RotateCcw } from 'lucide-react';
 import MusicTab from '../../components/Music/MusicTab';
 import TabHeader from '../../components/common/TabHeader';
+import WorkspaceIcon from '../../components/common/WorkspaceIcon';
+import { AUDIO_SECTIONS } from '../../services/studioNavigation';
 import VoiceStudio from './VoiceStudio';
 import AudioEditor from './AudioEditor';
 import { useApp } from '../../contexts/AppContext';
@@ -23,7 +25,7 @@ function MusicStudio({ onEdit }) {
   const { openTab } = useApp();
   const openVideo = id => {
     window.sessionStorage.setItem('sigmaAudioVideoProduction',id);
-    openTab({name:'Video Studio'},'video_studio');
+    openTab({name:'Video'},'video_studio');
     window.dispatchEvent(new CustomEvent('sigma_video_open_production',{detail:id}));
   };
   const [engine, setEngine] = useState(null);
@@ -110,7 +112,7 @@ function MusicStudio({ onEdit }) {
           <span>{job.video.title}</span>
           {job.video.url && <><video controls preload="none" poster={job.video.poster_url||undefined} src={job.video.url} aria-label={`Video di ${job.result.title}`}/>
             <a href={job.video.url} download><Download size={14}/> Scarica video MP4</a></>}
-          <button className="as-secondary" onClick={()=>openVideo(job.video.production_id)}>Apri in Video Studio</button>
+          <button className="as-secondary" onClick={()=>openVideo(job.video.production_id)}>Apri in Video</button>
         </div>}
         <button className="as-secondary" onClick={()=>onEdit(job.id)}>Modifica nell’editor</button>
         <details><summary>Modifica questa base</summary>
@@ -137,19 +139,33 @@ function MusicStudio({ onEdit }) {
 
 export default function AudioStudio() {
   const [sourceJob,setSourceJob] = useState(null);
-  const [tab, setTab] = useState(() => window.sessionStorage.getItem('sigmaAudioStudioSection') === 'radio' ? 'radio' : 'music');
+  const [tab, setTab] = useState(() => {
+    try { const value = window.sessionStorage.getItem('sigmaAudioStudioSection'); return AUDIO_SECTIONS.some(s => s.id === value) ? value : 'music'; }
+    catch { return 'music'; }
+  });
+  const selectTab = useCallback(value => {
+    if (!AUDIO_SECTIONS.some(s => s.id === value)) return;
+    setTab(value);
+    try { window.sessionStorage.setItem('sigmaAudioStudioSection', value); } catch { /* La sezione resta selezionata in memoria. */ }
+  }, []);
   useEffect(() => {
-    const select = event => { if (['music', 'voice', 'radio'].includes(event.detail)) setTab(event.detail); };
+    const select = event => selectTab(event.detail);
     window.addEventListener('sigma_audio_studio_section', select);
     return () => window.removeEventListener('sigma_audio_studio_section', select);
-  }, []);
-  return <div className="as-studio"><TabHeader icon={Music} title="AudioStudio" highlight="MUSICA & VOCI"
-    description="Componi basi musicali e crea le voci dei tuoi progetti" />
-    <nav className="as-tabs" aria-label="Aree di AudioStudio">
-      <button aria-pressed={tab === 'music'} onClick={() => setTab('music')}><Music size={16} /> Musica</button>
-      <button aria-pressed={tab === 'voice'} onClick={() => setTab('voice')}><Mic size={16} /> Voci e narrazione</button>
-      <button aria-pressed={tab === 'editor'} onClick={() => setTab('editor')}><Music size={16}/> Editor audio</button>
-      <button aria-pressed={tab === 'radio'} onClick={() => setTab('radio')}><Radio size={16} /> Radio</button>
-    </nav><div className="as-content">{tab === 'music' ? <MusicStudio onEdit={id=>{setSourceJob(id);setTab('editor');}} /> : tab === 'editor' ? <AudioEditor sourceJob={sourceJob} onOpened={()=>setSourceJob(null)}/> : tab === 'radio' ? <MusicTab /> : <VoiceStudio />}</div>
+  }, [selectTab]);
+  const section = AUDIO_SECTIONS.find(s => s.id === tab);
+  return <div className="as-studio" data-agent-component="AudioStudio"><TabHeader icon={Music} title="Audio" highlight={section.name.toUpperCase()}
+    description={section.description} />
+    <nav className="as-tabs" aria-label="Sezioni Audio" role="tablist">
+      {AUDIO_SECTIONS.map(s => <button type="button" role="tab" key={s.id} id={`audio-tab-${s.id}`}
+        aria-selected={tab === s.id} aria-controls="audio-section-panel" tabIndex={tab === s.id ? 0 : -1}
+        onKeyDown={event => {
+          const index = AUDIO_SECTIONS.findIndex(item => item.id === tab);
+          const next = event.key === 'ArrowRight' ? (index + 1) % AUDIO_SECTIONS.length
+            : event.key === 'ArrowLeft' ? (index + AUDIO_SECTIONS.length - 1) % AUDIO_SECTIONS.length : -1;
+          if (next >= 0) { event.preventDefault(); selectTab(AUDIO_SECTIONS[next].id); document.getElementById(`audio-tab-${AUDIO_SECTIONS[next].id}`)?.focus(); }
+        }}
+        onClick={() => selectTab(s.id)}><WorkspaceIcon name={s.icon} size={16} /><span>{s.name}</span></button>)}
+    </nav><div className="as-content" id="audio-section-panel" role="tabpanel" aria-labelledby={`audio-tab-${tab}`}>{tab === 'music' ? <MusicStudio onEdit={id=>{setSourceJob(id);selectTab('editor');}} /> : tab === 'editor' ? <AudioEditor sourceJob={sourceJob} onOpened={()=>setSourceJob(null)}/> : tab === 'radio' ? <MusicTab /> : <VoiceStudio />}</div>
   </div>;
 }

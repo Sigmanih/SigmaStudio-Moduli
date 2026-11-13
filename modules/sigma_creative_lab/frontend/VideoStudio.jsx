@@ -57,7 +57,7 @@ export default function VideoStudio() {
       <TechSpaceCanvas isLight={theme === 'light'} />
       <TabHeader
         icon={Film}
-        title="Video Studio"
+        title="Video"
         highlight="LONG FORM"
         tabs={VIEWS.map(v => ({
           id: v.id, label: v.label, icon: v.icon, active: view === v.id, onClick: () => setView(v.id),

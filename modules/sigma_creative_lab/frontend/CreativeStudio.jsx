@@ -250,7 +250,7 @@ export default function CreativeStudio() {
     else setStudioError('I video si aprono dal modulo autonomo Film e manga.');
   };
   return <div className="creative-studio cs-workspace" data-theme={theme} data-agent-component="CreativeStudio" data-agent-id="creative-studio">
-    <TabHeader icon={Palette} title="Creative" description={`${stats.total ?? assets.length} creazioni nella tua libreria`}
+    <TabHeader icon={Palette} title="Immagini" description={`${stats.total ?? assets.length} creazioni nella tua libreria`}
       tabs={[
         { id: 'generate', label: 'Immagini', icon: Wand2, views: ['generate', 'edit'] },
         { id: '3d', label: '3D e materiali', icon: Box, views: ['3d', 'mesh', 'materials'] },
