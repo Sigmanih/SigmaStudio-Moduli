@@ -110,7 +110,7 @@ def video_char_view_prompt(char_id: str, view: str, fix: str = "") -> dict:
 
 def video_prod_list() -> dict:
     from .production import manager
-    items = manager.store.list()
+    items = [manager.runtime_view(p) for p in manager.store.list()]
     return _esito("video_prod_list", True, productions=items, count=len(items))
 
 
@@ -125,6 +125,8 @@ def _shot_summary(index: int, shot: dict) -> dict:
         "prompt": (shot.get("prompt") or "")[:300], "origin": shot.get("origin", ""),
         "has_keyframe": bool(shot.get("keyframe")), "has_clip": bool(shot.get("clip_path")),
         "start_frame_prompt": (shot.get("start_frame_prompt") or "")[:160],
+        "end_reference": shot.get("end_reference", ""),
+        "journey_quality": (shot.get("journey_quality") or {}).get('status'),
         "montage": {k: shot.get(k) for k in ("reverse", "night_gain", "trim_end_s") if shot.get(k)},
         "judge_score": last.get("score"), "prompt_fixes": (shot.get("prompt_fixes") or [])[-2:],
     }
@@ -141,6 +143,7 @@ def video_prod_get(prod_id: str) -> dict:
     prod = manager.store.get(str(prod_id or "").strip())
     if not prod:
         return _esito("video_prod_get", False, error=f"Produzione non trovata: {prod_id}")
+    prod = manager.runtime_view(prod)
     s = prod.get("settings") or {}
     bible = prod.get("bible") or {}
     return _esito(
@@ -149,7 +152,9 @@ def video_prod_get(prod_id: str) -> dict:
             **summary(prod), "treatment": prod.get("treatment", ""),
             "settings": {k: s.get(k) for k in ("video_model", "width", "height", "keyframes", "judge",
                                                 "judge_threshold", "judge_mode", "max_clip_seconds", "output_height",
-                                                "upscaler", "seed", "motion_guard", "crossfade_s", "loudnorm_lufs")},
+                                                "upscaler", "seed", "motion_guard", "crossfade_s", "loudnorm_lufs",
+                                                "production_mode", "scene_reference", "scene_constraints", "loop_duration_s",
+                                                "loop_base_seconds", "loop_exact_cycle", "loop_crossfade_s", "loop_motion_speed", "loop_interpolate", "loop_audio_lufs", "output_width")},
             "bible": {"genre": bible.get("genre"), "style": bible.get("style", ""),
                       "negative": bible.get("negative", ""),
                       "characters": [{"name": c.get("name"), "description": c.get("description", ""),
@@ -162,12 +167,22 @@ def video_prod_get(prod_id: str) -> dict:
 
 
 def video_prod_create(title: str, treatment: str, style: str = "", video_model: str = "ltx25",
-                      genre: str = "realistic", negative: str = "", settings: Optional[dict] = None) -> dict:
+                      genre: str = "realistic", negative: str = "", settings: Optional[dict] = None,
+                      subjects: Optional[List[dict]] = None) -> dict:
     from .production import manager, validate_settings
     try:
         extra = validate_settings(settings) if settings else {}
         chosen = {**validate_settings({"video_model": video_model or "ltx25"}), **extra}
         bible = {"style": style, "genre": genre, "negative": str(negative or "").strip()}
+        if subjects:
+            if any(not isinstance(c, dict) or not str(c.get('name') or '').strip()
+                   or not str(c.get('description') or '').strip() for c in subjects):
+                raise ValueError('Ogni soggetto richiede name e description')
+            names = [c['name'].strip() for c in subjects]
+            if len(set(n.casefold() for n in names)) != len(names):
+                raise ValueError('I nomi dei soggetti devono essere univoci')
+            bible['characters'] = [{'name': c['name'].strip(), 'description': c['description'].strip(),
+                                    'kind': c.get('kind') or 'object'} for c in subjects]
         prod = manager.store.create(title=title, treatment=treatment, settings=chosen, bible=bible)
         # Il manifest intero (impostazioni, colonna sonora) e' lungo: bastano id e cio' che si e' scelto.
         return _esito("video_prod_create", True, prod_id=prod.get("id"), title=prod.get("title"),
@@ -210,6 +225,8 @@ def video_prod_settings(prod_id: str, settings: Optional[dict] = None, **values)
         return _esito("video_prod_settings", False, error=str(exc), accepted_keys=sorted(EDITABLE_SETTINGS))
     before = {k: prod["settings"].get(k) for k in clean}
     prod["settings"].update(clean)
+    from . import ambient_loop
+    ambient_loop.invalidate_plan(prod, before)
     manager.store.save(prod)
     return _esito("video_prod_settings", True, prod_id=prod["id"], changed=clean, before=before,
                   hint=("le clip gia' rese restano alla vecchia misura: rimettile in coda per rifarle"
@@ -244,7 +261,28 @@ def video_prod_plan_storyboard(prod_id: str, minutes: float = 1.0, shot_min: flo
     prod = manager.store.get(prod_id)
     if not prod:
         return _esito("video_prod_plan_storyboard", False, error=f"Produzione non trovata: {prod_id}")
+    if _rendering(prod_id):
+        return _esito("video_prod_plan_storyboard", False, error="Ferma il render prima di cambiare lo storyboard")
     try:
+        from . import ambient_loop
+        from .production import require_subject_references
+        require_subject_references(prod)
+        if prod['settings'].get('production_mode') == 'static_loop':
+            from .static_loop import plan
+            prod['shots'] = plan(prod)
+            manager.store.save(prod)
+            return _esito('video_prod_plan_storyboard', True, prod_id=prod_id,
+                          shots=prod['shots'], count=1, target_seconds=prod['settings']['loop_duration_s'])
+        if ambient_loop.enabled(prod):
+            if not replace:
+                raise ValueError("Il ciclo ambientale sostituisce il piano: usa replace=true")
+            prod['shots'] = ambient_loop.plan(prod)
+            prod['ambient_plan_required'] = False
+            prod.update(status='draft', error='', output_path='')
+            manager.store.save(prod)
+            return _esito("video_prod_plan_storyboard", True, prod_id=prod_id, shots=prod['shots'],
+                          count=len(prod['shots']), target_seconds=prod['settings']['loop_duration_s'],
+                          hint="Varianti della stessa scena; il montaggio raccorda audio e video e ripete il master")
         bible = prod.setdefault("bible", {})
         pre = bible.get("pre") or {}
         if not pre.get("scenes"):
@@ -274,7 +312,7 @@ def video_prod_plan_storyboard(prod_id: str, minutes: float = 1.0, shot_min: flo
 def video_prod_add_shot(prod_id: str, prompt: str, seconds: float = 4.0, transition: str = "cut",
                         scene: str = "Scena", props: Optional[List[str]] = None,
                         characters: Optional[List[str]] = None, audio: str = "", start_frame_prompt: str = "",
-                        reverse: bool = False, night_gain: bool = False) -> dict:
+                        reverse: bool = False, night_gain: bool = False, end_reference: str = '') -> dict:
     from .production import manager, new_shot
     prod = manager.store.get(prod_id)
     if not prod:
@@ -284,6 +322,9 @@ def video_prod_add_shot(prod_id: str, prompt: str, seconds: float = 4.0, transit
     try:
         extra = {k: v for k, v in (("start_frame_prompt", str(start_frame_prompt or "").strip()),
                                    ("reverse", bool(reverse)), ("night_gain", bool(night_gain))) if v}
+        if end_reference.strip():
+            from .ambient_loop import reference
+            extra['end_reference'] = str(reference(end_reference.strip()))
         # new_shot vuole duration_s: passata come `seconds` finiva in un campo che nessuno legge.
         shot = new_shot(prompt, max(1.0, min(15.0, float(seconds))), transition,
                         scene=scene, props=list(props or []), refs=list(characters or []), audio=audio, **extra)
@@ -300,7 +341,8 @@ def video_prod_update_shot(prod_id: str, shot_index: int, prompt: Optional[str] 
                            props: Optional[List[str]] = None, characters: Optional[List[str]] = None,
                            audio: Optional[str] = None, start_frame_prompt: Optional[str] = None,
                            seed: Optional[int] = None, reverse: Optional[bool] = None,
-                           night_gain: Optional[bool] = None, trim_end_s: Optional[float] = None) -> dict:
+                           night_gain: Optional[bool] = None, trim_end_s: Optional[float] = None,
+                           end_reference: Optional[str] = None) -> dict:
     """Modifica un'inquadratura. Le correzioni di montaggio (reverse, night_gain, trim_end_s) non rifanno la clip."""
     from .production import manager
     prod = manager.store.get(prod_id)
@@ -314,7 +356,7 @@ def video_prod_update_shot(prod_id: str, shot_index: int, prompt: Optional[str] 
 
     shot = shots[shot_index]
     before = {k: shot.get(k) for k in ("prompt", "duration_s", "transition", "props", "refs", "audio",
-                                         "start_frame_prompt", "seed")}
+                                         "start_frame_prompt", "end_reference", "seed")}
     if transition is not None and transition.strip() not in ("cut", "continue"):
         return _esito("video_prod_update_shot", False, error="transition deve essere 'cut' o 'continue'")
     if prompt is not None:
@@ -333,6 +375,15 @@ def video_prod_update_shot(prod_id: str, shot_index: int, prompt: Optional[str] 
         shot["start_frame_prompt"] = start_frame_prompt.strip()
     if seed is not None:
         shot["seed"] = int(seed)
+    if end_reference is not None:
+        if end_reference.strip():
+            from .ambient_loop import reference
+            try:
+                shot['end_reference'] = str(reference(end_reference.strip()))
+            except (ValueError, OSError) as exc:
+                return _esito('video_prod_update_shot', False, error=str(exc))
+        else:
+            shot.pop('end_reference', None)
     # Correzioni del montaggio: la clip resta quella, cambia come entra nel film.
     for key, value in (("reverse", reverse), ("night_gain", night_gain)):
         if value is not None:
@@ -531,7 +582,7 @@ def video_render_status(prod_id: str = "", wait_s: float = 0) -> dict:
     else:
         hint = ""
     return _esito("video_render_status", True, active=active, running=running, waited_s=waited,
-                  production=summary(prod) if prod else None, events=events, hint=hint)
+                  production=summary(manager.runtime_view(prod)) if prod else None, events=events, hint=hint)
 
 
 def video_judge_clip(clip_path: str, intent: str, camera: str = "", prod_id: str = "") -> dict:

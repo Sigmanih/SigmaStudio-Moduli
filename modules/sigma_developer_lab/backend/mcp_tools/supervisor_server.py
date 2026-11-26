@@ -116,7 +116,7 @@ class SupervisorMCPServer(BaseMCPServer):
                     "properties": {
                         "project_dir": {
                             "type": "string",
-                            "description": "Percorso del progetto da valutare (es. 'projects/sigma_engine_rust').",
+                            "description": "Percorso del progetto da valutare (es. 'projects/mio_progetto').",
                         },
                         "action_logs": {
                             "type": "array",
@@ -180,7 +180,7 @@ class SupervisorMCPServer(BaseMCPServer):
             return {"success": False, "error": f"Tool sconosciuto: '{tool_name}'"}
 
     def _handle_evaluate(self, arguments: Dict[str, Any]) -> Dict[str, Any]:
-        project_dir = arguments.get("project_dir", "projects/sigma_engine_rust")
+        project_dir = arguments.get("project_dir") or "."
         audit = _audit_codebase(project_dir)
 
         if not audit.get("exists"):
@@ -285,6 +285,6 @@ class SupervisorMCPServer(BaseMCPServer):
         }
 
     def _handle_audit(self, arguments: Dict[str, Any]) -> Dict[str, Any]:
-        project_dir = arguments.get("project_dir", "projects/sigma_engine_rust")
+        project_dir = arguments.get("project_dir") or "."
         audit = _audit_codebase(project_dir)
         return {"success": True, "audit": audit}

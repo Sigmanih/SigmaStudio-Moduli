@@ -398,7 +398,6 @@ export default function AdminAgentChat({
   const [autoScroll, setAutoScroll] = useState(true);
   const [isStreaming, setIsStreaming] = useState(false);
   const [agentStatus, setAgentStatus] = useState('');
-  const [rustEngineOnline, setRustEngineOnline] = useState(null);
   const [expandedThoughts, setExpandedThoughts] = useState({});
   const [expandedTools, setExpandedTools] = useState({});
 
@@ -547,21 +546,6 @@ export default function AdminAgentChat({
   // resta un'impressione.
   const [runMetrics, setRunMetrics] = useState(null);
 
-  useEffect(() => {
-    let attivo = true;
-    const aggiornaStatoRust = () => {
-      fetch('/api/developer/engine/status')
-        .then(r => r.json())
-        .then(d => { if (attivo) setRustEngineOnline(Boolean(d.online)); })
-        .catch(() => { if (attivo) setRustEngineOnline(false); });
-    };
-    aggiornaStatoRust();
-    const timer = setInterval(aggiornaStatoRust, 15000);
-    return () => {
-      attivo = false;
-      clearInterval(timer);
-    };
-  }, []);
 
   const handleSelectContextTokens = (tokens) => {
     setContextTokens(tokens);
@@ -2915,24 +2899,6 @@ ${event.diff || ''}`,
             >
               <Cpu size={10} color="#00f2fe" />
               <span>{String(selectedModel || 'sigmaengine').replace(/--/g, '/').split('/').pop().replace(/\.gguf$/i, '')}</span>
-            </span>
-
-            <span
-              title={rustEngineOnline
-                ? 'Kernel Rust raggiungibile; viene selezionato solo per i modelli supportati.'
-                : 'Kernel Rust non rilevato; Sigma Studio usa il backend locale disponibile.'}
-              style={{
-                fontSize: '0.58rem',
-                fontWeight: 700,
-                padding: '2px 6px',
-                borderRadius: '4px',
-                background: rustEngineOnline ? 'rgba(63, 185, 80, 0.15)' : 'rgba(139, 148, 158, 0.12)',
-                border: `1px solid ${rustEngineOnline ? 'rgba(63, 185, 80, 0.35)' : 'rgba(139, 148, 158, 0.25)'}`,
-                color: rustEngineOnline ? '#3fb950' : '#8b949e',
-                whiteSpace: 'nowrap'
-              }}
-            >
-              {rustEngineOnline === null ? 'Rust: controllo…' : rustEngineOnline ? 'Rust: online' : 'Rust: offline · motore locale'}
             </span>
 
             {/* Context Window Badge */}

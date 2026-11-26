@@ -6,7 +6,6 @@ import TerminalPanel from './TerminalPanel';
 import ModulePublisher from './ModulePublisher';
 import FanoutPanel from './FanoutPanel';
 import ActivityTerminalStrip from './ActivityTerminalStrip';
-import SigmaEngineNativeBar from './SigmaEngineNativeBar';
 import AdminAgentChat from './AdminAgentChat';
 import McpQuickActionsBar from './McpQuickActionsBar';
 import AiCreateFileModal from './AiCreateFileModal';
@@ -452,8 +451,6 @@ export default function DeveloperStudio() {
             theme={theme}
             isLight={isLight}
           />
-          {/* Telemetria e stato in tempo reale del micro-kernel nativo Rust */}
-          <SigmaEngineNativeBar isLight={isLight} />
           {/* Il lavoro grande, spezzato e dato a piu' agenti */}
           <FanoutPanel workspaceRoot={workspaceRoot} isLight={isLight} />
           {/* Dove va a finire il lavoro fatto sui moduli */}

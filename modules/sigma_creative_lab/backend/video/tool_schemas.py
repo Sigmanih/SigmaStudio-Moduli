@@ -180,11 +180,15 @@ SCHEMI = (
         "type": "function",
         "function": {
             "name": "video_prod_create",
-            "description": "Crea una nuova produzione video con titolo, trattamento, stile visivo e impostazioni di modello.",
+            "description": "Crea una produzione. Dichiara prima TUTTI i soggetti visibili in subjects: ciascuno va creato in libreria e collegato prima delle scene. Per immagine immobile ripetuta usa settings.production_mode=static_loop, scene_reference, loop_base_seconds e loop_duration_s; non creare una scena per ripetizione.",
             "parameters": {
                 "type": "object",
                 "properties": {
                     "title": {"type": "string", "description": "Titolo della produzione cinematografica"},
+                    "subjects": {"type": "array", "description": "Elenco completo dei personaggi, robot e oggetti ricorrenti visibili prima delle scene", "items": {
+                        "type": "object", "properties": {"name": {"type": "string"},
+                        "description": {"type": "string"}, "kind": {"type": "string", "enum": ["person", "object"]}},
+                        "required": ["name", "description"]}},
                     "treatment": {"type": "string", "description": "Soggetto, sinossi o trattamento della storia"},
                     "style": {"type": "string", "description": "Stile visivo (es. 'Cinematic 35mm, dark moody lighting')", "default": ""},
                     "video_model": {"type": "string", "enum": ["ltx25", "h3"], "description": "Modello video da usare", "default": "ltx25"},
@@ -200,7 +204,7 @@ SCHEMI = (
         "type": "function",
         "function": {
             "name": "video_prod_plan_storyboard",
-            "description": "Genera lo storyboard dal trattamento: se manca, sviluppa prima la storia e descrive luoghi e oggetti (bible.pre), poi scrive le inquadrature con luogo, oggetti ed espressioni.",
+            "description": "Genera lo storyboard. In production_mode=ambient_loop prepara varianti della stessa scena canonica senza storia, cambi camera o nuovi keyframe; loop_base_seconds controlla la base, loop_duration_s la durata finale. Negli altri casi sviluppa storia, luoghi e inquadrature.",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -231,6 +235,7 @@ SCHEMI = (
                     "characters": {"type": "array", "items": {"type": "string"}, "description": "Nomi dei personaggi visibili"},
                     "audio": {"type": "string", "description": "Audio, battuta o commento sonoro", "default": ""},
                     "start_frame_prompt": {"type": "string", "description": "Descrizione (in inglese) del solo PRIMO fotogramma: una posa ferma, da cui parte il video. Vuoto = il prompt"},
+                    "end_reference": {"type": "string", "description": "Percorso immagine pulita di arrivo, richiesto in continuous_journey"},
                     "reverse": {"type": "boolean", "description": "Monta la clip al contrario (es. alba resa come tramonto)"},
                     "night_gain": {"type": "boolean", "description": "Guadagno per fotogramma sulle notti che sfumano nel nero"},
                 },
@@ -255,6 +260,7 @@ SCHEMI = (
                     "characters": {"type": "array", "items": {"type": "string"}, "description": "Personaggi aggiornati"},
                     "audio": {"type": "string", "description": "Audio o dialogo aggiornato"},
                     "start_frame_prompt": {"type": "string", "description": "Descrizione in inglese del solo primo fotogramma (posa ferma) usata dal generatore dei fotogrammi chiave"},
+                    "end_reference": {"type": "string", "description": "Percorso immagine pulita di arrivo: obbligatorio per ogni nuova clip in continuous_journey. Limita la deriva della catena; non usare un fotogramma gia degradato"},
                     "seed": {"type": "integer", "description": "Seme fisso dell'inquadratura"},
                     "reverse": {"type": "boolean", "description": "Montaggio: clip al contrario, video e audio (alba resa come tramonto). Non rifa' la clip"},
                     "night_gain": {"type": "boolean", "description": "Montaggio: guadagno per fotogramma riferito al primo secondo, tetto 3x; taglia la clip se serve di piu' (mai sotto 7 s). Non rifa' la clip"},
@@ -268,11 +274,22 @@ SCHEMI = (
     {"type": "function", "function": {
         "name": "video_prod_settings",
         "description": ("Cambia le impostazioni della produzione a render fermo, con valori controllati. Chiavi: video_model "
+                        "production_mode (narrative|ambient_loop), scene_reference (percorso immagine o URL locale /works/), "
+                        "scene_constraints (vincoli positivi), loop_duration_s (es. 43200 per 12 ore), loop_base_seconds "
+                        "(4-1200, es. 1200 per 20 minuti), loop_exact_cycle (true: durata del ciclo esatta, raccordi compresi), "
+                        "loop_crossfade_s (0.1-3, raccordo video E audio), output_width (es. 3840). "
+                        "loop_motion_speed (0.25-1, es. 0.65 per velocità 65%, conserva il tono audio), "
+                        "loop_interpolate (true: rallentatore fluido con interpolazione dei fotogrammi). "
+                        "loop_audio_lufs (-30..-14, default -23: volume ambientale con picchi limitati). "
+                        "Per ambient_loop usa ltx25, disattiva video_soundtrack, imposta un riferimento definitivo, poi "
+                        "video_prod_plan_storyboard e video_render. Tutte le varianti partono e arrivano al riferimento. "
                         "(ltx25|h3), width+height (insieme, multipli di 32, es. 1280x704; anche resolution='1280x704'), fps, "
                         "steps, seed, max_clip_seconds (2-15, LTX 10), max_chain, max_attempts, output_height "
                         "(0|720|1080|1440|2160), upscaler (esrgan|seedvr2|lanczos), judge, judge_mode "
                         "(severe|advise|strict), judge_threshold, judge_passes, motion_guard, keyframes, color_match, "
-                        "color_strength, final_quality, writer_model, ambience, pov (true: soggettiva, il veicolo e' la camera e non si vede), crossfade_s (dissolvenza fra riprese, "
+                        "color_strength, final_quality, writer_model, ambience, continuous_journey (true: ripresa unica LTX "
+                        "in prima persona; ogni nuova clip richiede end_reference pulito; nessun taglio oltre max_chain), "
+                        "pov (true: soggettiva, il veicolo e' la camera e non si vede), crossfade_s (dissolvenza fra riprese, "
                         "0-3; mai dentro le catene continue), loudnorm_lufs (volume finale, es. -16; 0 = spento)."),
         "parameters": {"type": "object", "properties": {
             "prod_id": {"type": "string"},

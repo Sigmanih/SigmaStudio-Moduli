@@ -1043,21 +1043,20 @@ async def job_music_range(self: EditorJobs, job: dict) -> dict:
 
 
 async def job_export(self: EditorJobs, job: dict) -> dict:
-    from core import paths
     from core.modules.sigma_creative_lab.video.export import export_timeline
-    from core.modules.sigma_creative_lab.video.production import _slug
     pid = job["production"]
     prod = self.prods.get(pid)
     tl = self.timelines.get(pid)
-    out = paths.creative_output_dir("video") / f"{_slug(prod['title'])}_{pid[-6:]}_v{tl.get('version', 0)}.mp4"
+    from .storage import export_path
+    out = export_path(self.prods, prod, version=tl.get('version', 0))
     assembled = Path(prod.get("output_path") or "")
     if not int(tl.get("version", 0)) and prod.get("status") == "done" and assembled.is_file():
         # Timeline mai modificata: il film montato e' gia' quello definitivo. Ricostruirlo dalla timeline
         # perdeva dissolvenze, correzioni di montaggio e volume (prova della sonda, 9/11/2026: 40 s invece
         # di 37 e -18,8 LUFS invece di -16).
-        import shutil
         self._note(job, "Film montato riusato (timeline invariata)", 0.5)
-        await asyncio.to_thread(shutil.copy2, assembled, out)
+        # Riutilizzare il percorso evita una seconda copia di master anche da centinaia di GB.
+        out = assembled
     else:
         await asyncio.to_thread(export_timeline, tl, prod, out, None, prod["settings"].get("final_codec", "libx264"),
                                 int(prod["settings"].get("final_quality", 18)),

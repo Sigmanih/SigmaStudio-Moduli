@@ -57,7 +57,9 @@ def _url(path: str) -> str:
 
 
 def _decorate(prod: dict) -> dict:
-    prod = dict(prod)
+    prod = dict(manager.runtime_view(prod))
+    from .storage import layout
+    prod['storage_layout'] = layout(manager.store, prod)
     publication = prod.get('publication') or {}
     if publication.get('source'):
         from .generated_publication import source_identity
@@ -98,7 +100,7 @@ def handle_productions_list(self):
     try:
         from core.modules.sigma_creative_lab.native.runtime import auto_lanes, get_runtime
         ok, why = get_runtime().availability()
-        _ok(self, productions=manager.store.list(), active=manager.active(),
+        _ok(self, productions=[manager.runtime_view(p) for p in manager.store.list()], active=manager.active(),
             native={"installed": ok, "detail": why, "lanes": auto_lanes()}, defaults=DEFAULT_SETTINGS)
     except Exception as e:
         log.error(f"elenco produzioni: {e}")
@@ -133,6 +135,13 @@ def handle_production_create(self):
     try:
         shots = [new_shot(**s) if "status" not in s else s for s in (data.get("shots") or [])]
         settings, bible = dict(data.get("settings") or {}), dict(data.get("bible") or {})
+        from .production import validate_settings
+        if settings:
+            public = {k: v for k, v in settings.items() if k in DEFAULT_SETTINGS and k not in ('backend',)}
+            from .production import EDITABLE_SETTINGS
+            public = {k: v for k, v in public.items() if k in EDITABLE_SETTINGS}
+            if public:
+                settings.update(validate_settings(public))
         soundtrack = dict(data.get("soundtrack") or {})
         from core.modules.sigma_creative_lab.video.genres import GENRES
         genre = GENRES.get(str(data.get("genre") or ""))
@@ -151,7 +160,7 @@ def handle_production_create(self):
         _err(self, str(e))
 
 
-_EDITABLE_SHOT_KEYS = {"prompt", "start_frame_prompt", "audio", "duration_s", "transition", "refs", "seed", "scene", "status", "props", "dialogue",
+_EDITABLE_SHOT_KEYS = {"prompt", "start_frame_prompt", "end_reference", "audio", "duration_s", "transition", "refs", "seed", "scene", "status", "props", "dialogue",
                        "location", "expressions", "engine"}
 
 
@@ -175,7 +184,18 @@ def handle_production_update(self):
         if key in data:
             prod[key] = str(data[key])
     if isinstance(data.get("settings"), dict):
-        prod["settings"].update(data["settings"])
+        from .production import validate_settings, EDITABLE_SETTINGS
+        incoming = data['settings']
+        try:
+            public = {k: v for k, v in incoming.items() if k in EDITABLE_SETTINGS}
+            if public:
+                public = validate_settings(public)
+        except ValueError as e:
+            return _err(self, str(e))
+        previous_settings = dict(prod['settings'])
+        prod["settings"].update({**incoming, **public})
+        from . import ambient_loop
+        ambient_loop.invalidate_plan(prod, previous_settings)
     prev_bible = {"characters": [dict(c) for c in (prod.get("bible") or {}).get("characters") or []]}
     if isinstance(data.get("bible"), dict):
         prod["bible"].update(data["bible"])
@@ -265,6 +285,9 @@ def handle_production_preproduction(self):
         return _err(self, "produzione inesistente", 404)
     if not prod.get("treatment", "").strip():
         return _err(self, "scrivi prima il soggetto: anche solo un'idea, in qualsiasi lingua")
+    from . import ambient_loop
+    if ambient_loop.enabled(prod):
+        return _err(self, "Una scena ambientale non richiede una storia: prepara le varianti della scena fissa")
     if manager.active():
         return _err(self, "un render occupa la GPU: la storia userebbe l'LLM sulla stessa scheda", 409)
     pid = prod["id"]
@@ -322,6 +345,22 @@ def handle_production_storyboard(self):
         return _err(self, "manca il soggetto (treatment) da cui scrivere lo storyboard")
     if manager.active():
         return _err(self, "un render occupa la GPU: lo storyboard userebbe l'LLM sulla stessa scheda", 409)
+    from . import ambient_loop, static_loop
+    from .production import require_subject_references
+    try:
+        require_subject_references(prod)
+    except ValueError as e:
+        return _err(self, str(e))
+    if ambient_loop.enabled(prod) or prod['settings'].get('production_mode') == 'static_loop':
+        try:
+            prod['shots'] = (static_loop.plan(prod) if prod['settings'].get('production_mode') == 'static_loop'
+                             else ambient_loop.plan(prod))
+            prod['ambient_plan_required'] = False
+            prod.update(status='draft', error='', output_path='')
+            manager.store.save(prod)
+            return _ok(self, production=_decorate(prod), planning=False)
+        except (ValueError, OSError) as e:
+            return _err(self, str(e))
     pid = prod["id"]
     stop = _begin_planning(pid, "Personaggi del soggetto...")
     if stop is None:

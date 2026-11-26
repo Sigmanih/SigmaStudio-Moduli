@@ -208,7 +208,8 @@ def mix_soundtrack(video: Path, music: Path, out: Path, music_db: float = -14.0,
                    duck: bool = True) -> Path:
     """Mette la musica sotto l'audio dei clip, abbassandola quando i clip suonano."""
     from core.modules.sigma_creative_lab.video.production import ffmpeg_bin, _run
-    clip = f"[0:a]volume={clip_db}dB,asplit=2[clip][key]"
+    # La seconda uscita serve solo al compressore: lasciarla aperta blocca il mix senza ducking.
+    clip = f"[0:a]volume={clip_db}dB" + (",asplit=2[clip][key]" if duck else "[clip]")
     mus = f"[1:a]volume={music_db}dB,apad[mus]"
     if duck:
         mix = ("[mus][key]sidechaincompress=threshold=0.03:ratio=6:attack=20:release=400[ducked];"

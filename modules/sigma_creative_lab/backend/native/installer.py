@@ -164,6 +164,17 @@ def _install_worker(job: InstallJob) -> None:
     exe = "sigma-diffusion-worker" + (".exe" if IS_WINDOWS else "")
     project = paths.project_root() / "projects" / "sigma_engine_rust"
     built = project / "target" / "release" / exe
+    target = _runtime_dir() / "sigma_diffusion" / exe
+    if target.is_file() and not built.exists():
+        # Il worker installato basta: il sorgente non sta piu' nello Studio.
+        return
+    if not built.exists() and not (project / "Cargo.toml").is_file():
+        # Senza questo controllo cargo partiva in una cartella inesistente e
+        # l'errore parlava di compilazione, non del sorgente che manca.
+        raise RuntimeError(
+            "sorgente del worker assente: clona https://github.com/Sigmanih/SigmaStudio-Kernel "
+            "in projects/sigma_engine_rust oppure copia sigma-diffusion-worker in "
+            f"{target.parent}")
     if not built.exists():
         cargo = shutil.which("cargo")
         if not cargo:
@@ -174,7 +185,6 @@ def _install_worker(job: InstallJob) -> None:
                               capture_output=True, text=True, timeout=3600, creationflags=flags)
         if proc.returncode != 0:
             raise RuntimeError(f"compilazione fallita: {proc.stderr[-600:]}")
-    target = _runtime_dir() / "sigma_diffusion" / exe
     target.parent.mkdir(parents=True, exist_ok=True)
     shutil.copy2(built, target)
 

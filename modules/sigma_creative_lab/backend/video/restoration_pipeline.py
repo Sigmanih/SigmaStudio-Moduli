@@ -157,7 +157,8 @@ async def run(editor, job):
                     {'language': lang, 'translations_prepared': True}, a, b)),
             voice_valid)
     prod, tl = editor.prods.get(pid), editor.timelines.get(pid)
-    root = Path(args['output_dir']).expanduser() if args['output_dir'] else paths.creative_output_dir('video')
+    from .storage import export_path
+    root = Path(args['output_dir']).expanduser() if args['output_dir'] else export_path(editor.prods, prod).parent
     root = root.resolve()
     if args['output_subfolder']:
         root /= f"{_slug(args.get('publication_title') or prod['title'])}_{pid[-6:]}"

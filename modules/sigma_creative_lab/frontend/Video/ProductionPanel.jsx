@@ -3,7 +3,7 @@ import {
   Clapperboard, Plus, Play, Square, Scissors, Trash2, Wand2, Save, RefreshCw, Cpu, AlertTriangle, CheckCircle2, Loader2, Link2, Users, Film, Eye,
   Sparkles, Image as ImageIcon, BookmarkPlus, Library, Palette, ListPlus, RotateCw, PenLine,
 } from 'lucide-react';
-import { SettingsCard, LoraCard, SoundtrackCard, RefImageInput } from './ProductionSettings';
+import { SettingsCard, LoraCard, SoundtrackCard, RefImageInput, AmbientLoopCard } from './ProductionSettings';
 import CharacterVoice from './CharacterVoice';
 import PreproductionCard from './PreproductionCard';
 import MangaReview from './MangaReview';
@@ -278,7 +278,7 @@ function ShotFixes({ shot, disabled, dirty, onFix, onRemove }) {
 }
 
 function ShotRow({ shot, index, live, disabled, onEdit, onKeyframe, onReview, onManualReview, onIntegrityCheck, onIntegrityReview, characters = [], maxDur = 5.2, dirty,
-                  isStyle, onStyle, onRender, onInsert, onDelete, onFix, onRemoveFix, locations = [] }) {
+                  isStyle, onStyle, onRender, onInsert, onDelete, onFix, onRemoveFix, locations = [], continuousJourney = false }) {
   const [reviewReason,setReviewReason]=useState(''),[reviewConfirmed,setReviewConfirmed]=useState(false);
   useEffect(()=>{setReviewReason('');setReviewConfirmed(false);},[shot.id,shot.rendered_at]);
   const inShot = characters.filter(c => (shot.refs || []).includes(c.name));
@@ -335,6 +335,12 @@ function ShotRow({ shot, index, live, disabled, onEdit, onKeyframe, onReview, on
         <textarea className="cs-textarea" rows={2} value={shot.prompt} disabled={disabled}
                   onChange={e => onEdit({ prompt: e.target.value })} />
       </div>
+      {continuousJourney && <label>Riferimento finale pulito (percorso PNG/JPG)
+        <input className="cs-inline-input cs-prod-wide" value={shot.end_reference || ''} disabled={disabled}
+          aria-label={`Riferimento finale ${index+1}`} placeholder="Percorso del fotogramma di arrivo"
+          onChange={e => onEdit({ end_reference: e.target.value })} />
+        <span className="cs-hint">La clip prosegue dalla precedente e arriva a questa immagine, che limita la deriva visiva.</span>
+      </label>}
       {shot.start_frame_prompt && <details><summary>Posa del fotogramma iniziale</summary>
         <textarea className="cs-textarea" rows={3} value={shot.start_frame_prompt} disabled={disabled}
           aria-label={`Posa iniziale ${index+1}`} onChange={e=>onEdit({start_frame_prompt:e.target.value})}/>
@@ -648,6 +654,14 @@ export default function ProductionPanel({ aceInstalled = false, onOpenEditor, re
               )}
               {prod?.quality_status === 'rejected' && <p className="cs-hint">Video respinto per difetti visivi: {prod.quality_issues?.join('; ')}. Il file precedente è conservato, ma non è approvato per la consegna.</p>}
               {prod?.subtitles_url && <a className="cs-hint" href={prod.subtitles_url} download>Sottotitoli (.srt)</a>}
+              {prod?.storage_layout && <div className="cs-mesh-card">
+                <h3 className="cs-mesh-title">Salvataggi del progetto</h3>
+                <p className="cs-hint">Riferimenti, clip, controlli e montaggio sono raccolti nella cartella del progetto.</p>
+                <p className="cs-hint">Progetto: <code>{prod.storage_layout.project}</code></p>
+                <p className="cs-hint">Nuove esportazioni: <code>{prod.storage_layout.exports}</code></p>
+                {prod.storage_layout.current_video && <p className="cs-hint">Video attuale: <code>{prod.storage_layout.current_video}</code></p>}
+                {prod.storage_layout.legacy_export && <p className="cs-hint">Il video esistente mantiene il percorso originale. Le prossime esportazioni saranno salvate dentro il progetto.</p>}
+              </div>}
               {prod?.output_url && <div className="cs-mesh-card">
                 <h3 className="cs-mesh-title">Materiali per YouTube</h3>
                 <p className="cs-hint">Miniatura, titoli e descrizioni in arabo, inglese, italiano, spagnolo, tedesco, francese, portoghese e cinese. Preparati automaticamente dopo il video; rivedili prima di pubblicare.</p>
@@ -675,7 +689,7 @@ export default function ProductionPanel({ aceInstalled = false, onOpenEditor, re
               <CharactersEditor productionId={draft.id} characters={draft.bible?.characters || []} disabled={running}
                                 onChange={chars => editDraft({ bible: { ...draft.bible, characters: chars } })} />
               <div className="cs-inline-params">
-                <label>Durata (minuti)
+                <label>{draft.settings?.production_mode === 'ambient_loop' ? 'Durata narrativa (non usata nel loop)' : 'Durata (minuti)'}
                   <input type="number" min="0.2" max="60" step="0.5" value={minutes}
                          onChange={e => setMinutes(Number(e.target.value))} />
                 </label>
@@ -695,7 +709,7 @@ export default function ProductionPanel({ aceInstalled = false, onOpenEditor, re
                         act(() => call('/storyboard', { id: draft.id, minutes, shot_min: range[0], shot_max: range[1] }));
                       }}>
                 {planning ? <Loader2 size={15} className="cs-spin-icon" /> : <Wand2 size={15} />}
-                {planning ? prod.planning : draft.bible?.pre?.scenes?.length ? 'Scrivi le inquadrature dalla storia' : 'Scrivi storia e inquadrature con l\'LLM'}
+                {planning ? prod.planning : draft.settings?.production_mode === 'ambient_loop' ? 'Prepara le varianti della scena fissa' : draft.bible?.pre?.scenes?.length ? 'Scrivi le inquadrature dalla storia' : 'Scrivi storia e inquadrature con l\'LLM'}
               </button>
               {(draft.shots || []).length > 0 && (
                 <button className="cs-tool-btn" disabled={running || planning || draft.dirty}
@@ -718,10 +732,11 @@ export default function ProductionPanel({ aceInstalled = false, onOpenEditor, re
               <MangaReview productionId={prod.id} disabled={running} onChanged={() => refreshProd(selectedId)} />
             )}
 
-            <PreproductionCard pre={draft.bible?.pre} characters={chars} disabled={running} planning={planning} planningText={prod?.planning}
+            <AmbientLoopCard draft={draft} disabled={running || planning} onChange={patch => editDraft(patch)} />
+            {draft.settings?.production_mode !== 'ambient_loop' && <PreproductionCard pre={draft.bible?.pre} characters={chars} disabled={running} planning={planning} planningText={prod?.planning}
                                dirty={draft.dirty} canDevelop={!!draft.treatment?.trim()}
                                onChange={pre => editDraft({ bible: { ...draft.bible, pre } })}
-                               onDevelop={() => act(() => call('/preproduction', { id: draft.id, minutes }))} />
+                               onDevelop={() => act(() => call('/preproduction', { id: draft.id, minutes }))} />}
 
             <SettingsCard draft={draft} disabled={running} onSettings={settings => editDraft({ settings })} />
             <LoraCard draft={draft} disabled={running} onBible={bible => editDraft({ bible })} />
@@ -731,7 +746,7 @@ export default function ProductionPanel({ aceInstalled = false, onOpenEditor, re
                 {draft.audio_project.mode==='loop' ? ' La scena viene ripetuta per tutta la musica.' : ' Le scene accompagnano l’intero brano.'}
                 {' '}Il render conserva questa registrazione.</p>
               {prod?.soundtrack_url && <audio controls preload="none" src={prod.soundtrack_url}/>}
-            </div> : <SoundtrackCard draft={draft} disabled={running} aceInstalled={aceInstalled}
+            </div> : <SoundtrackCard draft={draft} disabled={running || draft.settings?.production_mode === 'ambient_loop'} aceInstalled={aceInstalled}
                             onSoundtrack={soundtrack => editDraft({ soundtrack })} />}
 
             {(draft.shots || []).length > 0 && (
@@ -749,6 +764,7 @@ export default function ProductionPanel({ aceInstalled = false, onOpenEditor, re
                                        onRewrite={notes => act(() => call('/scene', { id: draft.id, scene: s.scene, notes }))} />
                         )}
                         <ShotRow shot={shown} index={i} live={live[s.id]} characters={chars} maxDur={maxDur}
+                                 continuousJourney={!!draft.settings?.continuous_journey}
                                  dirty={draft.dirty} isStyle={!!shown.keyframe && shown.keyframe === styleImage}
                                  locations={draft.bible?.pre?.locations || []}
                                  disabled={running || planning} onEdit={patch => editShot(i, patch)}

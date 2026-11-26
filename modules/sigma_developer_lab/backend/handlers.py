@@ -32,6 +32,7 @@ from core.harness.fs_manager import (
 from core.harness.terminal import execute_shell_command_sync, stream_shell_command
 from core.harness.loop import stream_admin_agent_turn, execute_admin_tool
 from core.harness import review
+from core.harness.run_events import RunEvents
 
 log = get_logger("developer_handlers")
 
@@ -46,6 +47,60 @@ _ORCHESTRATORS_LOCK = threading.RLock()
 # che il suo thread cooperativo esca prima di usare lo stesso ledger/workspace.
 _AGENT_RUNS: Dict[str, Dict[str, Any]] = {}
 _AGENT_RUNS_LOCK = threading.RLock()
+_AGENT_STREAMS: Dict[str, RunEvents] = {}
+
+
+async def _agent_events_stream(run, after=0):
+    while True:
+        batch = run.read(after)
+        for event in batch:
+            after = event['event_id']
+            yield f"data: {json.dumps(event)}\n\n"
+        if run.finished.is_set() and not batch:
+            yield 'data: [DONE]\n\n'
+            return
+        if not batch:
+            yield ': keep-alive\n\n'
+            await asyncio.sleep(0.5)
+
+
+async def handle_agent_run(request: Request):
+    sid = (request.query_params.get('session_id') or '').strip()
+    with _AGENT_RUNS_LOCK:
+        run = _AGENT_STREAMS.get(sid)
+    saved = {}
+    if not run and sid:
+        from core.harness import store as session_store
+        saved = session_store.load(sid) or {}
+    return JSONResponse(content={'success': True, 'run_id': run.run_id if run else None,
+                                 'running': bool(run and not run.finished.is_set()),
+                                 'interrupted': not run and saved.get('status') == 'running',
+                                 'pipeline': saved.get('pipeline') or []})
+
+
+async def handle_agent_events(request: Request):
+    sid = (request.query_params.get('session_id') or '').strip()
+    with _AGENT_RUNS_LOCK:
+        run = _AGENT_STREAMS.get(sid)
+    if run is None or request.query_params.get('run_id') != run.run_id:
+        return JSONResponse(status_code=404, content={'error': 'Run non disponibile: server riavviato o registro scaduto'})
+    try:
+        after = int(request.query_params.get('after', '0'))
+        run.read(after, limit=0)
+    except ValueError:
+        return JSONResponse(status_code=400, content={'error': 'Cursore non valido'})
+    return StreamingResponse(_agent_events_stream(run, after), media_type='text/event-stream',
+                             headers={'Cache-Control': 'no-cache', 'X-Sigma-Run-ID': run.run_id})
+
+
+async def handle_agent_stop(request: Request):
+    body = await request.json()
+    with _AGENT_RUNS_LOCK:
+        run = _AGENT_STREAMS.get(str(body.get('session_id') or ''))
+        stopped = bool(run and run.run_id == body.get('run_id') and not run.finished.is_set())
+        if stopped:
+            run.cancel.set()
+    return JSONResponse(content={'success': True, 'stopped': stopped})
 
 
 def _register_agent_run(session_id: Optional[str], cancel: threading.Event,
@@ -156,15 +211,6 @@ async def handle_fs_write(request: Request):
         except Exception as exc:
             log.debug("[Developer] sincronizzazione moduli non avviata: %s", exc)
 
-        # Se il file appartiene al kernel Rust e l'hot reload è attivo, ricompila a caldo
-        norm_p = str(res.get("path") or path or "").replace("\\", "/")
-        if "sigma_engine_rust" in norm_p and (norm_p.endswith(".rs") or norm_p.endswith(".toml")):
-            try:
-                from core.harness.esecutori import carica_config
-                if carica_config().get("rust_hot_reload"):
-                    trigger_rust_hot_reload_debounced()
-            except Exception as exc:
-                log.debug("[RustHotReload] trigger fallito: %s", exc)
     return JSONResponse(status_code=200 if res.get("success") else 500, content=res)
 
 
@@ -419,106 +465,69 @@ async def handle_agent_chat(request: Request):
     if role_id.lower() in ("auto", "sigma_assistant"):
         role_id = ""
 
-    # The agent loop is fully synchronous and blocking (model inference, filesystem
-    # search, shell commands). It MUST run on a worker thread: executing it inline on
-    # the event loop freezes every other Sigma Studio request until it finishes.
-    async def sse_stream():
-        cancel_event = threading.Event()
-        run_finished = threading.Event()
-        precedente = _register_agent_run(session_id, cancel_event, run_finished)
-        events: "queue.Queue[Any]" = queue.Queue(maxsize=512)
-        DONE = object()
-
-        def producer():
-            try:
-                if precedente is not None:
-                    try:
-                        events.put({"type": "status", "text":
-                                    "In attesa che si arresti il run precedente della sessione."},
-                                   timeout=1.0)
-                    except queue.Full:
-                        pass
-                    while not cancel_event.is_set() and not precedente.wait(timeout=0.25):
-                        pass
-                if cancel_event.is_set():
-                    return
-                for event in stream_admin_agent_turn(
-                    messages=messages,
-                    workspace_root=workspace_root,
-                    model_name=model,
-                    auto_execute_tools=auto_execute,
-                    should_cancel=cancel_event.is_set,
-                    current_pipeline=pipeline,
-                    context_tokens=context_tokens,
-                    max_tokens=max_tokens,
-                    max_turns=max_turns,
-                    thinking=thinking,
-                    session_id=session_id,
-                    profile=profile,
-                    review_writes=review_writes,
-                    isolate_worktree=isolate_worktree,
-                    review_run=review_run,
-                    role_id=role_id or None,
-                ):
-                    if cancel_event.is_set():
-                        break
-                    # Bounded queue: if the client stalls, block here instead of
-                    # accumulating the whole transcript in RAM.
-                    while not cancel_event.is_set():
-                        try:
-                            events.put(event, timeout=0.5)
-                            break
-                        except queue.Full:
-                            continue
-            except Exception as e:
-                import traceback
-                err_type = type(e).__name__
-                tb_str = traceback.format_exc()
-                log.exception("Admin agent stream failed: %s", e)
-                try:
-                    events.put({
-                        "type": "error",
-                        "error_type": err_type,
-                        "error": f"Errore stream ({err_type}): {str(e)}",
-                        "traceback": tb_str,
-                    }, timeout=1.0)
-                except queue.Full:
-                    pass
-            finally:
-                _finish_agent_run(session_id, cancel_event, run_finished)
-                try:
-                    events.put(DONE, timeout=1.0)
-                except queue.Full:
-                    pass
-
-        worker = threading.Thread(target=producer, name="admin-agent-stream", daemon=True)
-        worker.start()
-
-        try:
-            while True:
-                try:
-                    event = await asyncio.to_thread(events.get, True, 1.0)
-                except queue.Empty:
-                    if not worker.is_alive():
-                        break
-                    # Heartbeat keeps proxies from dropping a long tool execution
-                    yield ": keep-alive\n\n"
-                    continue
-
-                if event is DONE:
+    # Il lavoro appartiene alla sessione: chiudere il browser interrompe solo la consegna.
+    try:
+        run = RunEvents(run_id=body.get('run_id'))
+    except (ValueError, AttributeError, TypeError):
+        return JSONResponse(status_code=400, content={'error': 'Identificativo run non valido'})
+    cancel_event, run_finished = run.cancel, run.finished
+    with _AGENT_RUNS_LOCK:
+        # Manteniamo i run conclusi per il recupero, con un limite al numero di registri.
+        if len(_AGENT_STREAMS) >= 32:
+            for key, old in list(_AGENT_STREAMS.items()):
+                if old.finished.is_set():
+                    _AGENT_STREAMS.pop(key)
+                    # I lettori gia' collegati possono ancora terminare il replay.
                     break
-                yield f"data: {json.dumps(event)}\n\n"
-        except asyncio.CancelledError:
-            # Client aborted (Stop button / tab closed): stop the agent too.
+            else:
+                return JSONResponse(status_code=429, content={'error': 'Troppi run attivi'})
+        if session_id:
+            _AGENT_STREAMS[session_id] = run
+        precedente = _register_agent_run(session_id, cancel_event, run_finished)
+
+    def producer():
+        try:
+            if precedente is not None:
+                run.append({'type': 'status', 'text': 'In attesa del run precedente.'})
+                while not cancel_event.is_set() and not precedente.wait(timeout=0.25):
+                    continue
+            if cancel_event.is_set():
+                return
+            for event in stream_admin_agent_turn(
+                messages=messages, workspace_root=workspace_root, model_name=model,
+                auto_execute_tools=auto_execute, should_cancel=cancel_event.is_set,
+                current_pipeline=pipeline, context_tokens=context_tokens, max_tokens=max_tokens,
+                max_turns=max_turns, thinking=thinking, session_id=session_id, profile=profile,
+                review_writes=review_writes, isolate_worktree=isolate_worktree,
+                review_run=review_run, role_id=role_id or None,
+            ):
+                run.append(event)
+                if cancel_event.is_set():
+                    break
+        except Exception as exc:
+            log.exception('Admin agent stream failed: %s', exc)
             cancel_event.set()
-            raise
+            try:
+                run.append({'type': 'error', 'error': str(exc)})
+            except RuntimeError:
+                log.error('Registro eventi esaurito per il run %s', run.run_id)
         finally:
-            cancel_event.set()
+            _finish_agent_run(session_id, cancel_event, run_finished)
+
+    worker = threading.Thread(target=producer, name='admin-agent-stream', daemon=True)
+    worker.start()
+
+    async def deliver():
+        try:
+            async for event in _agent_events_stream(run):
+                yield event
+        finally:
+            if not session_id:
+                cancel_event.set()
 
     return StreamingResponse(
-        sse_stream(),
-        media_type="text/event-stream; charset=utf-8",
-        headers={"Cache-Control": "no-cache", "Connection": "keep-alive"}
+        deliver(), media_type='text/event-stream; charset=utf-8',
+        headers={'Cache-Control': 'no-cache', 'X-Sigma-Run-ID': run.run_id},
     )
 
 
@@ -817,167 +826,6 @@ async def handle_docker_container_run(request: Request):
         lancia_container, immagine, nome, workspace_root, porte, comando, modalita
     )
     return JSONResponse(status_code=200 if esito.get("success") else 400, content=esito)
-
-
-_rust_reload_task: Optional[asyncio.Task] = None
-
-
-async def _do_rust_hot_reload() -> Dict[str, Any]:
-    """Compila il kernel Rust, inietta il binario nel contenitore e lo riavvia.
-
-    Tre cose che questa funzione aveva sbagliate, e che si sono viste solo
-    premendo il tasto:
-
-    **L'import non esisteva.** `from core.paths import repo_root`: quel nome in
-    `core.paths` non c'e'. La rotta rispondeva 500 da sempre, e il tasto dentro
-    il modale Docker non aveva mai funzionato.
-
-    **Il contenitore di build stava su un'altra Debian.** `sigma_rust_dev` era
-    `rust:slim` — che segue la Debian corrente, oggi trixie con glibc 2.41 —
-    mentre il contenitore di esecuzione e' `debian:bookworm-slim`, glibc 2.36.
-    Il binario compilava, veniva iniettato, e il kernel moriva in ciclo con
-    ``version `GLIBC_2.39' not found``. Ora il dev container e' fissato a
-    `rust:slim-bookworm`, la stessa base del Dockerfile.
-
-    **Il binario veniva preso dal disco dell'host.** Host e contenitore
-    condividevano `target/`: una compilazione Windows e una Linux si
-    sovrascrivevano a vicenda nella stessa cartella. Ora il dev container
-    compila in `CARGO_TARGET_DIR=/target_linux`, che e' solo suo, e il binario
-    si estrae da li'.
-
-    E una garanzia che prima non c'era: **se il kernel non torna su, si
-    ripristina il binario precedente**. Un ricaricamento a caldo che lascia il
-    servizio in ciclo di riavvio e' peggio di non averlo.
-    """
-    import subprocess
-    import tempfile
-    import time
-    import urllib.request
-    from pathlib import Path
-
-    from core.harness.esecutori import trova_docker, _ambiente_per_docker
-
-    docker_bin = trova_docker()
-    if not docker_bin:
-        log.warning("[RustHotReload] Docker non trovato per il reload automatico.")
-        return {"success": False, "error": "Docker non trovato sul sistema host."}
-
-    env = _ambiente_per_docker()
-    t0 = time.time()
-
-    async def _esegui(cmd, timeout):
-        return await asyncio.to_thread(
-            subprocess.run, cmd, capture_output=True, text=True,
-            timeout=timeout, env=env
-        )
-
-    log.info("[RustHotReload] Compilazione del kernel in sigma_rust_dev...")
-    build = await _esegui(
-        [docker_bin, "exec", "-w", "/workspace", "sigma_rust_dev",
-         "cargo", "build", "--release"], 600
-    )
-    if build.returncode != 0:
-        err = (build.stderr or build.stdout or "").strip()
-        log.error("[RustHotReload] Compilazione fallita: %s", err[-300:])
-        return {"success": False, "error": f"Compilazione Rust fallita:\n{err[-1200:]}"}
-
-    # Il binario vive dentro il contenitore di build: si estrae e si reinietta.
-    with tempfile.TemporaryDirectory() as tmp:
-        locale = Path(tmp) / "sigma_engine_rust"
-        estrai = await _esegui(
-            [docker_bin, "cp",
-             "sigma_rust_dev:/target_linux/release/sigma_engine_rust", str(locale)], 120
-        )
-        if estrai.returncode != 0 or not locale.is_file():
-            return {"success": False,
-                    "error": "Binario compilato non trovato in sigma_rust_dev: "
-                             f"{(estrai.stderr or '').strip()[:300]}"}
-
-        # Il precedente si conserva: se il nuovo non parte, si torna indietro.
-        salvataggio = Path(tmp) / "precedente"
-        await _esegui(
-            [docker_bin, "cp",
-             "sigma_engine_rust_instance:/app/sigma_engine_rust", str(salvataggio)], 120
-        )
-
-        inietta = await _esegui(
-            [docker_bin, "cp", str(locale),
-             "sigma_engine_rust_instance:/app/sigma_engine_rust"], 120
-        )
-        if inietta.returncode != 0:
-            return {"success": False,
-                    "error": f"Iniezione del binario fallita: {(inietta.stderr or '').strip()[:300]}"}
-
-        riavvio = await _esegui(
-            [docker_bin, "restart", "sigma_engine_rust_instance"], 60)
-        if riavvio.returncode != 0:
-            return {"success": False,
-                    "error": f"Riavvio del contenitore fallito: {(riavvio.stderr or '').strip()[:300]}"}
-
-        # Il kernel deve tornare a rispondere. Se non lo fa entro il tempo
-        # concesso, il binario nuovo non parte e si rimette quello di prima.
-        vivo = False
-        for _ in range(20):
-            await asyncio.sleep(1.0)
-            try:
-                with urllib.request.urlopen(
-                        "http://127.0.0.1:8090/health", timeout=2) as risposta:
-                    if risposta.status == 200:
-                        vivo = True
-                        break
-            except Exception:
-                continue
-
-        if not vivo:
-            motivo = ""
-            diario = await _esegui(
-                [docker_bin, "logs", "--tail", "5", "sigma_engine_rust_instance"], 30)
-            motivo = ((diario.stderr or "") + (diario.stdout or "")).strip()[-400:]
-            if salvataggio.is_file():
-                await _esegui(
-                    [docker_bin, "cp", str(salvataggio),
-                     "sigma_engine_rust_instance:/app/sigma_engine_rust"], 120)
-                await _esegui(
-                    [docker_bin, "restart", "sigma_engine_rust_instance"], 60)
-                return {"success": False,
-                        "error": "Il kernel nuovo non e' ripartito: ripristinato "
-                                 f"quello precedente.\n{motivo}"}
-            return {"success": False,
-                    "error": f"Il kernel non e' ripartito e non c'era un binario "
-                             f"precedente da ripristinare.\n{motivo}"}
-
-    elapsed = round(time.time() - t0, 2)
-    log.info("[RustHotReload] Hot-reload completato in %ss.", elapsed)
-    return {
-        "success": True,
-        "message": f"Kernel Rust ricompilato, iniettato e ripartito in {elapsed}s.",
-        "elapsed": elapsed,
-    }
-
-
-def trigger_rust_hot_reload_debounced(delay_s: float = 2.0) -> None:
-    """Innesca il reload a caldo con debouncing per evitare compilazioni ridondanti."""
-    global _rust_reload_task
-    try:
-        loop = asyncio.get_running_loop()
-    except RuntimeError:
-        return
-
-    if _rust_reload_task and not _rust_reload_task.done():
-        _rust_reload_task.cancel()
-
-    async def _debounced_runner():
-        await asyncio.sleep(delay_s)
-        await _do_rust_hot_reload()
-
-    _rust_reload_task = loop.create_task(_debounced_runner())
-
-
-async def handle_docker_rust_hot_reload(request: Request):
-    """POST /api/developer/docker/rust/hot-reload — Compila e ricarica a caldo il kernel Rust."""
-    res = await _do_rust_hot_reload()
-    return JSONResponse(status_code=200 if res.get("success") else 500, content=res)
-
 
 
 async def handle_projects(request: Request):
@@ -1490,83 +1338,8 @@ async def handle_developer_mcp_execute(request: Request):
     return JSONResponse(status_code=200 if res.get("success") else 400, content=res)
 
 
-async def handle_developer_engine_status(request: Request):
-    """GET /api/developer/engine/status — Informazioni telemetriche in tempo reale sul micro-kernel nativo Rust."""
-    import time
-    import urllib.request
-    import json
-    import os
-
-    rust_url = os.environ.get(
-        "SIGMA_RUST_ENGINE_URL", "http://127.0.0.1:8090"
-    ).rstrip("/")
-
-    status_data = {
-        "online": False,
-        "service": "sigma_engine_rust",
-        "url": rust_url,
-        "ipc_pipe": r"\\.\pipe\sigma_engine_ipc",
-        "latency_ms": None,
-        "details": {},
-        "dual_gpu": False,
-        "gpus": [],
-    }
-
-    t0 = time.perf_counter()
-    try:
-        req = urllib.request.Request(f"{rust_url}/health", method="GET")
-        with urllib.request.urlopen(req, timeout=0.8) as resp:
-            if resp.status == 200:
-                status_data["online"] = True
-                status_data["latency_ms"] = round((time.perf_counter() - t0) * 1000, 2)
-                try:
-                    payload = json.loads(resp.read().decode("utf-8"))
-                    status_data["health"] = payload
-                except Exception:
-                    pass
-    except Exception as exc:
-        status_data["error"] = str(exc)
-
-    if status_data["online"]:
-        try:
-            from core.engine.backends.sigmarust_backend import _intestazioni
-            req_info = urllib.request.Request(
-                f"{rust_url}/api/engine/status",
-                headers=_intestazioni(), method="GET")
-            with urllib.request.urlopen(req_info, timeout=0.8) as resp_info:
-                if resp_info.status == 200:
-                    info_payload = json.loads(resp_info.read().decode("utf-8"))
-                    status_data["details"] = info_payload
-                    # Estrai configurazione GPU dal kernel nativo
-                    devs = info_payload.get("devices") or []
-                    if devs:
-                        status_data["gpus"] = devs
-                        status_data["dual_gpu"] = len(devs) >= 2
-                    elif "hardware" in info_payload:
-                        gpu_names = info_payload["hardware"].get("gpu_devices", [])
-                        status_data["gpus"] = [{"name": n} for n in gpu_names]
-                        status_data["dual_gpu"] = len(gpu_names) >= 2
-        except Exception:
-            pass
-
-    # Fallback su HardwareManager se non già estratto da Rust
-    if not status_data["gpus"]:
-        try:
-            from core.hardware_manager import HardwareManager
-            hw = HardwareManager.get_instance().get_hardware_status()
-            if hw and "gpu" in hw:
-                gpu_list = hw["gpu"].get("devices", [])
-                status_data["gpus"] = gpu_list
-                status_data["dual_gpu"] = len(gpu_list) >= 2
-        except Exception:
-            pass
-
-    return JSONResponse(status_code=200, content={"success": True, "data": status_data})
-
-
 ROUTES = (
     ("/api/developer/status", handle_developer_status, ["GET"]),
-    ("/api/developer/engine/status", handle_developer_engine_status, ["GET"]),
     ("/api/developer/mcp/execute", handle_developer_mcp_execute, ["POST"]),
     ("/api/developer/tasks", handle_get_tasks, ["GET"]),
     ("/api/developer/tasks", handle_save_tasks, ["POST"]),
@@ -1584,6 +1357,9 @@ ROUTES = (
     ("/api/developer/fs/ai-create", handle_fs_ai_create, ["POST"]),
     ("/api/developer/terminal/exec", handle_terminal_exec, ["POST"]),
     ("/api/developer/agent/chat", handle_agent_chat, ["POST"]),
+    ("/api/developer/agent/run", handle_agent_run, ["GET"]),
+    ("/api/developer/agent/events", handle_agent_events, ["GET"]),
+    ("/api/developer/agent/stop", handle_agent_stop, ["POST"]),
     ("/api/developer/workspace/roots", handle_workspace_roots, ["GET"]),
     ("/api/developer/workspace/roots/add", handle_add_workspace_root, ["POST"]),
     ("/api/developer/workspace/roots/remove", handle_remove_workspace_root, ["POST"]),
@@ -1597,7 +1373,6 @@ ROUTES = (
     ("/api/developer/docker/container/restart", handle_docker_container_restart, ["POST"]),
     ("/api/developer/docker/container/remove", handle_docker_container_remove, ["POST"]),
     ("/api/developer/docker/container/run", handle_docker_container_run, ["POST"]),
-    ("/api/developer/docker/rust/hot-reload", handle_docker_rust_hot_reload, ["POST"]),
     ("/api/developer/orchestrator/run", handle_orchestrator_run, ["POST"]),
     ("/api/developer/orchestrator/status", handle_orchestrator_status, ["GET"]),
     ("/api/developer/orchestrator/approve", handle_orchestrator_approve, ["POST"]),

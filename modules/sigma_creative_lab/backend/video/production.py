@@ -40,6 +40,7 @@ from core import paths
 from core.modules.sigma_creative_lab.backends.base import BackendUnavailable
 from core.modules.sigma_creative_lab.backends.resources import reserve_accelerator
 from core.logger import get_logger
+from . import ambient_loop
 
 log = get_logger("creative_production")
 
@@ -139,6 +140,7 @@ def _id_slug(title: str) -> str:
 # ---------------------------------------------------------------------------
 
 DEFAULT_SETTINGS = {
+    **ambient_loop.DEFAULTS,
     # Benchmark 2026-10-09 (H3, 864x480x124, 20 step): ComfyUI 5,8 s/step sulla
     # 5070 Ti e 13,9 sulla 5060; il nativo sd.cpp 10,4 e 24,6 anche con Sage.
     "backend": "comfyui",               # comfyui | hybrid | sigma_native (vedi default_lane_specs)
@@ -197,6 +199,7 @@ DEFAULT_SETTINGS = {
     # Dissolvenza fra le riprese in secondi (0 = tagli netti); mai dentro una catena di continue.
     "crossfade_s": 0.0,
     "pov": False,                       # soggettiva: il veicolo e' la camera e non compare mai
+    "continuous_journey": False,
     # Volume integrato del film finito (0 = come esce dal mix; YouTube normalizza a -14, -16 lascia margine).
     "loudnorm_lufs": 0.0,
 }
@@ -206,6 +209,19 @@ DEFAULT_SETTINGS = {
 #: Le altre chiavi (corsie, profili del worker, flag di ComfyUI) restano dell'interfaccia: un valore
 #: sbagliato li' ferma le GPU, non peggiora solo il video.
 EDITABLE_SETTINGS = {
+    "production_mode": ("choice", ("narrative", "ambient_loop", "static_loop")),
+    "loop_duration_s": ("float", 1.0, 86400.0),
+    "loop_base_seconds": ("float", 4.0, 1200.0),
+    "loop_exact_cycle": ("bool",),
+    "loop_crossfade_s": ("float", 0.1, 3.0),
+    "loop_motion_speed": ("float", 0.25, 1.0),
+    "loop_interpolate": ("bool",),
+    "loop_audio_lufs": ("float", -30.0, -14.0),
+    "loop_export_codec": ("choice", ("h264", "hevc")),
+    "loop_export_quality": ("int", 0, 30),
+    "scene_reference": ("str",),
+    "scene_constraints": ("str",),
+    "output_width": ("int", 0, 7680),
     "video_model": ("choice", VIDEO_MODELS),
     "width": ("int", 256, 3840),
     "height": ("int", 256, 2160),
@@ -230,6 +246,7 @@ EDITABLE_SETTINGS = {
     "ambience": ("bool",),
     "crossfade_s": ("float", 0.0, 3.0),
     "pov": ("bool",),
+    "continuous_journey": ("bool",),
     "loudnorm_lufs": ("float", -30.0, 0.0),
 }
 
@@ -274,6 +291,8 @@ def validate_settings(values: dict) -> dict:
     for key in ("width", "height"):
         if key in out and out[key] % 32:
             raise ValueError(f"{key} deve essere multiplo di 32 (es. 1280x704)")
+    if out.get("output_width", 0) % 2:
+        raise ValueError("output_width deve essere pari (es. 3840)")
     return out
 
 
@@ -449,7 +468,11 @@ def purge_production(store: "ProductionStore", pid: str, with_exports: bool = Fa
     from core.modules.sigma_creative_lab.video.editor_jobs import editor_jobs
     if any(j["status"] in ("queued", "running") for j in editor_jobs().list(pid)):
         raise RuntimeError("l'editor ha operazioni in corso su questa produzione: attendi o annullale")
-    targets: list[Path] = [store.path(pid)]
+    project = store.path(pid)
+    # Conservare gli export deve valere anche quando si trovano dentro il progetto.
+    keep_folder = project / 'exports'
+    targets: list[Path] = ([p for p in project.iterdir() if p != keep_folder]
+                          if not with_exports and keep_folder.is_dir() else [project])
     try:
         from core.modules.sigma_creative_lab.model_downloader import discover_models_root
         root = discover_models_root()
@@ -462,6 +485,8 @@ def purge_production(store: "ProductionStore", pid: str, with_exports: bool = Fa
         if inputs.is_dir():
             targets += [f for f in inputs.iterdir() if f.is_file() and f.name.startswith(f"{pid}_")]
     exports = []
+    if keep_folder.is_dir():
+        exports += [p for p in keep_folder.rglob('*') if p.is_file()]
     if prod.get("output_path"):
         exports.append(Path(prod["output_path"]))
     out_dir = paths.creative_output_dir("video")
@@ -547,6 +572,8 @@ def summary(prod: dict) -> dict:
     total_s = sum(float(s.get("duration_s") or 0) for s in shots)
     if prod.get('audio_project'):
         total_s = float(prod['audio_project']['mix']['duration'])
+    if ambient_loop.enabled(prod) or prod.get('settings', {}).get('production_mode') == 'static_loop':
+        total_s = float(prod['settings'].get('loop_duration_s', 43200))
     rendered_s = sum(float(s.get("timings", {}).get("total_s") or 0) for s in done)
     # Con piu' corsie i clip escono in parallelo: il tempo medio per clip
     # misurato su una corsia va diviso per quante lavorano insieme.
@@ -1486,7 +1513,9 @@ def compose_prompt(prod: dict, shot: dict, use_refs: bool) -> str:
         return text
     # La guardia sul movimento parla di persone e piedi: in soggettiva portava gente in scena.
     text = pov_text(text.replace(MOTION_GUARD, POV_MOTION))
-    return f"{POV_PREFIX}\n{text}\n{POV_CLEAN}"
+    clean = ('Unobstructed full-frame view of the surrounding environment extending to every edge of the image.'
+             if prod.get('settings', {}).get('continuous_journey') else POV_CLEAN)
+    return f"{POV_PREFIX}\n{text}\n{clean}"
 
 
 def _compose_prompt(prod: dict, shot: dict, use_refs: bool) -> str:
@@ -1530,7 +1559,8 @@ def _compose_prompt(prod: dict, shot: dict, use_refs: bool) -> str:
     from core.modules.sigma_creative_lab.video.preproduction import world_lines
     # Luogo e oggetti come li ha descritti la pre-produzione: lo stesso vaso in ogni inquadratura.
     parts += world_lines(prod, shot)
-    if (prod.get("settings") or {}).get("motion_guard", True):
+    # Il vincolo narrativo descrive passi e arti: applicarlo a un ambiente fa comparire persone.
+    if (prod.get("settings") or {}).get("motion_guard", True) and not ambient_loop.enabled(prod):
         # Con cfg 1 H3 ignora il prompt negativo: il movimento corretto va chiesto in positivo.
         if shot.get('required_action'):
             # Un esercizio sul posto non deve ricevere il vecchio vincolo di avanzare camminando.
@@ -1744,14 +1774,24 @@ class ComfyClipEngine(ClipEngine):
         s = prod["settings"]
         width, height = ltx_dims(s)
         params = {"prompt": request["prompt"], "negative": request.get("negative_prompt") or "",
+                  "frame_crop": "disabled" if ambient_loop.enabled(prod) or s.get('continuous_journey') else "center",
                   "width": width, "height": height, "length": request["frames"], "fps": s["fps"],
                   "seed": request["seed"], "filename_prefix": f"sigma/{prod['id']}/{shot['id']}",
+                  "guide_strength": float(request.get('guide_strength', .7)),
+                  "image_compression": 0 if s.get('continuous_journey') else 18,
                   "loras": [{"name": Path(l["path"]).name, "strength": l.get("multiplier", 1.0)}
                             for l in request.get("loras", []) if lora_family(l) in ("ltx", "")]}
         for key, src in (("first_frame", "init_image"), ("last_frame", "end_image")):
             if request.get(src):
                 params[key] = await self.backend.upload_image(Path(request[src]).read_bytes(),
                                                               f"{prod['id']}_{shot['id']}_{key}.png")
+        if request.get('temporal_guides'):
+            params['temporal_guides'] = []
+            for i, guide in enumerate(request['temporal_guides']):
+                source = ambient_loop.reference(guide['image'])
+                name = await self.backend.upload_image(source.read_bytes(),
+                                                        f"{prod['id']}_{shot['id']}_timed_{i}.png")
+                params['temporal_guides'].append({**guide, 'image': name})
         if request.get("audio"):
             # Battuta gia' sintetizzata: LTX la tiene ferma e anima il labiale su di essa.
             params["audio"] = await self.backend.upload_image(
@@ -2254,6 +2294,33 @@ def _cast_errors(prod: dict, shot: dict, image: Path, device: str) -> list[str]:
     return issues
 
 
+def require_subject_references(prod: dict) -> None:
+    """Blocca identità incomplete prima di spendere risorse su scene e clip."""
+    chars = (prod.get('bible') or {}).get('characters') or []
+    names = {c.get('name') for c in chars}
+    missing = [str(c.get('name') or '?') for c in chars
+               if not c.get('description') or not c.get('ref_image') or not Path(c['ref_image']).is_file()]
+    unknown = {name for sh in prod.get('shots') or [] for name in sh.get('refs') or [] if name not in names}
+    if missing or unknown:
+        raise ValueError('Completa prima i soggetti nella libreria e collegali con video_char_to_production. '
+                         'Riferimenti mancanti: ' + ', '.join(sorted(set(missing) | unknown)))
+    # Il modello può descrivere tre robot pur avendo collegato soltanto il primo.
+    from .genres import shot_characters
+    counts = {'one': 1, 'two': 2, 'three': 3, 'four': 4, 'five': 5, 'six': 6,
+              'un': 1, 'uno': 1, 'due': 2, 'tre': 3, 'quattro': 4, 'cinque': 5, 'sei': 6}
+    for shot in prod.get('shots') or []:
+        text = shot.get('prompt') or ''
+        match = re.search(r'\b(one|two|three|four|five|six|un|uno|due|tre|quattro|cinque|sei|\d+)\s+'
+                          r'(?:[\w-]+\s+){0,4}(?:robots?|personaggi|characters?|protagonists?)\b', text, re.I)
+        if match:
+            token = match[1].lower()
+            required = int(token) if token.isdigit() else counts[token]
+            present = len(shot_characters(prod, shot))
+            if present < required:
+                raise ValueError(f"La scena {shot.get('id', '')} descrive {required} soggetti ma ne collega {present}: "
+                                 'crea e collega tutti i riferimenti prima di generare la scena')
+
+
 async def generate_keyframes(store: ProductionStore, pid: str, shot_ids: list | None = None,
                              missing_only: bool = False, gpu: int = 0, note: Callable[[str], None] | None = None,
                              cancel: "threading.Event | None" = None) -> int:
@@ -2264,6 +2331,19 @@ async def generate_keyframes(store: ProductionStore, pid: str, shot_ids: list | 
     """
     from core.modules.sigma_creative_lab.video import genres, image_gen
     prod = store.get(pid)
+    require_subject_references(prod)
+    if prod['settings'].get('production_mode') == 'static_loop':
+        from .static_loop import plan
+        prod['shots'] = plan(prod)
+        store.save(prod)
+        return 1
+    if ambient_loop.enabled(prod):
+        anchor = str(ambient_loop.validate(prod))
+        targets = [sh for sh in prod['shots'] if not shot_ids or sh['id'] in shot_ids]
+        for sh in targets:
+            sh['keyframe'] = anchor
+        store.save(prod)
+        return len(targets)
     targets = keyframe_targets(prod, shot_ids, missing_only)
     s = prod["settings"]
     # Il fotogramma va generato nella forma del video: il modello d'immagine lavora
@@ -2443,6 +2523,7 @@ class ProductionRunner:
         self.cancelled.set()
 
     def build_request(self, prod: dict, index: int) -> dict:
+        from . import journey
         s = prod["settings"]
         shot = prod["shots"][index]
         prev = prod["shots"][index - 1] if index > 0 else None
@@ -2454,8 +2535,11 @@ class ProductionRunner:
         # Una catena troppo lunga accumula deriva: oltre max_chain la ripresa si
         # spezza con un taglio, che il pubblico legge come un normale stacco.
         can_continue = (continues(prod, index) and prev is not None
-                        and prev.get("status") == "done" and prev.get("last_frame")
-                        and Path(prev["last_frame"]).is_file() and chain <= int(s.get("max_chain", 4)))
+                        and journey.ready(prod, prev) and prev.get("last_frame")
+                        and Path(prev["last_frame"]).is_file()
+                        and (journey.enabled(prod) or chain <= int(s.get("max_chain", 4))))
+        if journey.enabled(prod) and index > 0 and not can_continue:
+            raise ValueError('Ripresa continua: attendi una clip precedente valida; non verrà introdotto un taglio')
         from core.modules.sigma_creative_lab.video.genres import shot_characters
         ref_images = [] if can_continue or is_ltx(s) else [
             c["ref_image"] for c in shot_characters(prod, shot)
@@ -2477,7 +2561,7 @@ class ProductionRunner:
             from core.modules.sigma_creative_lab.generators.adapters.comfy_ltx import ltx_frame_count
             speech = {"audio": d["audio"]}
             frames = max(frames, ltx_frame_count(float(d.get("seconds") or 0) + 0.6, int(s.get("fps", FPS))))
-        return {
+        request = {
             **speech,
             "prompt": compose_prompt(prod, {**shot, "transition": "continue" if (can_continue or keyframe) else "cut"},
                                      bool(ref_images)),
@@ -2494,6 +2578,19 @@ class ProductionRunner:
                                             else f"{index:04d}_{shot['id']}_a{int(shot['attempts']) + 1}.mp4")),
             "continued": bool(can_continue),
         }
+        if ambient_loop.enabled(prod):
+            anchor = str(ambient_loop.validate(prod))
+            request.update(init_image=anchor, end_image=anchor, ref_images=[], continued=False)
+            request['prompt'] += '\n' + ambient_loop.LOCK + '\n' + str(s.get('scene_constraints', ''))
+        if journey.enabled(prod):
+            request['guide_strength'] = 1.0
+            request['temporal_guides'] = journey.temporal_guides(shot, request['frames'])
+            request['arrival_source'] = journey.arrival(shot)
+            if index > 0:
+                request['continuation_source'] = journey.binding(prev)
+            if shot.get('end_reference'):
+                request['end_image'] = str(ambient_loop.reference(shot['end_reference']))
+        return request
 
     # --- corsie ----------------------------------------------------------
 
@@ -2540,6 +2637,8 @@ class ProductionRunner:
         if i == 0 or shot.get("transition") != "continue":
             return False
         prev = prod["shots"][i - 1]
+        if prod['settings'].get('continuous_journey'):
+            return True
         if prev.get("status") in ("failed", "skipped"):
             return False                       # catena spezzata: si rende come taglio
         chain = 0
@@ -2553,7 +2652,8 @@ class ProductionRunner:
         if prod["shots"][i].get("status") != "pending":
             return False
         if self._needs_previous(prod, i):
-            return prod["shots"][i - 1].get("status") == "done"
+            from .journey import ready
+            return ready(prod, prod["shots"][i - 1])
         return True
 
     def _pick(self, prod: dict, lane: dict, fastest: dict) -> int | None:
@@ -2616,12 +2716,18 @@ class ProductionRunner:
                 return
             if await self._technical_check(prod,i):
                 shot['status']='reviewing'
+                self.store.save(prod)
                 await self._review(prod,i,lane)
             return
         engine = lane["engine"]
+        if shot.get('journey_quality') or shot.get('visual_integrity'):
+            shot.setdefault('review_history', []).append({
+                key: shot.get(key) for key in ('clip_path', 'seed', 'error', 'visual_integrity', 'journey_quality')})
         shot.pop('manual_review',None)
         shot.pop('visual_integrity',None)
         shot.pop('integrity_review',None)
+        shot.pop('continuity_check',None)
+        shot.pop('journey_quality',None)
         request = self.build_request(prod, i)
         shot.update(status="rendering", error="", lane=lane["label"])
         shot["attempts"] = int(shot.get("attempts", 0)) + 1
@@ -2643,6 +2749,11 @@ class ProductionRunner:
                         frames=result.get("frames", request["frames"]), seed=result.get("seed", request["seed"]),
                         timings=result.get("timings", {}), continued=request["continued"],
                         engine=engine.name, rendered_at=_now())
+            if request.get('continuation_source'):
+                shot['continuation_source'] = request['continuation_source']
+            if request.get('arrival_source'):
+                shot['arrival_source'] = request['arrival_source']
+            shot['temporal_guide_sources'] = request.get('temporal_guides', [])
             if await self._technical_check(prod, i):
                 if self._judge_enabled(prod):
                     # Il giudice impiega 1-2 minuti di CPU: se la corsia lo aspettasse,
@@ -2681,6 +2792,12 @@ class ProductionRunner:
         s = prod["settings"]
         shot = prod["shots"][i]
         issues = await asyncio.to_thread(pp.quality_check, Path(shot["clip_path"]), True)
+        shot['technical_diagnostics'] = list(issues)
+        soundtrack = prod.get('soundtrack') or {}
+        if (soundtrack.get('enabled') and soundtrack.get('external_mix')
+                and Path(prod.get('soundtrack_path') or '').is_file()):
+            # Il film usa il mix esterno: il silenzio dell'audio generato non è un difetto del video.
+            issues = [issue for issue in issues if issue != 'audio muto']
         shot["qa_issues"] = issues
         if issues:
             if shot["attempts"] < int(s.get("max_attempts", 2)):
@@ -2707,6 +2824,10 @@ class ProductionRunner:
         try:
             clip = Path(shot["clip_path"])
             self._emit(type="shot_review", shot=shot["id"], index=i, message=f"Controllo del movimento {i + 1}")
+            if s.get('continuous_journey'):
+                # Nel vuoto conta il moto apparente: il giudice delle azioni umane confondeva camera e cometa.
+                await self._finish(prod, i, lane)
+                return
             verdict = await judge_clip(prod, shot, clip, shot.get("prompt", ""))
             if self.cancelled.is_set():
                 shot["status"] = "pending"
@@ -2740,6 +2861,14 @@ class ProductionRunner:
         s = prod["settings"]
         shot = prod["shots"][i]
         clip = Path(shot["clip_path"])
+        if ambient_loop.enabled(prod):
+            shot['scene_identity'] = await asyncio.to_thread(ambient_loop.inspect_identity, prod, clip,
+                                                             resolve_judge_device(s))
+            if shot['scene_identity']['status'] != 'pass':
+                retry = int(shot.get('attempts', 0)) < int(s.get('max_attempts', 3))
+                shot.update(status='pending' if retry else 'failed', seed=int(shot.get('seed') or 0) + 7919,
+                            error='Scena canonica: ' + str(shot['scene_identity'].get('issues') or 'esito incerto'))
+                return
         if shot.get("continued") and s.get("color_match", True):
             head = i
             while head > 0 and prod["shots"][head].get("transition") == "continue":
@@ -2759,6 +2888,32 @@ class ProductionRunner:
                     shot["color_match"] = info
                 except Exception as e:
                     log.warning(f"correzione colore di {shot['id']} non applicata: {e}")
+        if s.get('continuous_journey') and i > 0:
+            from .journey import inspect_seam as inspect_boundary
+            # Il montaggio elimina il fotogramma duplicato: si controlla quello che verrà visto davvero.
+            shot['continuity_check'] = await asyncio.to_thread(inspect_boundary, prod['shots'][i-1], shot)
+            if shot['continuity_check']['status'] != 'pass':
+                retry = int(shot.get('attempts', 0)) < int(s.get('max_attempts', 3))
+                shot.update(status='pending' if retry else 'failed', seed=int(shot.get('seed') or 0)+7919,
+                            error='Il primo fotogramma non conserva il raccordo con la clip precedente')
+                return
+        if s.get('continuous_journey'):
+            from .journey import inspect_quality
+            shot['journey_quality'] = await asyncio.to_thread(
+                inspect_quality, shot, resolve_judge_device(s), self.store.path(prod['id'])/'checks'/'journey'/shot['id'])
+            if shot['journey_quality']['status'] != 'pass':
+                retry = int(shot.get('attempts', 0)) < int(s.get('max_attempts', 3))
+                shot.update(status='pending' if retry else 'failed', seed=int(shot.get('seed') or 0)+7919,
+                            error='Deriva visiva: '+str(shot['journey_quality'].get('issues') or 'arrivo non coerente'))
+                return
+            shot['judge'] = shot['journey_quality']['motion']
+            shot.setdefault('judge_history', []).append({
+                'clip_path': str(clip), 'seed': shot.get('seed'), 'take': take_key(shot), **shot['judge']})
+            if not shot['judge']['ok']:
+                retry = int(shot.get('attempts', 0)) < int(s.get('max_attempts', 3))
+                shot.update(status='pending' if retry else 'failed', seed=int(shot.get('seed') or 0)+7919,
+                            error='Movimento del viaggio: '+str(shot['judge']['issues']))
+                return
         from .visual_integrity import inspect_clip
         shot['visual_integrity'] = await asyncio.to_thread(inspect_clip, clip, resolve_judge_device(s),
                                                           self.store.path(prod['id'])/'checks'/'integrity'/shot['id'])
@@ -2815,6 +2970,19 @@ class ProductionRunner:
         prod = self.store.get(self.pid)
         if prod is None:
             raise ValueError(f"produzione inesistente: {self.pid}")
+        from .journey import validate_plan
+        validate_plan(prod)
+        require_subject_references(prod)
+        if prod['settings'].get('production_mode') == 'static_loop':
+            from .static_loop import render
+            self._emit(type='assemble', message='Esportazione immagine statica in loop')
+            result = await asyncio.to_thread(render, self.store, prod, self.cancelled)
+            self._emit(type='production_end', status=result['status'], output=result.get('output_path', ''))
+            return result
+        if ambient_loop.enabled(prod):
+            ambient_loop.validate(prod)
+            if prod.get('ambient_plan_required'):
+                raise ValueError('Scena o durata della base cambiate: prepara nuovamente le varianti prima del render')
         prod["status"] = "rendering"
         prod['quality_status'] = 'review_required'
         prod["error"] = ""
@@ -2902,7 +3070,8 @@ class ProductionRunner:
                                          note=lambda m: self._emit(type="keyframes", message=m),
                                          cancel=self.cancelled)
             except Exception as e:
-                # Senza fotogrammi si genera comunque: lo stile sara' quello di H3.
+                if ambient_loop.enabled(prod) or self.cancelled.is_set():
+                    raise
                 log.error(f"fotogrammi chiave non generati: {e}")
             prod = self.store.get(self.pid)
             prod["lanes"] = [l["label"] for l in lanes]
@@ -3046,6 +3215,8 @@ class ProductionRunner:
         return out
 
     def _assemble_film(self, prod: dict) -> Path:
+        from .journey import require as require_journey
+        require_journey(prod)
         from .visual_integrity import require
         if not any(shot.get('status')=='done' for shot in prod['shots']):
             raise ValueError('Nessuna clip approvata disponibile per il montaggio')
@@ -3053,8 +3224,14 @@ class ProductionRunner:
             if shot.get('status') == 'done':
                 require(shot)
         s = prod["settings"]
+        if ambient_loop.enabled(prod):
+            ambient_loop.require_identity(prod)
+            from .storage import export_path
+            out = export_path(self.store, prod)
+            return ambient_loop.assemble(prod, out, lambda message: self._emit(type='assemble', message=message))
         self._upscale_all(prod)
-        out = paths.creative_output_dir("video") / f"{_slug(prod['title'])}_{prod['id'][-6:]}.mp4"
+        from .storage import export_path
+        out = export_path(self.store, prod)
         music = Path(prod.get("soundtrack_path") or "")
         if prod.get('audio_project'):
             if not music.is_file():
@@ -3122,6 +3299,14 @@ class ProductionManager:
         self._events: list[dict] = []
         self._lock = threading.Lock()
 
+    def runtime_view(self, prod: dict) -> dict:
+        """Lo stato salvato non dimostra che esista ancora un thread dopo un riavvio."""
+        active = self.active()
+        if prod.get('status') == 'rendering' and (not active or active.get('production') != prod['id']):
+            return {**prod, 'status': 'interrupted', 'saved_status': 'rendering',
+                    'error': 'Render interrotto: nessun esecutore attivo. Gli artefatti già salvati sono conservati.'}
+        return prod
+
     def _record(self, event: dict):
         with self._lock:
             self._events.append({**event, "t": _now()})
@@ -3140,8 +3325,10 @@ class ProductionManager:
     def start(self, pid: str, config: dict | None = None, engine: ClipEngine | None = None) -> dict:
         if self.active():
             raise RuntimeError(f"e' gia' in corso la produzione {self._runner.pid}: la GPU e' una sola")
-        if self.store.get(pid) is None:
+        prod = self.store.get(pid)
+        if prod is None:
             raise ValueError(f"produzione inesistente: {pid}")
+        require_subject_references(prod)
         reservation = reserve_accelerator(f"production:{pid}")
         try:
             runner = ProductionRunner(self.store, pid, engine=engine, config=config, on_event=self._record)

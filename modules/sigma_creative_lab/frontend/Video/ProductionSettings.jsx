@@ -10,6 +10,73 @@ import { Settings2, Music, Layers, Plus, Trash2, Upload } from 'lucide-react';
 const KEYS = ['C major', 'D major', 'E major', 'F major', 'G major', 'A major', 'Bb major',
   'C minor', 'D minor', 'E minor', 'F minor', 'G minor', 'A minor', 'B minor'];
 
+export function AmbientLoopCard({ draft, disabled, onChange }) {
+  const s = draft.settings || {};
+  const ambient = s.production_mode === 'ambient_loop';
+  const set = patch => onChange({ settings: { ...s, ...patch } });
+  const raw = s.scene_reference || '';
+  const path = raw.replaceAll('\\', '/');
+  const index = path.indexOf('/works/');
+  const preview = index >= 0 ? path.slice(index) : path.startsWith('/data/') ? path : '';
+  return (
+    <section className="cs-mesh-card" data-agent-component="AmbientLoopSettings" data-agent-id="ambient-loop">
+      <h3 className="cs-mesh-title"><Layers size={18} /> Video ambientale continuo</h3>
+      <label>Tipo di produzione
+        <select className="cs-select" value={s.production_mode || 'narrative'} disabled={disabled}
+                onChange={e => onChange({ settings: { ...s, production_mode: e.target.value,
+                  ...(e.target.value === 'ambient_loop' ? { video_model: 'ltx25', output_width: 3840, output_height: 2160 } : {}) },
+                  ...(e.target.value === 'ambient_loop' ? { soundtrack: { ...draft.soundtrack, enabled: false } } : {}) })}>
+          <option value="narrative">Storia e inquadrature</option>
+          <option value="ambient_loop">Scena fissa in loop</option>
+        </select>
+      </label>
+      {ambient && <>
+        <p className="cs-hint">Un solo ambiente e una sola camera. Genera brevi variazioni dal medesimo riferimento,
+          raccorda immagini e suono, poi estende il ciclo alla durata finale. La continuità va verificata sulle clip.</p>
+        <div className="cs-inline-params">
+          <label>Durata finale (ore)<input type="number" min="0.001" max="24" step="0.5" disabled={disabled}
+            value={(s.loop_duration_s ?? 43200) / 3600} onChange={e => set({ loop_duration_s: Number(e.target.value) * 3600 })} /></label>
+          <label>Durata del ciclo (s, massimo 20 minuti)<input type="number" min="4" max="1200" disabled={disabled}
+            value={s.loop_base_seconds ?? 60} onChange={e => set({ loop_base_seconds: Number(e.target.value) })} /></label>
+          <label>Raccordo audio/video (s)<input type="number" min="0.1" max="3" step="0.05" disabled={disabled}
+            value={s.loop_crossfade_s ?? .75} onChange={e => set({ loop_crossfade_s: Number(e.target.value) })} /></label>
+          <label>Velocità del movimento (%)<input type="number" min="25" max="100" step="5" disabled={disabled}
+            value={Math.round((s.loop_motion_speed ?? 1) * 100)} onChange={e => set({ loop_motion_speed: Number(e.target.value) / 100 })} /></label>
+          <label>Volume ambiente (LUFS)<input type="number" min="-30" max="-14" step="1" disabled={disabled}
+            value={s.loop_audio_lufs ?? -23} onChange={e => set({ loop_audio_lufs: Number(e.target.value) })} /></label>
+          <label>Formato video<select className="cs-select" disabled={disabled} value={s.loop_export_codec || 'h264'}
+            onChange={e => set({ loop_export_codec: e.target.value })}>
+            <option value="h264">H.264 — compatibilità ampia</option>
+            <option value="hevc">HEVC/H.265 — file più compatti</option>
+          </select></label>
+          <label>Qualità esportazione (0 = progetto)<input type="number" min="0" max="30" step="1" disabled={disabled}
+            value={s.loop_export_quality || 0} onChange={e => set({ loop_export_quality: Number(e.target.value) })} /></label>
+          <label>Larghezza finale (px)<input type="number" min="0" max="7680" step="2" disabled={disabled}
+            value={s.output_width || 0} onChange={e => set({ output_width: Number(e.target.value) })} /></label>
+        </div>
+        <p className="cs-hint">Una qualità numerica più bassa aumenta dettaglio e peso del file. Il valore 0 usa la qualità del progetto.</p>
+        <label><input type="checkbox" disabled={disabled} checked={s.loop_exact_cycle === true}
+          onChange={e => set({ loop_exact_cycle: e.target.checked })} /> Durata esatta del ciclo, compresi i raccordi audio/video</label>
+        <label><input type="checkbox" disabled={disabled} checked={s.loop_interpolate !== false}
+          onChange={e => set({ loop_interpolate: e.target.checked })} /> Interpola i fotogrammi nel rallentatore; audio con tono preservato</label>
+        <label>Immagine canonica della scena
+          <input className="cs-inline-input cs-prod-wide" disabled={disabled} value={raw}
+            placeholder="Percorso immagine o URL locale /works/…" onChange={e => set({ scene_reference: e.target.value })} />
+        </label>
+        <RefImageInput productionId={draft.id} value={raw} disabled={disabled}
+                       onChange={value => set({ scene_reference: value })} />
+        {preview && <img className="cs-video-player" src={preview} alt="Riferimento unico della scena ambientale" />}
+        <label>Elementi da mantenere e movimento consentito
+          <textarea className="cs-textarea" rows={3} disabled={disabled} value={s.scene_constraints || ''}
+            onChange={e => set({ scene_constraints: e.target.value })} />
+        </label>
+        <p className="cs-hint">Il riferimento vincola primo e ultimo fotogramma di tutte le varianti.
+          La base resta nel quadro: l'uscita adatta le proporzioni senza ritagliare. Audio naturale dalle clip; musica disattivata.</p>
+      </>}
+    </section>
+  );
+}
+
 export function SettingsCard({ draft, disabled, onSettings }) {
   const s = draft.settings || {};
   const set = (patch) => onSettings({ ...s, ...patch });
@@ -96,6 +163,8 @@ export function SettingsCard({ draft, disabled, onSettings }) {
             <option value={0}>risoluzione di generazione</option>
             <option value={720}>upscale 720p</option>
             <option value={1080}>upscale 1080p</option>
+            <option value={1440}>upscale 1440p</option>
+            <option value={2160}>upscale 2160p / UHD</option>
           </select>
         </label>
         <label>Upscale con
@@ -114,6 +183,9 @@ export function SettingsCard({ draft, disabled, onSettings }) {
       </div>
       <div className="cs-prod-toggles">
         <p className="cs-hint">Controllo tecnico obbligatorio · anatomia, mani e oggetti richiedono anche una revisione di dettaglio prima del montaggio.</p>
+        <label><input type="checkbox" checked={!!s.continuous_journey} disabled={disabled || !ltx}
+          onChange={e => set({ continuous_journey: e.target.checked,
+            ...(e.target.checked ? { pov: true, crossfade_s: 0, color_match: false } : {}) })} /> Viaggio continuo in prima persona: raccordi e riferimenti finali puliti obbligatori</label>
         <label><input type="checkbox" checked={s.color_match !== false} disabled={disabled}
                       onChange={e => set({ color_match: e.target.checked })} /> Correzione colore nelle riprese continue</label>
         <label><input type="checkbox" checked={s.judge !== false} disabled={disabled}

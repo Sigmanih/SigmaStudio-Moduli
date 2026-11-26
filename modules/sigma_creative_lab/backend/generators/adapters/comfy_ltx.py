@@ -16,6 +16,8 @@ Licenza dei pesi: LTX-2 Community License, senza esclusioni territoriali
 
 from __future__ import annotations
 
+import math
+
 LTX_FILES = {
     "unet": "ltx-2.5-22b-distilled-transformer-comfy-int8-convrot.safetensors",
     "clip": "gemma4-12b-with-proj-ltx-2.5-comfy-int8-convrot.safetensors",
@@ -45,6 +47,7 @@ def ltx_size(width: int, height: int) -> tuple[int, int]:
 def build_ltx_video(p: dict) -> dict:
     """Grafo API. Chiavi di `p`: prompt, negative, width, height, length, fps, seed,
     first_frame, last_frame, audio (nomi in input/), audio_start, filename_prefix, guide_strength,
+    temporal_guides [{image, frame_idx, strength}] per vincolare anche il percorso intermedio;
     loras [{name, strength}] (stile o movimento, famiglia LTX su Civitai)."""
     files = {**LTX_FILES, **{k: p[k] for k in LTX_FILES if p.get(k)}}
     width, height = ltx_size(int(p.get("width", 1280)), int(p.get("height", 704)))
@@ -53,6 +56,22 @@ def build_ltx_video(p: dict) -> dict:
     seed = int(p.get("seed", 0)) & 0xFFFFFFFFFFFFFFFF
     first, last = p.get("first_frame"), p.get("last_frame")
     strength = float(p.get("guide_strength", 0.7))
+    timed = p.get('temporal_guides') or []
+    if not isinstance(timed, list) or len(timed) > 15:
+        raise ValueError('Servono al massimo 15 guide temporali')
+    if timed and not (first and last):
+        raise ValueError('Le guide temporali richiedono primo e ultimo fotogramma')
+    indices = set()
+    for guide in timed:
+        if not isinstance(guide, dict) or not isinstance(guide.get('image'), str) or not guide['image'].strip():
+            raise ValueError('Immagine della guida temporale assente')
+        idx = guide.get('frame_idx')
+        if type(idx) is not int or not 0 < idx < length - 1 or idx in indices:
+            raise ValueError('Indice temporale duplicato o fuori dalla clip')
+        indices.add(idx)
+        value = float(guide.get('strength', strength))
+        if not math.isfinite(value) or not 0 < value <= 1:
+            raise ValueError('La forza della guida deve essere fra 0 e 1')
 
     g: dict = {
         "unet": {"class_type": "UNETLoader", "inputs": {"unet_name": files["unet"], "weight_dtype": "default"}},
@@ -95,26 +114,33 @@ def build_ltx_video(p: dict) -> dict:
     def image(name: str, key: str) -> list:
         g[f"load_{key}"] = {"class_type": "LoadImage", "inputs": {"image": name}}
         g[f"scale_{key}"] = {"class_type": "ImageScale", "inputs": {"image": [f"load_{key}", 0], "upscale_method": "lanczos",
-                                                                    "width": width, "height": height, "crop": "center"}}
+                                                                    "width": width, "height": height, "crop": p.get('frame_crop', 'center')}}
         # Compressione simulata: il modello e' addestrato su fotogrammi da video, non su immagini pulite.
-        g[f"prep_{key}"] = {"class_type": "LTXVPreprocess", "inputs": {"image": [f"scale_{key}", 0], "img_compression": 18}}
+        g[f"prep_{key}"] = {"class_type": "LTXVPreprocess", "inputs": {"image": [f"scale_{key}", 0],
+                                                                     "img_compression": int(p.get('image_compression', 18))}}
         return [f"prep_{key}", 0]
 
     first_img = image(first, "first") if first else None
     last_img = image(last, "last") if last else None
+    # Le guide interne impediscono al modello di allontanarsi dalla traiettoria e poi tornare indietro.
+    guides = [('first', first_img, 0, strength)]
+    guides += [(f'timed_{i}', image(guide['image'], f'timed_{i}'), guide['frame_idx'],
+                float(guide.get('strength', strength)))
+               for i, guide in enumerate(sorted(timed, key=lambda item: item['frame_idx']))]
+    guides.append(('last', last_img, -1, strength))
     if first_img and not last_img:
         g["i2v1"] = {"class_type": "LTXVImgToVideoInplace",
                      "inputs": {"vae": ["vae", 0], "image": first_img, "latent": video1, "strength": strength, "bypass": False}}
         video1 = ["i2v1", 0]
     elif last_img:
         # Primo e ultimo fotogramma come guide: si aggiungono in coda al latente e si tolgono prima del decode.
-        for key, img, idx in (("first", first_img, 0), ("last", last_img, -1)):
+        for key, img, idx, guide_strength in guides:
             if img is None:
                 continue
             node = f"guide1_{key}"
             g[node] = {"class_type": "LTXVAddGuide",
                        "inputs": {"positive": pos, "negative": neg, "vae": ["vae", 0], "latent": video1,
-                                  "image": img, "frame_idx": idx, "strength": strength}}
+                                  "image": img, "frame_idx": idx, "strength": guide_strength}}
             pos, neg, video1 = [node, 0], [node, 1], [node, 2]
 
     def sample(stage: int, latent_av: list, sigmas: str, noise_seed: int, positive: list, negative: list) -> list:
@@ -145,7 +171,7 @@ def build_ltx_video(p: dict) -> dict:
                      "inputs": {"vae": ["vae", 0], "image": first_img, "latent": video2, "strength": 1.0, "bypass": False}}
         video2 = ["i2v2", 0]
     elif last_img:
-        for key, img, idx in (("first", first_img, 0), ("last", last_img, -1)):
+        for key, img, idx, _guide_strength in guides:
             if img is None:
                 continue
             node = f"guide2_{key}"

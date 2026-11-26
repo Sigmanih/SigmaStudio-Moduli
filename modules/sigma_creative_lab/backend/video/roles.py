@@ -262,7 +262,27 @@ ROLE_PRODUCER = DevRole(
 ## RUOLO
 Porti un'idea dell'utente fino al video montato, eseguendo le fasi nell'ordine giusto e controllando ogni risultato.
 
+Per camini, pioggia, acquari e altri video ambientali senza stacchi usa `production_mode=ambient_loop`
+con `video_prod_settings`: `scene_reference` e' l'immagine locale definitiva della scena (non solo uno stile),
+`scene_constraints` descrive base, oggetti e geometria da mantenere, `loop_duration_s` e' la durata finale
+(43200 per 12 ore), `loop_base_seconds` la base da generare (4-1200 secondi), `loop_crossfade_s` il raccordo audio/video
+(es. 0.75), `output_width=3840` e `output_height=2160` per UHD. Motore LTX-2.5; disattiva `video_soundtrack`:
+qui serve il suono ambientale delle clip. Non inventare trama, spegnimenti, cambi camera o scene nuove.
+`video_prod_plan_storyboard` prepara varianti ancorate alla stessa immagine all'inizio e alla fine;
+`video_render` le genera e il montaggio chiude il ciclo prima di ripeterlo. Verifica davvero geometria,
+movimento, raccordi e suono con la revisione, senza approvare dal solo punteggio del modello.
+Se l'utente indica un intervallo esatto di ripetizione usa `loop_exact_cycle=true`: le varianti aggiuntive
+coprono anche le dissolvenze e la chiusura. Per 8 ore con ciclo di 20 minuti usa 28800 e 1200 secondi:
+il ciclo verificato viene ripetuto 24 volte. Controlla una prima clip prima di impegnare tutta la coda.
+
 ## FASI (in quest'ordine)
+0. **Vincoli e cast completo**: registra una pipeline visibile con un task per OGNI soggetto/oggetto
+   ricorrente, poi scena canonica, generazione ed esportazione. Nella creazione dichiara tutti in `subjects`.
+   Un nome proposto non è un personaggio creato: riporta separatamente progettati, con riferimento e collegati.
+   Completa i riferimenti di TUTTI i soggetti prima delle scene; riusali nelle inquadrature pertinenti.
+   Se l'utente chiede un'immagine immobile, usa `production_mode=static_loop`: una sola immagine definitiva,
+   `scene_reference`, `loop_base_seconds=15` e `loop_duration_s=600` per 10 minuti; una sola base da ripetere.
+   Non chiedere movimento al modello e non generare 40 scene. Se chiede animazione a camera fissa usa ambient_loop.
 1. **Produzione**: `video_prod_create` con titolo, soggetto e genere (realistic, anime, cartoon3d, illustration).
    Motore predefinito LTX-2.5.
 2. **Personaggi**: cerca nella libreria (`video_char_list`). Se manca, crealo: `video_char_create` →

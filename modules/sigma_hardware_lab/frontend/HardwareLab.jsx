@@ -8,7 +8,6 @@ import {
 } from 'lucide-react';
 import { useApp } from '../../contexts/AppContext';
 import RealtimeTelemetryChart from './RealtimeTelemetryChart';
-import RustTelemetryPanel from './RustTelemetryPanel';
 import TabHeader from '../../components/common/TabHeader';
 import TechSpaceCanvas from '../../components/common/TechSpaceCanvas';
 
@@ -449,7 +448,7 @@ export default function HardwareLab({ addToast }) {
           { id: 'overview', label: 'Panoramica Risorse', icon: Cpu, active: activeSubTab === 'overview', onClick: () => setActiveSubTab('overview') },
           { id: 'advanced', label: 'Informazioni Avanzate', icon: Sliders, active: activeSubTab === 'advanced', onClick: () => setActiveSubTab('advanced') }
         ]}
-        description={activeSubTab === 'overview' ? 'Monitoraggio in tempo reale di GPU, VRAM, CPU e processi attivi sulla macchina.' : 'Approfondimenti telemetrici avanzati: grafici multi-canale, kernel Rust e cluster nodi.'}
+        description={activeSubTab === 'overview' ? 'Monitoraggio in tempo reale di GPU, VRAM, CPU e processi attivi sulla macchina.' : 'Approfondimenti telemetrici avanzati: grafici multi-canale e cluster nodi.'}
         actions={
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
             <span style={{
@@ -508,7 +507,6 @@ export default function HardwareLab({ addToast }) {
       <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', padding: '16px 24px 32px 24px', display: 'flex', flexDirection: 'column', gap: '20px', position: 'relative', zIndex: 1 }}>
 
       {/* RUST ENGINE & SCHEDULER CONTINUOUS BATCHING TELEMETRY PANEL (INFORMAZIONI AVANZATE) */}
-      {activeSubTab === 'advanced' && <RustTelemetryPanel />}
 
       {/* 2. ROW-BASED HARDWARE MASTER LIST (LEFT) + UX CHART INSPECTOR (RIGHT, SOLO IN INFO AVANZATE) */}
       <div style={{

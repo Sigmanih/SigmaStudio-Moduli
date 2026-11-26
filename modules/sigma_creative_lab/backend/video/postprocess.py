@@ -54,17 +54,20 @@ def nvenc_available(gpu: int = 0) -> bool:
     return _NVENC_OK[gpu]
 
 
-def video_encoder_args(quality: int, gpu: int = 0) -> list[str]:
-    """Argomenti di codifica H.264: NVENC sulla scheda indicata, x264 su CPU se non c'e'.
+def video_encoder_args(quality: int, gpu: int = 0, codec: str = 'h264') -> list[str]:
+    """Codifica H.264 o HEVC: NVENC sulla scheda indicata, x264/x265 su CPU se non c'e'.
 
     Con x264 "medium" a 1440p la CPU stava al 100% mentre DDColor ed ESRGAN
     aspettavano la codifica e le GPU restavano quasi ferme. `quality` e' il CRF
     di x264; per NVENC lo stesso numero come CQ da' un risultato equivalente.
     """
+    if codec not in ('h264', 'hevc'):
+        raise ValueError('Codec video non supportato: ' + str(codec))
+    hevc = codec == 'hevc'
     if nvenc_available(gpu):
-        return ["-c:v", "h264_nvenc", "-gpu", str(gpu), "-preset", "p6", "-tune", "hq", "-rc", "vbr",
+        return ["-c:v", "hevc_nvenc" if hevc else "h264_nvenc", "-gpu", str(gpu), "-preset", "p7" if hevc else "p6", "-tune", "hq", "-rc", "vbr",
                 "-cq", str(quality), "-b:v", "0", "-pix_fmt", "yuv420p"]
-    return ["-c:v", "libx264", "-crf", str(quality), "-preset", "medium", "-pix_fmt", "yuv420p"]
+    return ["-c:v", "libx265" if hevc else "libx264", "-crf", str(quality), "-preset", "medium", "-pix_fmt", "yuv420p"]
 
 
 def quality_check(clip: Path, continuous: bool = True) -> list[str]:
