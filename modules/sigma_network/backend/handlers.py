@@ -983,9 +983,15 @@ def get_local_models() -> List[Dict[str, Any]]:
 
 
 @router.get("/cluster/models")
-def get_cluster_models() -> List[Dict[str, Any]]:
+def get_cluster_models() -> Dict[str, Any]:
     """Restituisce il catalogo unificato dei modelli serviti dall'intero cluster P2P."""
-    return _get_broker().get_cluster_models()
+    # La chat legge `models` da un oggetto: con la lista nuda i modelli del cluster
+    # non comparivano mai fra quelli selezionabili.
+    modelli = _get_broker().get_cluster_models()
+    return {
+        "cluster_active": any(not m.get("is_local") for m in modelli),
+        "models": modelli,
+    }
 
 
 def _safe_stream(generator: Generator[str, None, None]) -> Generator[str, None, None]:

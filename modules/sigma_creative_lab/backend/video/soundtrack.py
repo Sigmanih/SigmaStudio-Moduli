@@ -125,9 +125,11 @@ async def generate_soundtrack(prod: dict, work_dir: Path, backend, progress=None
                 raw = work_dir / f"music_{k:03d}.raw"
                 raw.write_bytes(data)
                 candidate = target.with_name(f"music_{k:03d}.part.flac")
+                # loudnorm lavora a 192 kHz e consegna blocchi enormi: ffmpeg 9 non li passa piu'
+                # all'encoder FLAC ("invalid block size"), quindi si ricampiona e si spezza prima.
                 _run([ffmpeg_bin(), "-v", "error", "-y", "-i", str(raw), "-t", f"{seconds:.3f}",
                       "-af", "silenceremove=start_periods=1:start_duration=0.1:start_threshold=-50dB,"
-                      "loudnorm=I=-16:TP=-1:LRA=7", "-ar", "48000", "-ac", "2", str(candidate)])
+                      "loudnorm=I=-16:TP=-1:LRA=7,aresample=48000,asetnsamples=n=4096", "-ar", "48000", "-ac", "2", str(candidate)])
                 raw.unlink(missing_ok=True)
                 report = inspect_audio(candidate, seconds)
                 if report["fingerprint"] in fingerprints:

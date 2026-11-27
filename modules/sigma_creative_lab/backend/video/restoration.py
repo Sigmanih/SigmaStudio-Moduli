@@ -796,9 +796,11 @@ async def compose(moods: list[dict], out_dir: Path, gpu: int, style: str = "", b
                 # Volume uniforme PRIMA di misurare: i brani "piani" di ACE-Step stavano 20 dB sotto
                 # gli altri e, misurati grezzi, sembravano muti anche quando la musica c'era.
                 norm = out_dir / f"cue_{k:03d}_{attempt}.flac"
+                # loudnorm lavora a 192 kHz e consegna blocchi enormi: ffmpeg 9 non li passa piu'
+                # all'encoder FLAC ("invalid block size"), quindi si ricampiona e si spezza prima.
                 subprocess.run([ffmpeg_bin(), "-v", "error", "-y", "-i", str(raw), "-t", f"{seconds:.3f}",
                                 "-af", "silenceremove=start_periods=1:start_duration=0.1:start_threshold=-50dB,"
-                                "loudnorm=I=-16:TP=-1:LRA=7", "-ar", "48000", "-ac", "2", str(norm)],
+                                "loudnorm=I=-16:TP=-1:LRA=7,aresample=48000,asetnsamples=n=4096", "-ar", "48000", "-ac", "2", str(norm)],
                                check=True, timeout=600, creationflags=_flags())
                 raw.unlink(missing_ok=True)
                 report = await asyncio.to_thread(inspect_audio, norm, seconds)
